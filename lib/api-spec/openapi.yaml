@@ -3,13 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: JIIB Core Sync school management API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: schools
+    description: School resolution and configuration
+  - name: dashboard
+    description: Dashboard summaries
+  - name: students
+    description: Student records
+  - name: marks
+    description: Assessment marks
+  - name: messages
+    description: Parent and staff messages
 paths:
   /healthz:
     get:
@@ -24,7 +34,257 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /schools/by-slug/{slug}:
+    get:
+      operationId: getSchoolBySlug
+      tags: [schools]
+      summary: Resolve a school from its URL slug
+      parameters:
+        - $ref: "#/components/parameters/Slug"
+      responses:
+        "200":
+          description: School record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/School"
+        "404":
+          description: School not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /schools/{schoolId}/config:
+    get:
+      operationId: getSchoolConfig
+      tags: [schools]
+      summary: Read the school data configuration
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      responses:
+        "200":
+          description: Configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolConfig"
+    put:
+      operationId: updateSchoolConfig
+      tags: [schools]
+      summary: Replace the school data configuration
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchoolConfigInput"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolConfig"
+  /schools/{schoolId}/dashboard:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Read the school overview and grouped analytics
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /schools/{schoolId}/students:
+    get:
+      operationId: listStudents
+      tags: [students]
+      summary: List students with optional filters
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - name: className
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: house
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: search
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Students
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Student"
+    post:
+      operationId: createStudent
+      tags: [students]
+      summary: Create a student
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudentInput"
+      responses:
+        "201":
+          description: Created student
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Student"
+  /schools/{schoolId}/students/{studentId}:
+    patch:
+      operationId: updateStudent
+      tags: [students]
+      summary: Update a student
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - $ref: "#/components/parameters/StudentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StudentUpdate"
+      responses:
+        "200":
+          description: Updated student
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Student"
+    delete:
+      operationId: deleteStudent
+      tags: [students]
+      summary: Delete a student
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - $ref: "#/components/parameters/StudentId"
+      responses:
+        "204":
+          description: Deleted
+  /schools/{schoolId}/marks:
+    get:
+      operationId: listMarks
+      tags: [marks]
+      summary: List marks for the active term
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - name: termKey
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: className
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: subject
+          in: query
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Marks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Mark"
+    put:
+      operationId: upsertMark
+      tags: [marks]
+      summary: Save one student's assessment mark
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkInput"
+      responses:
+        "200":
+          description: Saved mark
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mark"
+  /schools/{schoolId}/messages:
+    get:
+      operationId: listMessages
+      tags: [messages]
+      summary: List the school message thread
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+    post:
+      operationId: createMessage
+      tags: [messages]
+      summary: Send a message to a school thread
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageInput"
+      responses:
+        "201":
+          description: Created message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
 components:
+  parameters:
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    SchoolId:
+      name: schoolId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    StudentId:
+      name: studentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +293,219 @@ components:
           type: string
       required:
         - status
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    School:
+      type: object
+      required: [id, name, slug, active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        logoUrl:
+          type: ["string", "null"]
+        active:
+          type: boolean
+    SchoolConfig:
+      type: object
+      required: [schoolId, data, updatedAt]
+      properties:
+        schoolId:
+          type: string
+          format: uuid
+        data:
+          type: object
+          additionalProperties: true
+        updatedAt:
+          type: string
+          format: date-time
+    SchoolConfigInput:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+    DashboardSummary:
+      type: object
+      required: [studentCount, classCount, marksEntered, marksExpected, houses, recentActivity]
+      properties:
+        studentCount:
+          type: integer
+        classCount:
+          type: integer
+        marksEntered:
+          type: integer
+        marksExpected:
+          type: integer
+        houses:
+          type: array
+          items:
+            $ref: "#/components/schemas/GroupedCount"
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityItem"
+    GroupedCount:
+      type: object
+      required: [label, count]
+      properties:
+        label:
+          type: string
+        count:
+          type: integer
+    ActivityItem:
+      type: object
+      required: [id, label, detail, createdAt]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        detail:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    Student:
+      type: object
+      required: [id, schoolId, name, className, house, parentPhone, badges, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        schoolId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        className:
+          type: string
+        house:
+          type: string
+        parentPhone:
+          type: ["string", "null"]
+        badges:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    StudentInput:
+      type: object
+      required: [name, className, house]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        className:
+          type: string
+          minLength: 1
+        house:
+          type: string
+          minLength: 1
+        parentPhone:
+          type: ["string", "null"]
+        badges:
+          type: array
+          items:
+            type: string
+    StudentUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        className:
+          type: string
+          minLength: 1
+        house:
+          type: string
+          minLength: 1
+        parentPhone:
+          type: ["string", "null"]
+        badges:
+          type: array
+          items:
+            type: string
+    Mark:
+      type: object
+      required: [id, schoolId, studentId, termKey, subject, aoi, midterm, end]
+      properties:
+        id:
+          type: string
+          format: uuid
+        schoolId:
+          type: string
+          format: uuid
+        studentId:
+          type: string
+          format: uuid
+        termKey:
+          type: string
+        subject:
+          type: string
+        aoi:
+          type: number
+        midterm:
+          type: number
+        end:
+          type: number
+    MarkInput:
+      type: object
+      required: [studentId, termKey, subject]
+      properties:
+        studentId:
+          type: string
+          format: uuid
+        termKey:
+          type: string
+        subject:
+          type: string
+        aoi:
+          type: number
+        midterm:
+          type: number
+        end:
+          type: number
+    Message:
+      type: object
+      required: [id, schoolId, senderName, message, direction, read, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        schoolId:
+          type: string
+          format: uuid
+        senderName:
+          type: string
+        senderEmail:
+          type: ["string", "null"]
+        message:
+          type: string
+        direction:
+          type: string
+          enum: [in, out]
+        read:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    MessageInput:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
 
