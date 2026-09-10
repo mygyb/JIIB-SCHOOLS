@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "JIIB Core Sync"
+description = "A production-ready school management system for administrators, teachers, parents, and super administrators, with role-based access, marks, terms, messaging, analytics, realtime sync, and Supabase persistence."
+version = "1.0.0"
+id = "artifacts/jiib-core-sync"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23185
+
+[services.development]
+run = "pnpm --filter @workspace/jiib-core-sync run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/jiib-core-sync", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/jiib-core-sync/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23185"
+BASE_PATH = "/"
