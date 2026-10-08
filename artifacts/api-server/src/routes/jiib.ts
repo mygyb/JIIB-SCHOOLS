@@ -70,6 +70,7 @@ function mapMark(row: Record<string, unknown>) {
     aoi: Number(row.aoi ?? row.c1 ?? 0),
     midterm: Number(row.midterm ?? row.c2 ?? 0),
     end: Number(row.end ?? row.c3 ?? 0),
+    ...(Array.isArray(row.enteredFields) ? { enteredFields: row.enteredFields.map(String) } : {}),
   };
 }
 
@@ -130,6 +131,21 @@ function mapGrade(row: Record<string, unknown>) {
 }
 
 const EventBody = z.object({ title: z.string().min(1), eventDate: z.string().min(1) });
+const AssessmentFieldBody = z.object({
+  name: z.string().trim().min(1),
+  field: z.enum(["c1", "c2", "c3"]),
+  max: z.number().positive().max(100),
+});
+const SchoolRegistrationBody = z.object({
+  name: z.string().trim().min(1).max(180),
+  slug: z.string().trim().toLowerCase().min(3).max(40).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  logoUrl: z.string().url().nullable().optional(),
+  initialAdminEmail: z.string().email().nullable().optional(),
+  initialAdminName: z.string().trim().max(160).nullable().optional(),
+  address: z.string().trim().max(300).optional(),
+  assessmentFields: z.array(AssessmentFieldBody).min(1).max(3).optional(),
+});
+const SchoolStatusBody = z.object({ active: z.boolean() });
 const AllowedUserBody = z.object({
   email: z.string().email(),
   displayName: z.string().optional(),
@@ -318,6 +334,62 @@ function requireSchoolAdmin(req: Request, res: Response, next: () => void) {
   next();
 }
 
+type AssessmentField = { name: string; max: number; field: "c1" | "c2" | "c3" };
+
+function activeAssessmentFields(config: Record<string, unknown>): AssessmentField[] {
+  const settings = config.settings && typeof config.settings === "object" && !Array.isArray(config.settings)
+    ? config.settings as Record<string, unknown>
+    : {};
+  const rawSchema = Array.isArray(settings.marksSchema) ? settings.marksSchema : [];
+  const schema = rawSchema
+    .map((entry): AssessmentField | null => {
+      if (!entry || typeof entry !== "object") return null;
+      const item = entry as Record<string, unknown>;
+      const field = String(item.field ?? "");
+      const max = Number(item.max ?? 0);
+      const name = String(item.name ?? "").trim();
+      if (!name || !["c1", "c2", "c3"].includes(field) || !Number.isFinite(max) || max <= 0) return null;
+      return { name, max, field: field as AssessmentField["field"] };
+    })
+    .filter((entry): entry is AssessmentField => entry !== null);
+  const defaultSchema: AssessmentField[] = [
+    { name: "AOI", max: 10, field: "c1" },
+    { name: "Midterm", max: 10, field: "c2" },
+    { name: "End of Term", max: 80, field: "c3" },
+  ];
+  const chosen = schema.length ? schema : defaultSchema;
+  const active = settings.activeMarkColumns;
+  if (!Array.isArray(active)) return chosen;
+  const selected = new Set(active.map(String));
+  return chosen.filter((field) => selected.has(field.field));
+}
+
+function enteredMarkFields(mark: Record<string, unknown>, fields: AssessmentField[]) {
+  if (Array.isArray(mark.enteredFields)) return mark.enteredFields.map(String);
+  return fields
+    .filter((field) => Number(mark[field.field] ?? mark[{ c1: "aoi", c2: "midterm", c3: "end" }[field.field] as "aoi" | "midterm" | "end"] ?? 0) > 0)
+    .map((field) => field.field);
+}
+
+async function authorizeSuperAdmin(req: Request, res: Response) {
+  const user = await getSupabaseUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Sign in to use system administration." });
+    return null;
+  }
+  const roles = asRows(await supabaseRequest(
+    req,
+    "user_roles",
+    {},
+    `?user_id=eq.${encodeURIComponent(user.id)}&role=eq.super_admin&select=role&limit=1`,
+  ));
+  if (!roles[0]) {
+    res.status(403).json({ error: "This account is not a system administrator." });
+    return null;
+  }
+  return user;
+}
+
 router.get("/schools/by-slug/:slug", async (req, res) => {
   try {
     const { slug } = GetSchoolBySlugParams.parse(req.params);
@@ -382,6 +454,294 @@ router.get("/schools/portfolio", async (req, res) => {
       await supabaseRequest(req, "schools", {}, "?select=*&order=name.asc"),
     );
     res.json(schools.map(mapSchool));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.post("/schools", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    const body = SchoolRegistrationBody.parse(req.body);
+    const assessmentFields = body.assessmentFields ?? [
+      { name: "AOI", field: "c1" as const, max: 10 },
+      { name: "Midterm", field: "c2" as const, max: 10 },
+      { name: "End of Term", field: "c3" as const, max: 80 },
+    ];
+    if (new Set(assessmentFields.map((field) => field.field)).size !== assessmentFields.length) {
+      res.status(400).json({ error: "Each assessment component must use a different mark field." });
+      return;
+    }
+    const totalMarks = assessmentFields.reduce((sum, field) => sum + field.max, 0);
+    if (Math.abs(totalMarks - 100) > 0.001) {
+      res.status(400).json({ error: "Assessment component limits must add up to 100." });
+      return;
+    }
+    const existingSlug = asRows(await supabaseRequest(
+      req,
+      "schools",
+      {},
+      `?slug=eq.${encodeURIComponent(body.slug)}&select=id&limit=1`,
+    ));
+    if (existingSlug.length) {
+      res.status(409).json({ error: "That school URL is already in use." });
+      return;
+    }
+    const schoolRows = asRows(await supabaseRequest(
+      req,
+      "schools",
+      {
+        method: "POST",
+        body: jsonBody({
+          name: body.name,
+          slug: body.slug,
+          logo_url: body.logoUrl ?? null,
+          active: true,
+        }),
+      },
+      "?select=*",
+    ));
+    const school = schoolRows[0];
+    if (!school) throw new Error("The school record was not created.");
+    const schoolId = String(school.id);
+    const year = new Date().getFullYear();
+    const termKey = `${year}-T1`;
+    const config = {
+      activeTerm: termKey,
+      subjects: {},
+      terms: {
+        [termKey]: {
+          label: `Term 1 — ${year}`,
+          students: [],
+          marks: [],
+          locked: false,
+          status: "open",
+        },
+      },
+      settings: {
+        address: body.address ?? "",
+        houses: [],
+        marksSchema: assessmentFields,
+        activeMarkColumns: assessmentFields.map((field) => field.field),
+      },
+    };
+    try {
+      await supabaseRequest(
+        req,
+        "school_data",
+        {
+          method: "POST",
+          body: jsonBody({
+            school_id: schoolId,
+            data: config,
+            updated_at: new Date().toISOString(),
+            updated_by: req.header("x-verified-user-email") ?? "system-admin",
+          }),
+        },
+        "?on_conflict=school_id",
+      );
+      if (body.initialAdminEmail) {
+        await supabaseRequest(
+          req,
+          "allowed_users",
+          {
+            method: "POST",
+            body: jsonBody({
+              school_id: schoolId,
+              email: body.initialAdminEmail.toLowerCase(),
+              display_name: body.initialAdminName ?? null,
+              role: "admin",
+              subjects: [],
+            }),
+          },
+          "?on_conflict=school_id,email",
+        );
+      }
+    } catch (error) {
+      await supabaseRequest(
+        req,
+        "schools",
+        { method: "DELETE" },
+        `?id=eq.${encodeURIComponent(schoolId)}`,
+      ).catch(() => undefined);
+      throw error;
+    }
+    res.status(201).json(mapSchool(school));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.patch("/schools/:schoolId/status", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    const { schoolId } = GetSchoolConfigParams.parse(req.params);
+    const body = SchoolStatusBody.parse(req.body);
+    const rows = asRows(await supabaseRequest(
+      req,
+      "schools",
+      { method: "PATCH", body: jsonBody({ active: body.active }) },
+      `?id=eq.${encodeURIComponent(schoolId)}&select=*`,
+    ));
+    if (!rows[0]) {
+      res.status(404).json({ error: "School not found." });
+      return;
+    }
+    res.json(mapSchool(rows[0]));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.get("/schools/portfolio/analytics", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    const [schoolRows, studentRows, markRows, configRows, userRows] = await Promise.all([
+      supabaseRequest(req, "schools", {}, "?select=*&order=name.asc"),
+      supabaseRequest(req, "students", {}, "?select=school_id,id,name,class,house,term_key"),
+      supabaseRequest(req, "marks", {}, "?select=school_id,student_id,term_key,subject,c1,c2,c3,aoi,midterm,end"),
+      supabaseRequest(req, "school_data", {}, "?select=school_id,data"),
+      supabaseRequest(req, "allowed_users", {}, "?select=school_id,email"),
+    ]);
+    const schools = asRows(schoolRows);
+    const students = asRows(studentRows);
+    const marks = asRows(markRows);
+    const configs = new Map(asRows(configRows).map((row) => [
+      String(row.school_id),
+      row.data && typeof row.data === "object" && !Array.isArray(row.data)
+        ? row.data as Record<string, unknown>
+        : {},
+    ]));
+    const users = asRows(userRows);
+    const metrics = schools.map((schoolRow) => {
+      const schoolId = String(schoolRow.id);
+      const config = configs.get(schoolId) ?? {};
+      const termKey = String(config.activeTerm ?? "");
+      const termStudents = students.filter((student) =>
+        String(student.school_id) === schoolId && (!termKey || String(student.term_key ?? "") === termKey),
+      );
+      const classes = new Set(termStudents.map((student) => String(student.class ?? "")).filter(Boolean));
+      const fields = activeAssessmentFields(config);
+      const subjectMap = config.subjects && typeof config.subjects === "object" && !Array.isArray(config.subjects)
+        ? config.subjects as Record<string, unknown>
+        : {};
+      let expected = 0;
+      for (const student of termStudents) {
+        const rawSubjects = subjectMap[String(student.class ?? "")];
+        const count = Array.isArray(rawSubjects)
+          ? rawSubjects.filter((subject) => typeof subject === "string" ? subject.trim() : Boolean((subject as Record<string, unknown>)?.name)).length
+          : 0;
+        expected += count * fields.length;
+      }
+      const activeMarks = marks.filter((mark) =>
+        String(mark.school_id) === schoolId && (!termKey || String(mark.term_key ?? "") === termKey),
+      );
+      const legacyTerm = config.terms && typeof config.terms === "object"
+        ? (config.terms as Record<string, Record<string, unknown>>)[termKey]
+        : undefined;
+      const legacyMarks = Array.isArray(legacyTerm?.marks)
+        ? legacyTerm.marks as Array<Record<string, unknown>>
+        : [];
+      const legacyByKey = new Map(legacyMarks.map((mark) => [
+        `${String(mark.studentId ?? "")}|${String(mark.subject ?? "")}`,
+        mark,
+      ]));
+      const studentClassById = new Map(termStudents.map((student) => [String(student.id), String(student.class ?? "")]));
+      const marksEntered = new Set<string>();
+      for (const mark of activeMarks) {
+        const id = String(mark.student_id ?? "");
+        const className = studentClassById.get(id);
+        if (!className) continue;
+        const legacy = legacyByKey.get(`${id}|${String(mark.subject ?? "")}`);
+        const merged = { ...(legacy ?? {}), ...mark };
+        const entered = enteredMarkFields({
+          ...merged,
+          c1: mark.c1 ?? mark.aoi ?? legacy?.c1 ?? legacy?.aoi,
+          c2: mark.c2 ?? mark.midterm ?? legacy?.c2 ?? legacy?.midterm,
+          c3: mark.c3 ?? mark.end ?? legacy?.c3 ?? legacy?.end,
+        }, fields);
+        entered.forEach((field) => marksEntered.add(`${id}|${String(mark.subject)}|${field}`));
+      }
+      for (const mark of legacyMarks) {
+        const id = String(mark.studentId ?? "");
+        if (!studentClassById.has(id)) continue;
+        enteredMarkFields(mark, fields).forEach((field) =>
+          marksEntered.add(`${id}|${String(mark.subject ?? "")}|${field}`),
+        );
+      }
+      const percentage = expected ? Math.round((marksEntered.size / expected) * 100) : 0;
+      return {
+        schoolId,
+        name: String(schoolRow.name ?? ""),
+        slug: String(schoolRow.slug ?? ""),
+        active: Boolean(schoolRow.active),
+        studentCount: termStudents.length,
+        classCount: classes.size,
+        marksCompletionPercent: percentage,
+      };
+    });
+    const totalExpected = metrics.reduce((sum, metric) => {
+      const config = configs.get(metric.schoolId) ?? {};
+      const termKey = String(config.activeTerm ?? "");
+      const termStudents = students.filter((student) =>
+        String(student.school_id) === metric.schoolId && (!termKey || String(student.term_key ?? "") === termKey),
+      );
+      const subjectMap = config.subjects && typeof config.subjects === "object" && !Array.isArray(config.subjects)
+        ? config.subjects as Record<string, unknown>
+        : {};
+      return sum + termStudents.reduce((count, student) => {
+        const rawSubjects = subjectMap[String(student.class ?? "")];
+        const subjectCount = Array.isArray(rawSubjects) ? rawSubjects.length : 0;
+        return count + subjectCount * activeAssessmentFields(config).length;
+      }, 0);
+    }, 0);
+    const totalEntered = metrics.reduce((sum, metric) =>
+      sum + Math.round(totalExpected * metric.marksCompletionPercent / 100), 0);
+    res.json({
+      schoolCount: metrics.length,
+      activeSchoolCount: metrics.filter((school) => school.active).length,
+      suspendedSchoolCount: metrics.filter((school) => !school.active).length,
+      staffCount: new Set(users.map((user) => String(user.email ?? "").toLowerCase()).filter(Boolean)).size,
+      studentCount: metrics.reduce((sum, school) => sum + school.studentCount, 0),
+      marksCompletionPercent: totalExpected ? Math.round(totalEntered / totalExpected * 100) : 0,
+      schools: metrics,
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.get("/schools/portfolio/users", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    const [userRows, schoolRows] = await Promise.all([
+      supabaseRequest(req, "allowed_users", {}, "?select=*&order=created_at.asc"),
+      supabaseRequest(req, "schools", {}, "?select=id,name"),
+    ]);
+    const schoolNames = new Map(asRows(schoolRows).map((row) => [String(row.id), String(row.name ?? "")]));
+    res.json(asRows(userRows).map((row) => ({
+      ...mapAllowedUser(row),
+      schoolName: schoolNames.get(String(row.school_id)) ?? "Unknown school",
+    })));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.get("/schools/portfolio/messages", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    const [messageRows, schoolRows] = await Promise.all([
+      supabaseRequest(req, "contact_messages", {}, "?select=*&order=created_at.desc&limit=500"),
+      supabaseRequest(req, "schools", {}, "?select=id,name"),
+    ]);
+    const schoolNames = new Map(asRows(schoolRows).map((row) => [String(row.id), String(row.name ?? "")]));
+    res.json(asRows(messageRows)
+      .filter((row) => String(row.message ?? "").toLowerCase().startsWith("[system administrator help]"))
+      .map((row) => ({
+        ...mapMessage(row),
+        schoolName: schoolNames.get(String(row.school_id)) ?? "Unknown school",
+      })));
   } catch (error) {
     sendError(res, error);
   }
