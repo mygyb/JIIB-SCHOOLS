@@ -103,7 +103,8 @@ export const ListStudentsParams = zod.object({
 export const ListStudentsQueryParams = zod.object({
   "className": zod.coerce.string().nullish(),
   "house": zod.coerce.string().nullish(),
-  "search": zod.coerce.string().nullish()
+  "search": zod.coerce.string().nullish(),
+  "termKey": zod.coerce.string().nullish()
 })
 
 export const ListStudentsResponseItem = zod.object({
@@ -156,7 +157,7 @@ export const CreateStudentResponse = zod.object({
  */
 export const UpdateStudentParams = zod.object({
   "schoolId": zod.coerce.string().uuid(),
-  "studentId": zod.coerce.string().uuid()
+  "studentId": zod.coerce.string()
 })
 
 
@@ -189,7 +190,7 @@ export const UpdateStudentResponse = zod.object({
  */
 export const DeleteStudentParams = zod.object({
   "schoolId": zod.coerce.string().uuid(),
-  "studentId": zod.coerce.string().uuid()
+  "studentId": zod.coerce.string()
 })
 
 export const DeleteStudentResponse = zod.void()

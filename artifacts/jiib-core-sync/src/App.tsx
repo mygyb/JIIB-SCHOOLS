@@ -1,10 +1,10 @@
-import { type FormEvent, type ReactNode, useMemo, useState } from 'react';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation } from 'wouter';
 import {
-  Activity, ArrowRight, BarChart3, BookOpen, Building2, Check, ChevronDown, CircleAlert,
-  ClipboardList, GraduationCap, House, Inbox, LayoutDashboard, Loader2, LogOut, Menu,
-  MessageSquare, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Settings, ShieldCheck,
+  Activity, Archive, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
+  ClipboardList, GraduationCap, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
+  MessageSquare, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Search, Settings, ShieldCheck,
   SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose,
 } from 'lucide-react';
 import {
@@ -29,6 +29,10 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { supabase } from '@/lib/supabase';
+import { jiibApi } from '@/lib/jiib-api';
+import { currentTerm, getTerms, isTermLocked, subjectNames, type SchoolConfig } from '@/lib/school-data';
+import { flushPendingMarks, getPendingMarks, queueMark } from '@/lib/offline-marks';
+import { OperationsPage } from '@/features/operations';
 
 const queryClient = new QueryClient();
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
@@ -38,14 +42,48 @@ const navItems = [
   { href: '/students', label: 'Students', icon: UsersRound },
   { href: '/marks', label: 'Marks register', icon: ClipboardList },
   { href: '/messages', label: 'Messages', icon: Inbox },
-  { href: '/settings', label: 'School settings', icon: Settings },
+  { href: '/parent-messages', label: 'Parent conversations', icon: MessageSquare },
+  { href: '/overview', label: 'Directory & news', icon: House },
+  { href: '/parents-portal', label: 'Parents portal', icon: UserRound },
+  { href: '/user-management', label: 'User management', icon: UsersRound },
+  { href: '/performance', label: 'Performance', icon: BarChart3 },
+  { href: '/report-studio', label: 'Report studio', icon: Archive },
+  { href: '/print-marksheets', label: 'Print marksheets', icon: Printer },
+  { href: '/term-management', label: 'Term management', icon: CalendarDays },
+  { href: '/manage-subjects', label: 'Manage subjects', icon: BookOpen },
+  { href: '/grading-system', label: 'Grading system', icon: GraduationCap },
+  { href: '/publish-deadline', label: 'Publish deadline', icon: Send },
+  { href: '/school-events', label: 'School events', icon: CalendarDays },
+  { href: '/school-settings', label: 'School settings', icon: Settings },
+  { href: '/system-settings', label: 'System settings', icon: ShieldCheck },
 ];
+
+// Nav items / routes that belong to the school administrator workspace only.
+const ADMIN_ONLY_HREFS = [
+  '/students', '/overview', '/parents-portal', '/user-management', '/performance',
+  '/report-studio', '/print-marksheets', '/term-management', '/manage-subjects',
+  '/grading-system', '/publish-deadline', '/school-events', '/school-settings', '/system-settings',
+  '/settings', '/parent-messages',
+];
+
+// Nav items / routes that belong to the teacher workspace only.
+const TEACHER_ONLY_HREFS = ['/marks'];
 
 function useActiveSchool() {
   const [school] = useState<School>(() => {
     try { return JSON.parse(localStorage.getItem('jiib.school') || 'null') || DEFAULT_SCHOOL; } catch { return DEFAULT_SCHOOL; }
   });
   return school;
+}
+
+function useActiveUserName() {
+  const [name] = useState<string>(() => localStorage.getItem('jiib.userName') || 'there');
+  return name;
+}
+
+function useActiveRole() {
+  const [role] = useState<string>(() => localStorage.getItem('jiib.role') || '');
+  return role;
 }
 
 function initials(name: string) {
@@ -57,15 +95,53 @@ function fmtDate(value?: string) {
   return new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value));
 }
 
+function fmtHeaderDate(value: Date = new Date()) {
+  return new Intl.DateTimeFormat('en', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    .format(value)
+    .replace(', ', ' · ');
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <SyncManager />
         <Router />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
   );
+}
+
+function SyncManager() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    let syncing = false;
+    const sync = async () => {
+      if (syncing || !navigator.onLine || getPendingMarks().length === 0) return;
+      syncing = true;
+      try {
+        await flushPendingMarks();
+        localStorage.setItem('jiib.lastSyncAt', new Date().toISOString());
+        await qc.invalidateQueries();
+        window.dispatchEvent(new Event('jiib:sync'));
+      } catch (error) {
+        console.warn('Pending marks are still waiting to sync.', error);
+      } finally {
+        syncing = false;
+      }
+    };
+    window.addEventListener('online', sync);
+    window.addEventListener('focus', sync);
+    void sync();
+    const interval = window.setInterval(sync, 45_000);
+    return () => {
+      window.removeEventListener('online', sync);
+      window.removeEventListener('focus', sync);
+      window.clearInterval(interval);
+    };
+  }, [qc]);
+  return null;
 }
 
 function Router() {
@@ -78,8 +154,23 @@ function Router() {
         <Route path="/students"><AppShell><Students /></AppShell></Route>
         <Route path="/marks"><AppShell><Marks /></AppShell></Route>
         <Route path="/messages"><AppShell><Messages /></AppShell></Route>
-        <Route path="/settings"><AppShell><SettingsPage /></AppShell></Route>
+        <Route path="/parent-messages"><AppShell><OperationsRoute page="parentMessages" /></AppShell></Route>
+        <Route path="/settings"><AppShell><OperationsRoute page="schoolSettings" /></AppShell></Route>
+        <Route path="/overview"><AppShell><OperationsRoute page="overview" /></AppShell></Route>
+        <Route path="/parents-portal"><AppShell><OperationsRoute page="parentsPortal" /></AppShell></Route>
+        <Route path="/user-management"><AppShell><OperationsRoute page="userManagement" /></AppShell></Route>
+        <Route path="/performance"><AppShell><OperationsRoute page="performance" /></AppShell></Route>
+        <Route path="/print-marksheets"><AppShell><OperationsRoute page="printMarksheets" /></AppShell></Route>
+        <Route path="/report-studio"><AppShell><OperationsRoute page="reportStudio" /></AppShell></Route>
+        <Route path="/term-management"><AppShell><OperationsRoute page="termManagement" /></AppShell></Route>
+        <Route path="/manage-subjects"><AppShell><OperationsRoute page="manageSubjects" /></AppShell></Route>
+        <Route path="/grading-system"><AppShell><OperationsRoute page="gradingSystem" /></AppShell></Route>
+        <Route path="/publish-deadline"><AppShell><OperationsRoute page="publishDeadline" /></AppShell></Route>
+        <Route path="/school-events"><AppShell><OperationsRoute page="schoolEvents" /></AppShell></Route>
+        <Route path="/school-settings"><AppShell><OperationsRoute page="schoolSettings" /></AppShell></Route>
+        <Route path="/system-settings"><AppShell><OperationsRoute page="systemSettings" /></AppShell></Route>
         <Route path="/parent"><AppShell><Parent /></AppShell></Route>
+        <Route path="/parent-view"><AppShell><OperationsRoute page="parentView" /></AppShell></Route>
         <Route path="/super-admin"><AppShell><SuperAdmin /></AppShell></Route>
         <Route component={NotFound} />
       </Switch>
@@ -87,39 +178,155 @@ function Router() {
   );
 }
 
+function OperationsRoute({ page }: { page: Parameters<typeof OperationsPage>[0]['page'] }) {
+  return <OperationsPage page={page} school={useActiveSchool()} />;
+}
+
 function SignIn() {
   const [, setLocation] = useLocation();
   const [slug, setSlug] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [parentPhone, setParentPhone] = useState('');
   const [role, setRole] = useState('School administrator');
   const [submitted, setSubmitted] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [accessToken, setAccessToken] = useState('');
   const schoolQuery = useGetSchoolBySlug(slug.trim().toLowerCase(), {
     query: { enabled: submitted && Boolean(slug.trim()), queryKey: getGetSchoolBySlugQueryKey(slug.trim().toLowerCase()) },
   });
   const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey() } });
+
   const resolve = async (event: FormEvent) => {
     event.preventDefault();
-    if (!slug.trim()) return;
+    if (!slug.trim() && role !== 'Super administrator') return;
     setAuthError('');
-    if (role !== 'Parent / guardian' && supabase) {
+    if (role === 'Parent / guardian') {
+      if (parentPhone.replace(/\D/g, '').length < 7) {
+        setAuthError('Enter the phone number registered with the school.');
+        return;
+      }
+      setSubmitted(true);
+      return;
+    }
+    if (!supabase) {
+      setAuthError('Staff sign-in is not configured for this workspace.');
+      return;
+    }
+    if (supabase) {
       if (!email.trim() || !password) {
         setAuthError('Enter your staff email and password to continue.');
         return;
       }
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) {
         setAuthError(error.message);
         return;
       }
+      setAccessToken(data.session?.access_token ?? '');
+      if (role === 'Super administrator') {
+        try {
+          const identity = await jiibApi<{ role: string; email: string }>('/api/auth/super-admin');
+          if (identity.role !== 'super_admin') throw new Error('This account is not a super administrator.');
+          const schools = await jiibApi<School[]>('/api/schools/portfolio');
+          if (!schools.length) throw new Error('There are no school workspaces in this portfolio yet.');
+          localStorage.setItem('jiib.school', JSON.stringify(schools.find((item) => item.active) ?? schools[0]));
+          localStorage.setItem('jiib.role', 'Super administrator');
+          localStorage.setItem('jiib.userName', identity.email.split('@')[0] || 'Super administrator');
+          setLocation('/super-admin');
+          return;
+        } catch (error) {
+          setAuthError(error instanceof Error ? error.message : 'Could not verify super administrator access.');
+          await supabase.auth.signOut();
+          setAccessToken('');
+          return;
+        }
+      }
     }
     setSubmitted(true);
   };
-  if (submitted && schoolQuery.isSuccess) {
-    localStorage.setItem('jiib.school', JSON.stringify(schoolQuery.data));
-    setLocation(role === 'Parent / guardian' ? '/parent' : role === 'Super administrator' ? '/super-admin' : '/dashboard');
-  }
+
+  // Once the school resolves, finish signing the person in. For staff roles
+  // (admin/teacher) this VERIFIES the real role against the `allowed_users`
+  // table on the server — the dropdown above is only a starting guess, never
+  // the final word on what someone is allowed to access.
+  useEffect(() => {
+    if (!(submitted && schoolQuery.isSuccess) || verifying) return;
+    const school = schoolQuery.data;
+
+    async function finishLogin() {
+      if (role === 'Parent / guardian') {
+        setVerifying(true);
+        try {
+          await jiibApi(
+            `/api/schools/${encodeURIComponent(school.id)}/parents/portal?phone=${encodeURIComponent(parentPhone.trim())}`,
+          );
+          localStorage.setItem('jiib.school', JSON.stringify(school));
+          localStorage.setItem('jiib.role', 'Parent / guardian');
+          localStorage.setItem('jiib.parentPhone', parentPhone.trim());
+          localStorage.setItem('jiib.parentVerified', 'true');
+          setLocation('/parent');
+        } catch (error) {
+          setAuthError(error instanceof Error ? error.message : 'Could not verify this parent account.');
+          setSubmitted(false);
+        } finally {
+          setVerifying(false);
+        }
+        return;
+      }
+
+      if (role === 'Super administrator') {
+        setVerifying(true);
+        try {
+          const result = await jiibApi<{ role: string; email: string }>('/api/auth/super-admin');
+          if (result.role !== 'super_admin') throw new Error('This account is not a super administrator.');
+          localStorage.setItem('jiib.school', JSON.stringify(school));
+          localStorage.setItem('jiib.role', 'Super administrator');
+          localStorage.setItem('jiib.userName', result.email.split('@')[0] || 'Super administrator');
+          setLocation('/super-admin');
+        } catch (error) {
+          setAuthError(error instanceof Error ? error.message : 'Could not verify super administrator access.');
+          setSubmitted(false);
+        } finally {
+          setVerifying(false);
+        }
+        return;
+      }
+
+      // School administrator / Teacher: verify against allowed_users.
+      setVerifying(true);
+      try {
+        const allowed = await jiibApi<{ role: string; displayName?: string | null; subjects?: string[] }>(
+          `/api/schools/${encodeURIComponent(school.id)}/users/${encodeURIComponent(email.trim().toLowerCase())}`,
+        );
+        const actualRole: 'School administrator' | 'Teacher' = allowed.role === 'admin' ? 'School administrator' : 'Teacher';
+
+        if (actualRole !== role) {
+          setAuthError(`This account is registered as a ${actualRole}. Please select "${actualRole}" above and sign in again.`);
+          await supabase?.auth.signOut();
+          setSubmitted(false);
+          setVerifying(false);
+          return;
+        }
+
+        localStorage.setItem('jiib.school', JSON.stringify(school));
+        localStorage.setItem('jiib.role', actualRole);
+        localStorage.setItem('jiib.userName', allowed.displayName || email.trim().split('@')[0]);
+        localStorage.setItem('jiib.subjects', JSON.stringify(allowed.subjects ?? []));
+        setLocation(actualRole === 'Teacher' ? '/marks' : '/dashboard');
+      } catch (error) {
+        setAuthError(error instanceof Error ? error.message : 'Could not verify your account. Please check your connection and try again.');
+        await supabase?.auth.signOut();
+        setSubmitted(false);
+        setVerifying(false);
+      }
+    }
+
+    finishLogin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitted, schoolQuery.isSuccess]);
+
   return (
     <main className="min-h-[100dvh] overflow-hidden bg-[#edf2f6] text-foreground">
       <div className="grid min-h-[100dvh] lg:grid-cols-[minmax(390px,0.8fr)_1.2fr]">
@@ -154,11 +361,13 @@ function SignIn() {
               <form onSubmit={resolve} className="space-y-6">
                {role !== 'Parent / guardian' && <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-sm font-semibold">Staff email</span><input data-testid="input-login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@school.org" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label><label className="block"><span className="mb-2 block text-sm font-semibold">Password</span><input data-testid="input-login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label></div>}
               <label className="block"><span className="mb-2 block text-sm font-semibold">School slug</span><div className="flex items-center rounded-xl border border-input bg-card px-3 shadow-sm focus-within:ring-2 focus-within:ring-ring"><span className="text-sm text-muted-foreground">jiib.school/</span><input data-testid="input-school-slug" autoFocus value={slug} onChange={(e) => { setSlug(e.target.value); setSubmitted(false); }} placeholder="northbridge" className="h-12 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none" /></div></label>
+               {role === 'Parent / guardian' && <label className="block"><span className="mb-2 block text-sm font-semibold">Parent phone</span><input data-testid="input-parent-phone" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} placeholder="Phone number on the school register" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label>}
               <label className="block"><span className="mb-2 block text-sm font-semibold">Continue as</span><select data-testid="select-role" value={role} onChange={(e) => setRole(e.target.value)} className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option>School administrator</option><option>Teacher</option><option>Parent / guardian</option><option>Super administrator</option></select></label>
               {submitted && schoolQuery.isPending && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Looking up your school…</div>}
+              {submitted && schoolQuery.isSuccess && verifying && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Verifying your account…</div>}
               {submitted && schoolQuery.isError && <div data-testid="error-school-resolution" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">We couldn’t find that school. Check the slug and try again.</div>}
                {authError && <div data-testid="error-login" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{authError}</div>}
-              <button data-testid="button-open-workspace" className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90" type="submit">Open workspace <ArrowRight size={17} /></button>
+              <button data-testid="button-open-workspace" className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90" type="submit">LOGIN <ArrowRight size={17} /></button>
             </form>
             <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">Need access to a different school? Ask your system administrator for its workspace slug.</p>
           </div>
@@ -171,29 +380,95 @@ function SignIn() {
 function AppShell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const school = useActiveSchool();
+  const role = useActiveRole();
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const title = location === '/dashboard' ? 'Overview' : location === '/students' ? 'Students' : location === '/marks' ? 'Marks register' : location === '/messages' ? 'Messages' : location === '/settings' ? 'School settings' : location === '/parent' ? 'Family view' : 'Portfolio';
+  const isTeacher = role === 'Teacher';
+  const isParent = role === 'Parent / guardian';
+  const isSuperAdmin = role === 'Super administrator';
+  const [authReady, setAuthReady] = useState(false);
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [syncRevision, setSyncRevision] = useState(0);
+  const config = useGetSchoolConfig(school.id, {
+    query: { enabled: !isParent, queryKey: getGetSchoolConfigQueryKey(school.id) },
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const verifySession = async () => {
+      if (isParent) {
+        const verified = localStorage.getItem('jiib.parentVerified') === 'true'
+          && Boolean(localStorage.getItem('jiib.parentPhone'));
+        if (!verified) setLocation('/');
+        if (!cancelled) setAuthReady(verified);
+        return;
+      }
+      const { data } = await supabase?.auth.getSession() ?? { data: { session: null } };
+      const authenticated = Boolean(data.session?.access_token && role);
+      if (!authenticated) setLocation('/');
+      if (!cancelled) setAuthReady(authenticated);
+    };
+    void verifySession();
+    return () => { cancelled = true; };
+  }, [isParent, role, setLocation]);
+
+  useEffect(() => {
+    const updateConnection = () => setOnline(navigator.onLine);
+    const updateSync = () => setSyncRevision((value) => value + 1);
+    window.addEventListener('online', updateConnection);
+    window.addEventListener('offline', updateConnection);
+    window.addEventListener('jiib:sync', updateSync);
+    return () => {
+      window.removeEventListener('online', updateConnection);
+      window.removeEventListener('offline', updateConnection);
+      window.removeEventListener('jiib:sync', updateSync);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isParent && location !== '/parent' && location !== '/parent-view') setLocation('/parent');
+    else if (isSuperAdmin && location !== '/super-admin') setLocation('/super-admin');
+    else if (!isSuperAdmin && location === '/super-admin') setLocation(isTeacher ? '/marks' : '/dashboard');
+    else if (!isParent && location === '/parent') setLocation(isTeacher ? '/marks' : '/dashboard');
+    else if (!isParent && !isSuperAdmin && isTeacher && ADMIN_ONLY_HREFS.includes(location)) setLocation('/marks');
+    else if (!isParent && !isSuperAdmin && !isTeacher && TEACHER_ONLY_HREFS.includes(location)) setLocation('/dashboard');
+  }, [location, isParent, isSuperAdmin, isTeacher, setLocation]);
+
+  const visibleNavItems = navItems.filter((item) =>
+    isParent || isSuperAdmin
+      ? false
+      : isTeacher ? !ADMIN_ONLY_HREFS.includes(item.href) : !TEACHER_ONLY_HREFS.includes(item.href),
+  );
+
+  const titleMap: Record<string, string> = {
+    '/dashboard': 'Overview', '/students': 'Students', '/marks': 'Marks register', '/messages': 'Messages',
+    '/settings': 'School settings', '/parent': 'Family view', '/parent-view': 'Family view', '/parent-messages': 'Parent conversations', '/super-admin': 'Portfolio',
+    '/overview': 'Directory & news', '/parents-portal': 'Parents portal', '/user-management': 'User management',
+    '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
+    '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/grading-system': 'Grading system',
+    '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',
+    '/system-settings': 'System settings',
+  };
+  const title = titleMap[location] ?? 'Portfolio';
+  if (!authReady) return <main className="grid min-h-[100dvh] place-items-center bg-background text-sm text-muted-foreground">Checking account access…</main>;
   return (
     <div className="flex min-h-[100dvh] bg-background">
       {open && <button aria-label="Close navigation" data-testid="button-close-mobile-nav" className="fixed inset-0 z-30 bg-[#172b43]/40 lg:hidden" onClick={() => setOpen(false)} />}
       <aside className={`${open ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-[76px]' : 'lg:w-[248px]'} fixed inset-y-0 left-0 z-40 flex w-[280px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-200 lg:relative lg:translate-x-0`}>
         <div className="flex h-[78px] items-center justify-between border-b border-sidebar-border px-5">
-          <Link href="/dashboard" data-testid="link-brand" className={`flex items-center gap-3 ${collapsed ? 'lg:mx-auto' : ''}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"><GraduationCap size={21} /></span>{!collapsed && <span><span className="block font-display text-lg font-semibold tracking-tight">JIIB</span><span className="block text-[9px] uppercase tracking-[.22em] text-sidebar-foreground/60">Core Sync</span></span>}</Link>
+          <Link href={isParent ? '/parent' : isSuperAdmin ? '/super-admin' : isTeacher ? '/marks' : '/dashboard'} data-testid="link-brand" className={`flex items-center gap-3 ${collapsed ? 'lg:mx-auto' : ''}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"><GraduationCap size={21} /></span>{!collapsed && <span><span className="block font-display text-lg font-semibold tracking-tight">JIIB</span><span className="block text-[9px] uppercase tracking-[.22em] text-sidebar-foreground/60">Core Sync</span></span>}</Link>
           <button data-testid="button-close-nav" onClick={() => { setCollapsed(!collapsed); setOpen(false); }} className="hidden rounded-lg p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:block">{collapsed ? <Menu size={17} /> : <PanelLeftClose size={17} />}</button>
         </div>
         <div className={`mx-3 mt-5 rounded-xl bg-sidebar-accent/70 p-3 ${collapsed ? 'lg:p-2' : ''}`}><div className="flex items-center gap-2.5"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary/15 text-xs font-bold text-sidebar-primary">{initials(school.name)}</span>{!collapsed && <div className="min-w-0"><p data-testid="text-active-school" className="truncate text-sm font-semibold">{school.name}</p><p className="mt-0.5 text-[10px] uppercase tracking-widest text-sidebar-foreground/50">Active school</p></div>}</div></div>
-        <nav className="mt-7 flex-1 space-y-1 px-3">{navItems.map(({ href, label, icon: Icon }) => <Link href={href} key={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setOpen(false)} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${location === href ? 'bg-sidebar-primary font-semibold text-sidebar-primary-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}><Icon size={18} strokeWidth={location === href ? 2.4 : 1.8} />{!collapsed && <span>{label}</span>}{href === '/messages' && !collapsed && <span className="ml-auto rounded-full bg-sidebar-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-sidebar-primary">3</span>}</Link>)}
+        <nav className="mt-7 flex-1 space-y-1 px-3">{visibleNavItems.map(({ href, label, icon: Icon }) => <Link href={href} key={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setOpen(false)} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${location === href ? 'bg-sidebar-primary font-semibold text-sidebar-primary-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}><Icon size={18} strokeWidth={location === href ? 2.4 : 1.8} />{!collapsed && <span>{label}</span>}{href === '/messages' && !collapsed && <span className="ml-auto rounded-full bg-sidebar-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-sidebar-primary">3</span>}</Link>)}
           <div className="my-5 border-t border-sidebar-border" />
-          <Link href="/parent" data-testid="link-nav-family-view" className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/65 transition hover:bg-sidebar-accent hover:text-sidebar-foreground ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}><UserRound size={18} />{!collapsed && <span>Family view</span>}</Link>
-          <Link href="/super-admin" data-testid="link-nav-portfolio" className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/65 transition hover:bg-sidebar-accent hover:text-sidebar-foreground ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}><ShieldCheck size={18} />{!collapsed && <span>Portfolio admin</span>}</Link>
         </nav>
-        {!collapsed && <div className="border-t border-sidebar-border p-4"><div className="rounded-xl bg-[#102238] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-sidebar-primary">Current term</p><p className="mt-1 text-sm font-semibold">2024 / 25 · Term 2</p><p className="mt-1 text-xs text-sidebar-foreground/55">12 weeks remaining</p></div><button data-testid="button-sign-out" onClick={() => setLocation('/')} className="mt-4 flex w-full items-center gap-2 px-1 text-xs text-sidebar-foreground/55 hover:text-sidebar-foreground"><LogOut size={14} /> Sign out</button></div>}
+         {!collapsed && <div className="border-t border-sidebar-border p-4"><div className="rounded-xl bg-[#102238] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-sidebar-primary">Current term</p><p className="mt-1 text-sm font-semibold">{String((config.data?.data as SchoolConfig | undefined)?.terms?.[String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '')]?.label ?? (config.data?.data as SchoolConfig | undefined)?.activeTerm ?? 'No active term')}</p><p data-sync-revision={syncRevision} className="mt-1 text-xs text-sidebar-foreground/55">{online ? `${getPendingMarks(school.id).length} marks waiting to sync` : 'Offline · changes are queued'}</p></div><button data-testid="button-sign-out" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); setLocation('/'); }} className="mt-4 flex w-full items-center gap-2 px-1 text-xs text-sidebar-foreground/55 hover:text-sidebar-foreground"><LogOut size={14} /> Sign out</button></div>}
       </aside>
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex h-[78px] items-center justify-between border-b border-border bg-background/90 px-5 backdrop-blur-md sm:px-8">
           <div className="flex items-center gap-3"><button data-testid="button-open-mobile-nav" onClick={() => setOpen(true)} className="rounded-lg p-2 hover:bg-muted lg:hidden"><Menu size={20} /></button><div><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-muted-foreground">Workspace</p><h1 data-testid="text-page-title" className="font-display text-xl font-semibold tracking-tight">{title}</h1></div></div>
-          <div className="flex items-center gap-3"><div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs text-muted-foreground sm:flex"><span className="h-2 w-2 rounded-full bg-[#61b990]" /> Data synced 2m ago</div><button data-testid="button-profile" className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials('Amina Cole')}</button></div>
+          <div className="flex items-center gap-3"><div data-sync-revision={syncRevision} className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs text-muted-foreground sm:flex"><span className={`h-2 w-2 rounded-full ${online ? 'bg-[#61b990]' : 'bg-accent'}`} />{online ? (getPendingMarks(school.id).length ? 'Sync pending' : 'Connected') : 'Offline · queued'}</div><button data-testid="button-profile" className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(useActiveUserName())}</button></div>
         </header>
         <main className="mx-auto w-full max-w-[1440px] p-5 sm:p-8">{children}</main>
       </div>
@@ -211,10 +486,11 @@ function EmptyState({ icon: Icon, title, body, action }: { icon: typeof Inbox; t
 
 function Dashboard() {
   const school = useActiveSchool();
+  const userName = useActiveUserName();
   const summary = useGetDashboardSummary(school.id, { query: { queryKey: getGetDashboardSummaryQueryKey(school.id) } });
   const data = summary.data;
   const completion = data ? Math.round((data.marksEntered / Math.max(data.marksExpected, 1)) * 100) : 0;
-  return <div className="fade-up"><PageHeader eyebrow="Monday · 14 October 2024" title={`Good morning, Amina`} description={`Here’s the operating picture for ${school.name}.`} action={<button data-testid="button-dashboard-refresh" onClick={() => summary.refetch()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold hover:bg-muted"><RefreshCw size={15} /> Refresh</button>} />
+  return <div className="fade-up"><PageHeader eyebrow={fmtHeaderDate()} title={`Good morning, ${userName}`} description={`Here’s the operating picture for ${school.name}.`} action={<button data-testid="button-dashboard-refresh" onClick={() => summary.refetch()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold hover:bg-muted"><RefreshCw size={15} /> Refresh</button>} />
     {summary.isLoading ? <div className="grid gap-4 md:grid-cols-4">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-32" />)}</div> : summary.isError ? <ErrorState retry={() => summary.refetch()} /> : data ? <><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{ label: 'Students enrolled', value: data.studentCount, icon: UsersRound, tone: 'text-primary' }, { label: 'Active classes', value: data.classCount, icon: BookOpen, tone: 'text-[#2e8c72]' }, { label: 'Marks entered', value: `${data.marksEntered}/${data.marksExpected}`, icon: BarChart3, tone: 'text-[#c88e17]' }, { label: 'Houses', value: data.houses.length, icon: Building2, tone: 'text-[#a44f47]' }].map(({ label, value, icon: Icon, tone }) => <div key={label} data-testid={`card-metric-${label.toLowerCase().replaceAll(' ', '-')}`} className="rounded-2xl border border-border bg-card p-5 shadow-[0_1px_2px_hsl(var(--foreground)/.03)]"><div className="flex items-start justify-between"><p className="text-xs font-semibold uppercase tracking-[.12em] text-muted-foreground">{label}</p><Icon size={18} className={tone} /></div><p className="mt-5 font-display text-3xl font-semibold tracking-tight">{value}</p><p className="mt-1 text-xs text-muted-foreground">{label === 'Marks entered' ? `${completion}% complete this term` : 'Across the active school'}</p></div>)}</div>
        <div className="mt-5 grid gap-5 lg:grid-cols-[1.4fr_.9fr]"><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Marks completion</h3><p className="mt-1 text-sm text-muted-foreground">Assessment entry across the current term.</p></div><span className="font-display text-2xl font-semibold text-primary">{completion}%</span></div><div className="mt-7 h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${completion}%` }} /></div><div className="mt-3 flex justify-between text-xs text-muted-foreground"><span>{data.marksEntered} entries recorded</span><span>{data.marksExpected - data.marksEntered} remaining</span></div><div className="mt-8 h-52"><Bar data={{ labels: data.houses.map((house) => house.label), datasets: [{ label: 'Students', data: data.houses.map((house) => house.count), backgroundColor: '#d3a237', borderRadius: 7, barThickness: 22 }] }} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } }} /></div></section><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Recent activity</h3><p className="mt-1 text-sm text-muted-foreground">What changed recently.</p></div><Activity size={18} className="text-muted-foreground" /></div>{data.recentActivity.length ? <div className="mt-5 space-y-4">{data.recentActivity.slice(0, 5).map((item) => <div key={item.id} data-testid={`activity-${item.id}`} className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" /><div className="min-w-0"><p className="text-sm leading-5">{item.label}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{item.detail} · {fmtDate(item.createdAt)}</p></div></div>)}</div> : <p className="mt-6 text-sm text-muted-foreground">No recent activity yet.</p>}</section></div>
     </> : <EmptyState icon={LayoutDashboard} title="Your overview is quiet" body="Once your school has records, the operating picture will appear here." />}
@@ -251,15 +527,73 @@ function StudentDialog({ student, pending, onClose, onSave }: { student: Student
 function Field({ label, value, onChange, testId, required = false }: { label: string; value: string; onChange: (value: string) => void; testId: string; required?: boolean }) { return <label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">{label}</span><input data-testid={testId} required={required} value={value} onChange={(e) => onChange(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label>; }
 
 function Marks() {
-  const school = useActiveSchool(); const qc = useQueryClient(); const [term, setTerm] = useState('2024-T2'); const [className, setClassName] = useState(''); const [subject, setSubject] = useState(''); const [search, setSearch] = useState('');
-  const config = useGetSchoolConfig(school.id, { query: { queryKey: getGetSchoolConfigQueryKey(school.id) } }); const studentsQuery = useListStudents(school.id, { className: className || undefined, search: search || undefined }); const marksQuery = useListMarks(school.id, { termKey: term, className: className || undefined, subject: subject || undefined }); const upsert = useUpsertMark();
-  const subjects = Array.isArray(config.data?.data?.subjects) ? config.data.data.subjects as string[] : ['English', 'Mathematics', 'Science', 'Social Studies'];
+  const school = useActiveSchool(); const qc = useQueryClient(); const [term, setTerm] = useState(''); const [className, setClassName] = useState(''); const [subject, setSubject] = useState(''); const [search, setSearch] = useState(''); const [pendingMarks, setPendingMarks] = useState(() => getPendingMarks(school.id));
+  const config = useGetSchoolConfig(school.id, { query: { queryKey: getGetSchoolConfigQueryKey(school.id) } });
+  const configData = (config.data?.data ?? {}) as SchoolConfig;
+  const termOptions = getTerms(configData);
+  const selectedTerm = term || currentTerm(configData);
+  const updateConfig = useUpdateSchoolConfig();
+  const studentsQuery = useQuery({
+    queryKey: ['students', school.id, selectedTerm, className, search],
+    queryFn: () => jiibApi<Student[]>(
+      `/api/schools/${encodeURIComponent(school.id)}/students?termKey=${encodeURIComponent(selectedTerm)}&className=${encodeURIComponent(className)}&search=${encodeURIComponent(search)}`,
+    ),
+  });
+  const marksQuery = useListMarks(school.id, { termKey: selectedTerm, className: className || undefined, subject: subject || undefined });
+  const upsert = useUpsertMark();
+  const assignedSubjects = JSON.parse(localStorage.getItem('jiib.subjects') || '[]') as string[];
+  const configuredSubjects = subjectNames(configData, className);
+  const subjects = (configuredSubjects.length ? configuredSubjects : ['English', 'Mathematics', 'Science', 'Social Studies'])
+    .filter((name) => localStorage.getItem('jiib.role') !== 'Teacher' || assignedSubjects.length === 0 || assignedSubjects.includes(name));
+  useEffect(() => { if (!term && config.isSuccess) setTerm(currentTerm(configData)); }, [term, config.isSuccess, config.data]);
+  useEffect(() => { setPendingMarks(getPendingMarks(school.id)); }, [school.id]);
   const students = studentsQuery.data || []; const marks = marksQuery.data || [];
-  const getMark = (studentId: string) => marks.find((mark) => mark.studentId === studentId && (!subject || mark.subject === subject));
-  const save = (student: Student, key: 'aoi' | 'midterm' | 'end', value: string) => { const existing = getMark(student.id); const payload = { studentId: student.id, termKey: term, subject: subject || existing?.subject || subjects[0], aoi: existing?.aoi || 0, midterm: existing?.midterm || 0, end: existing?.end || 0, [key]: value === '' ? 0 : Number(value) }; upsert.mutate({ schoolId: school.id, data: payload }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListMarksQueryKey(school.id, { termKey: term, className: className || undefined, subject: subject || undefined }) }) }); };
-  return <div className="fade-up"><PageHeader eyebrow="Assessment desk" title="Marks register" description="Enter, review, and keep assessment records moving by class and subject." action={<div className="flex items-center gap-2 rounded-lg border border-[#e4c66e] bg-[#fff7d9] px-3 py-2 text-xs font-semibold text-[#755817]"><span className="h-2 w-2 rounded-full bg-[#d3a237]" /> Autosave is on</div>} />
-    <div className="mb-5 grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-[1fr_1fr_1fr_1.3fr]"><label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Term</span><select data-testid="select-mark-term" value={term} onChange={(e) => setTerm(e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm"><option value="2024-T2">2024 / 25 · Term 2</option><option value="2024-T1">2024 / 25 · Term 1</option><option value="2023-T3">2023 / 24 · Term 3</option></select></label><label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Class</span><input data-testid="input-mark-class" value={className} onChange={(e) => setClassName(e.target.value)} placeholder="All classes" className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label><label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Subject</span><select data-testid="select-mark-subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm"><option value="">All subjects</option>{subjects.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Find student</span><div className="relative"><Search size={15} className="absolute left-3 top-3 text-muted-foreground" /><input data-testid="input-mark-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or student ID" className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm" /></div></label></div>
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">{studentsQuery.isLoading || marksQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-14" />)}</div> : studentsQuery.isError || marksQuery.isError ? <div className="p-5"><ErrorState retry={() => { studentsQuery.refetch(); marksQuery.refetch(); }} /></div> : students.length === 0 ? <EmptyState icon={ClipboardList} title="Nothing to enter yet" body="Students matching this class and search will appear here." /> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-5 py-4 font-bold">Student</th><th className="px-3 py-4 font-bold">AOI <span className="font-normal normal-case tracking-normal">(20)</span></th><th className="px-3 py-4 font-bold">Midterm <span className="font-normal normal-case tracking-normal">(30)</span></th><th className="px-3 py-4 font-bold">End <span className="font-normal normal-case tracking-normal">(50)</span></th><th className="px-5 py-4 text-right font-bold">Total</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => { const mark = getMark(student.id); const total = (mark?.aoi || 0) + (mark?.midterm || 0) + (mark?.end || 0); return <tr key={student.id} data-testid={`row-mark-${student.id}`}><td className="px-5 py-3"><div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/10 text-[10px] font-bold text-primary">{initials(student.name)}</span><div><p className="text-sm font-semibold">{student.name}</p><p className="text-xs text-muted-foreground">{student.className} · {mark?.subject || subject || subjects[0]}</p></div></div></td>{(['aoi', 'midterm', 'end'] as const).map((key) => <td key={key} className="px-3 py-3"><input data-testid={`input-mark-${key}-${student.id}`} type="number" min="0" max={key === 'aoi' ? 20 : key === 'midterm' ? 30 : 50} defaultValue={mark?.[key] || ''} onBlur={(e) => save(student, key, e.target.value)} className="h-9 w-20 rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring" /></td>)}<td className="px-5 py-3 text-right"><span className={`font-display text-lg font-semibold ${total >= 50 ? 'text-[#2e8c72]' : 'text-foreground'}`}>{total}</span><span className="ml-1 text-xs text-muted-foreground">/ 100</span></td></tr>; })}</tbody></table></div>}</div>
+  const locked = Boolean(configData.marksLocked || isTermLocked(configData, selectedTerm));
+  const getMark = (studentId: string) => {
+    const queued = pendingMarks.find((mark) => mark.studentId === studentId && mark.termKey === selectedTerm && (!subject || mark.subject === subject));
+    return queued ?? marks.find((mark) => mark.studentId === studentId && (!subject || mark.subject === subject));
+  };
+  const save = (student: Student, key: 'aoi' | 'midterm' | 'end', value: string) => {
+    const existing = getMark(student.id);
+    const selectedSubject = subject || existing?.subject || subjects[0];
+    if (!selectedSubject) return;
+    const payload = {
+      studentId: student.id,
+      termKey: selectedTerm,
+      subject: selectedSubject,
+      aoi: existing?.aoi ?? 0,
+      midterm: existing?.midterm ?? 0,
+      end: existing?.end ?? 0,
+      [key]: value === '' ? 0 : Math.min(key === 'aoi' ? 20 : key === 'midterm' ? 30 : 50, Math.max(0, Number(value) || 0)),
+    };
+    if (!navigator.onLine) {
+      const queued = queueMark({ schoolId: school.id, ...payload });
+      setPendingMarks(queued.filter((item) => item.schoolId === school.id));
+      window.dispatchEvent(new Event('jiib:sync'));
+      return;
+    }
+    upsert.mutate(
+      { schoolId: school.id, data: payload },
+      {
+        onSuccess: () => {
+          void qc.invalidateQueries({ queryKey: getListMarksQueryKey(school.id, { termKey: selectedTerm, className: className || undefined, subject: subject || undefined }) });
+          localStorage.setItem('jiib.lastSyncAt', new Date().toISOString());
+        },
+        onError: () => {
+          if (!navigator.onLine) {
+            const queued = queueMark({ schoolId: school.id, ...payload });
+            setPendingMarks(queued.filter((item) => item.schoolId === school.id));
+          }
+        },
+      },
+    );
+  };
+  const toggleLock = () => updateConfig.mutate({ schoolId: school.id, data: { data: { ...configData, marksLocked: !locked } } }, { onSuccess: (result) => qc.setQueryData(getGetSchoolConfigQueryKey(school.id), result) });
+  const clearTerm = async () => { if (!window.confirm(`Clear all marks for ${selectedTerm}? This cannot be undone.`)) return; await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/marks?termKey=${encodeURIComponent(selectedTerm)}`, { method: 'DELETE' }); await marksQuery.refetch(); };
+  const isAdmin = localStorage.getItem('jiib.role') !== 'Teacher';
+  return <div className="fade-up"><PageHeader eyebrow="Assessment desk" title="Marks register" description="Enter, review, and keep assessment records moving by class and subject." action={<div className="flex flex-wrap items-center gap-2"><span className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">{navigator.onLine ? `${pendingMarks.length} pending` : 'Offline · queued'}</span>{isAdmin && <button data-testid="button-toggle-marks-lock" onClick={toggleLock} className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${locked ? 'border-destructive/30 bg-destructive/5 text-destructive' : 'border-[#e4c66e] bg-[#fff7d9] text-[#755817]'}`}><LockKeyhole size={14} /> {locked ? 'Marks locked' : 'Unlock / lock marks'}</button>}{isAdmin && <button data-testid="button-clear-term-marks" onClick={() => void clearTerm()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted"><Trash2 size={14} /> Clear term</button>}</div>} />
+    <div className="mb-5 grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-[1fr_1fr_1fr_1.3fr]"><label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Term</span><select data-testid="select-mark-term" value={selectedTerm} onChange={(e) => setTerm(e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm">{(termOptions.length ? termOptions : [{ key: selectedTerm, label: selectedTerm, locked: false, active: true }]).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label><label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Class</span><input data-testid="input-mark-class" value={className} onChange={(e) => setClassName(e.target.value)} placeholder="All classes" className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label><label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Subject</span><select data-testid="select-mark-subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm"><option value="">All subjects</option>{subjects.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Find student</span><div className="relative"><Search size={15} className="absolute left-3 top-3 text-muted-foreground" /><input data-testid="input-mark-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or student ID" className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm" /></div></label></div>
+     <div className="overflow-hidden rounded-2xl border border-border bg-card">{studentsQuery.isLoading || marksQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-14" />)}</div> : studentsQuery.isError || marksQuery.isError ? <div className="p-5"><ErrorState retry={() => { studentsQuery.refetch(); marksQuery.refetch(); }} /></div> : students.length === 0 ? <EmptyState icon={ClipboardList} title="Nothing to enter yet" body="Students matching this class and search will appear here." /> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-5 py-4 font-bold">Student</th><th className="px-3 py-4 font-bold">AOI <span className="font-normal normal-case tracking-normal">(20)</span></th><th className="px-3 py-4 font-bold">Midterm <span className="font-normal normal-case tracking-normal">(30)</span></th><th className="px-3 py-4 font-bold">End <span className="font-normal normal-case tracking-normal">(50)</span></th><th className="px-5 py-4 text-right font-bold">Total</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => { const mark = getMark(student.id); const total = (mark?.aoi || 0) + (mark?.midterm || 0) + (mark?.end || 0); return <tr key={student.id} data-testid={`row-mark-${student.id}`}><td className="px-5 py-3"><div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/10 text-[10px] font-bold text-primary">{initials(student.name)}</span><div><p className="text-sm font-semibold">{student.name}</p><p className="text-xs text-muted-foreground">{student.className} · {mark?.subject || subject || subjects[0]}</p></div></div></td>{(['aoi', 'midterm', 'end'] as const).map((key) => <td key={key} className="px-3 py-3"><input disabled={locked} data-testid={`input-mark-${key}-${student.id}`} type="number" min="0" max={key === 'aoi' ? 20 : key === 'midterm' ? 30 : 50} defaultValue={mark?.[key] || ''} onBlur={(e) => save(student, key, e.target.value)} className="h-9 w-20 rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50" /></td>)}<td className="px-5 py-3 text-right"><span className={`font-display text-lg font-semibold ${total >= 50 ? 'text-[#2e8c72]' : 'text-foreground'}`}>{total}</span><span className="ml-1 text-xs text-muted-foreground">/ 100</span></td></tr>; })}</tbody></table></div>}</div>
   </div>;
 }
 
@@ -280,9 +614,75 @@ function SettingsPage() {
 }
 
 function Parent() {
-  const school = useActiveSchool(); const students = useListStudents(school.id, {}); const marks = useListMarks(school.id, { termKey: '2024-T2' }); const messages = useListMessages(school.id); const student = students.data?.[0]; const studentMarks = marks.data?.filter((mark) => mark.studentId === student?.id) || []; const average = studentMarks.length ? Math.round(studentMarks.reduce((sum, item) => sum + item.aoi + item.midterm + item.end, 0) / studentMarks.length) : 0;
+  const school = useActiveSchool();
+  const parentPhone = localStorage.getItem('jiib.parentPhone') || '';
+  const [selectedTerm, setSelectedTerm] = useState('');
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [draft, setDraft] = useState('');
+  const [chatError, setChatError] = useState('');
+  const portal = useQuery({
+    queryKey: ['parent-portal', school.id, parentPhone],
+    queryFn: () => jiibApi<{
+      activeTerm: string;
+      students: Array<Student & { termKey: string }>;
+      marks: Array<{ id: string; studentId: string; termKey: string; subject: string; aoi: number; midterm: number; end: number }>;
+      terms: Array<{ key: string; label: string }>;
+      schoolNews: { title?: string; body?: string } | string | null;
+      events: Array<string | { id?: string; title?: string; date?: string }>;
+    }>(`/api/schools/${encodeURIComponent(school.id)}/parents/portal?phone=${encodeURIComponent(parentPhone)}`),
+    enabled: Boolean(parentPhone),
+  });
+  const term = selectedTerm || portal.data?.activeTerm || portal.data?.students[0]?.termKey || '';
+  const familyStudents = (portal.data?.students ?? []).filter((student) => student.termKey === term);
+  const studentId = selectedStudentId || familyStudents[0]?.id || '';
+  const student = familyStudents.find((item) => item.id === studentId);
+  const studentMarks = (portal.data?.marks ?? []).filter((mark) => mark.studentId === studentId && mark.termKey === term);
+  const average = studentMarks.length
+    ? Math.round(studentMarks.reduce((sum, item) => sum + item.aoi + item.midterm + item.end, 0) / studentMarks.length)
+    : 0;
+  const chat = useQuery({
+    queryKey: ['parent-chat', school.id, parentPhone],
+    queryFn: () => jiibApi<Array<{ id: string; sender: string; sender_name: string; text: string; ts: string }>>(
+      `/api/schools/${encodeURIComponent(school.id)}/parents/chat?phone=${encodeURIComponent(parentPhone)}`,
+    ),
+    enabled: portal.isSuccess && Boolean(parentPhone),
+    refetchInterval: 20_000,
+  });
+  useEffect(() => {
+    if (!selectedTerm && portal.data?.activeTerm) setSelectedTerm(portal.data.activeTerm);
+  }, [selectedTerm, portal.data?.activeTerm]);
+  const send = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!draft.trim() || !navigator.onLine) return;
+    setChatError('');
+    try {
+      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/parents/chat`, {
+        method: 'POST',
+        body: JSON.stringify({ phone: parentPhone, text: draft.trim() }),
+      });
+      setDraft('');
+      await chat.refetch();
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Message could not be sent.');
+    }
+  };
+  const news = portal.data?.schoolNews;
+  const newsBody = typeof news === 'string' ? news : news?.body ?? '';
   return <div className="fade-up"><PageHeader eyebrow="Family view" title="A clear view of progress." description={`Welcome back. Here’s the latest from ${school.name}.`} action={<span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold"><span className="h-2 w-2 rounded-full bg-[#61b990]" /> Parent portal</span>} />
-    <div className="grid gap-5 lg:grid-cols-[1.3fr_.7fr]"><section className="rounded-2xl border border-border bg-card p-5 sm:p-7"><div className="flex items-center gap-4"><span className="grid h-14 w-14 place-items-center rounded-2xl bg-primary text-lg font-bold text-primary-foreground">{student ? initials(student.name) : <UserRound size={23} />}</span><div><p className="text-xs uppercase tracking-[.18em] text-muted-foreground">Student report</p><h3 className="mt-1 font-display text-2xl font-semibold">{student?.name || 'Student not assigned'}</h3><p className="text-sm text-muted-foreground">{student ? `${student.className} · ${student.house} house` : 'Ask your school to connect a student record.'}</p></div></div>{student ? <><div className="mt-8 grid grid-cols-3 gap-3"><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Subjects</p><p className="mt-2 font-display text-2xl font-semibold">{studentMarks.length}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Average</p><p className="mt-2 font-display text-2xl font-semibold text-primary">{average}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Term</p><p className="mt-2 font-display text-lg font-semibold">2 / 3</p></div></div><div className="mt-8"><div className="mb-3 flex items-center justify-between"><h4 className="font-semibold">Subject performance</h4><span className="text-xs text-muted-foreground">2024 / 25 · Term 2</span></div>{studentMarks.length ? <div className="space-y-3">{studentMarks.map((mark) => { const total = mark.aoi + mark.midterm + mark.end; return <div key={mark.id} data-testid={`parent-mark-${mark.id}`}><div className="mb-1 flex justify-between text-sm"><span>{mark.subject}</span><span className="font-semibold">{total}/100</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${total}%` }} /></div></div> })}</div> : <p className="text-sm text-muted-foreground">No marks have been published for this term yet.</p>}</div></> : <div className="mt-8"><EmptyState icon={GraduationCap} title="Waiting for school connection" body="Once the school links a student to your family view, reports will appear here." /></div>}</section><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">School messages</h3><p className="mt-1 text-sm text-muted-foreground">Recent communication.</p></div><MessageSquare size={18} className="text-primary" /></div>{messages.data?.length ? <div className="mt-5 space-y-4">{messages.data.slice(-4).map((message) => <div key={message.id} className="border-l-2 border-accent pl-3"><p className="text-sm leading-5">{message.message}</p><p className="mt-1 text-xs text-muted-foreground">{message.senderName} · {fmtDate(message.createdAt)}</p></div>)}</div> : <p className="mt-6 text-sm text-muted-foreground">No messages from the school yet.</p>}<Link href="/messages" data-testid="link-parent-messages" className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline">Open messages <ArrowRight size={15} /></Link></section></div>
+    {portal.isLoading ? <SkeletonBlock className="h-72" /> : portal.isError ? <ErrorState retry={() => void portal.refetch()} /> : <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
+      <section className="rounded-2xl border border-border bg-card p-5 sm:p-7">
+        <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs uppercase tracking-[.18em] text-muted-foreground">Student report</p><h3 className="mt-1 font-display text-2xl font-semibold">{student?.name || 'No student in this term'}</h3><p className="text-sm text-muted-foreground">{student ? `${student.className} · ${student.house} house` : 'Select another term or contact your school.'}</p></div>
+          <div className="flex gap-2">{(portal.data?.terms ?? []).length > 0 && <select aria-label="Academic term" value={term} onChange={(e) => { setSelectedTerm(e.target.value); setSelectedStudentId(''); }} className="h-10 rounded-lg border border-input bg-background px-2 text-sm">{portal.data?.terms.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select>}{familyStudents.length > 1 && <select aria-label="Student" value={studentId} onChange={(e) => setSelectedStudentId(e.target.value)} className="h-10 rounded-lg border border-input bg-background px-2 text-sm">{familyStudents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</div>
+        </div>
+        {student ? <><div className="mt-8 grid grid-cols-3 gap-3"><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Subjects</p><p className="mt-2 font-display text-2xl font-semibold">{studentMarks.length}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Average</p><p className="mt-2 font-display text-2xl font-semibold text-primary">{average}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Term</p><p className="mt-2 truncate font-display text-lg font-semibold">{portal.data?.terms.find((item) => item.key === term)?.label ?? term}</p></div></div><div className="mt-8"><h4 className="mb-3 font-semibold">Subject performance</h4>{studentMarks.length ? <div className="space-y-3">{studentMarks.map((mark) => { const total = mark.aoi + mark.midterm + mark.end; return <div key={mark.id}><div className="mb-1 flex justify-between text-sm"><span>{mark.subject}</span><span className="font-semibold">{total}/100</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${total}%` }} /></div></div>; })}</div> : <p className="text-sm text-muted-foreground">No marks have been published for this term yet.</p>}</div></> : <div className="mt-8"><EmptyState icon={GraduationCap} title="No matching student record" body="The school does not currently have a student record linked to this phone number for this term." /></div>}
+        {newsBody && <div className="mt-8 rounded-xl border border-border bg-muted/40 p-4"><p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{typeof news === 'object' && news?.title ? news.title : 'School news'}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{newsBody}</p></div>}
+        {!!portal.data?.events.length && <div className="mt-5"><h4 className="mb-2 font-semibold">Upcoming events</h4><ul className="space-y-2 text-sm text-muted-foreground">{portal.data.events.map((event, index) => <li key={typeof event === 'object' ? event.id ?? index : `${event}-${index}`} className="rounded-lg bg-muted/40 p-3">{typeof event === 'string' ? event : `${event.title ?? 'School event'}${event.date ? ` · ${event.date}` : ''}`}</li>)}</ul></div>}
+      </section>
+      <section className="flex min-h-[26rem] flex-col rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Message the school</h3><p className="mt-1 text-sm text-muted-foreground">Messages are visible only to your family and school team.</p></div><MessageSquare size={18} className="text-primary" /></div>
+        <div className="mt-5 flex-1 space-y-3 overflow-y-auto">{chat.isLoading ? <SkeletonBlock className="h-16" /> : chat.isError ? <ErrorState retry={() => void chat.refetch()} /> : chat.data?.length ? chat.data.map((message) => <div key={message.id} className={`max-w-[90%] rounded-xl p-3 ${message.sender === 'parent' ? 'ml-auto bg-primary text-primary-foreground' : 'bg-muted'}`}><p className="whitespace-pre-wrap text-sm leading-5">{message.text}</p><p className={`mt-1 text-[10px] ${message.sender === 'parent' ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{message.sender_name} · {fmtDate(message.ts)}</p></div>) : <p className="mt-8 text-sm text-muted-foreground">No messages yet. Send a message to start a conversation.</p>}</div>
+        <form onSubmit={(event) => void send(event)} className="mt-4 border-t border-border pt-4"><textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} maxLength={2000} placeholder="Write a message to the school…" className="w-full resize-none rounded-lg border border-input bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-ring" /><div className="mt-2 flex items-center justify-between"><span role="alert" className="text-xs text-destructive">{chatError || (!navigator.onLine ? 'Connect to the internet to send messages.' : '')}</span><button disabled={!draft.trim() || !navigator.onLine} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Send size={14} /> Send</button></div></form>
+      </section>
+    </div>}
   </div>;
 }
 

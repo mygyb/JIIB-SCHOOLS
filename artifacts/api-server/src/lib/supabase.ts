@@ -29,10 +29,14 @@ export async function supabaseRequest<T>(
   init: RequestInit = {},
   query = "",
 ): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
   const response = await fetch(getEndpoint(table, query), {
     ...init,
     headers: {
       ...getHeaders(req),
+      ...(method === "POST"
+        ? { Prefer: "resolution=merge-duplicates,return=representation" }
+        : {}),
       ...(init.headers as Record<string, string> | undefined),
     },
   });
@@ -56,6 +60,27 @@ export async function supabaseRequest<T>(
   }
 
   return data as T;
+}
+
+export type SupabaseUser = {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, unknown>;
+};
+
+export async function getSupabaseUser(req: Request): Promise<SupabaseUser | null> {
+  const authorization = req.header("authorization");
+  if (!authorization?.startsWith("Bearer ")) return null;
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: authorization,
+    },
+  });
+  if (!response.ok) return null;
+  const user = (await response.json()) as SupabaseUser;
+  return typeof user.id === "string" ? user : null;
 }
 
 export function jsonBody(value: unknown) {

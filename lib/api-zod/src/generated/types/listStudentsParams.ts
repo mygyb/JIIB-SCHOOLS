@@ -19,4 +19,8 @@ house?: string | null;
  * @nullable
  */
 search?: string | null;
+/**
+ * @nullable
+ */
+termKey?: string | null;
 };

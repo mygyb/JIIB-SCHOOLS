@@ -120,6 +120,10 @@ paths:
           in: query
           schema:
             type: ["string", "null"]
+        - name: termKey
+          in: query
+          schema:
+            type: ["string", "null"]
       responses:
         "200":
           description: Students
@@ -284,7 +288,6 @@ components:
       required: true
       schema:
         type: string
-        format: uuid
   schemas:
     HealthStatus:
       type: object
