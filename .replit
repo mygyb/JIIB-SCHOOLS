@@ -21,3 +21,9 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.development]
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrZGl0anl2d3h5eGxqaHF0bmx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4MDU5NjQsImV4cCI6MjA5MjM4MTk2NH0.Ts41OeQyBxrgsxlPisZujf8zZZmSkv31Y96V2V5Aoz0"
+SUPABASE_URL = "https://dkditjyvwxyxljhqtnly.supabase.co"

@@ -1,44 +1,49 @@
-# [Project name]
+# JIIB Core Sync
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A school operations workspace for administrators, teachers, parents, and super administrators.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- The Replit preview uses the managed `artifacts/jiib-core-sync: web` and `artifacts/api-server: API Server` workflows.
+- `pnpm install --frozen-lockfile` — install workspace dependencies.
+- `pnpm run typecheck` — typecheck all workspace packages.
+- `pnpm --filter @workspace/api-server run build` — build the API.
+- `PORT=23185 BASE_PATH=/ pnpm --filter @workspace/jiib-core-sync run build` — build the web app outside its managed workflow.
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec.
+- API health check: `/api/healthz`.
+- Required environment: `SUPABASE_URL` and `SUPABASE_ANON_KEY`. Development values are configured from the supplied reference HTML; configure the same values separately for production before publishing.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- pnpm workspace, Node.js, TypeScript, React, and Vite
+- API: Express 5, bundled with esbuild
+- Data and authentication: Supabase Auth and PostgREST
+- Validation and generated clients: Zod and Orval
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/jiib-core-sync/src/App.tsx` — sign-in, routes, and primary school workspace screens.
+- `artifacts/jiib-core-sync/src/features/operations.tsx` — school operations pages.
+- `artifacts/jiib-core-sync/src/lib/` — Supabase client, API helpers, school config, and offline mark queue.
+- `artifacts/api-server/src/routes/` — API endpoints.
+- `lib/api-spec/` — OpenAPI source and code generation.
+- `supabase/migrations/` — Supabase schema migrations; review before applying them to an external project.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The web app and API are separate managed artifacts; the API is proxied under `/api`.
+- The browser queues mark updates while offline and retries them when connectivity returns.
+- Supabase credentials are supplied through environment configuration; never put a service-role key in browser code.
+- The supplied standalone HTML is the behavioral reference; preserve the existing React/Vite and API structure when implementing parity fixes.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
-
-## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
+Role-based school management for student records, marks, parent communication, academic terms, reporting, and school administration.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The Vite config requires `PORT` and `BASE_PATH`; the managed web workflow provides them automatically.
+- Keep development and production Supabase environment values configured separately.
 
 ## Pointers
 
