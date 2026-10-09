@@ -8,6 +8,7 @@ export type PendingMark = {
   aoi: number;
   midterm: number;
   end: number;
+  enteredFields: string[];
   queuedAt: number;
 };
 
@@ -53,6 +54,7 @@ export async function flushPendingMarks() {
           aoi: item.aoi,
           midterm: item.midterm,
           end: item.end,
+          enteredFields: item.enteredFields,
         }),
       },
     );

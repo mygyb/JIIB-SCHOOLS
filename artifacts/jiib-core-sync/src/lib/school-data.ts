@@ -4,8 +4,44 @@ export type SchoolConfig = Record<string, unknown> & {
   activeTerm?: string;
   terms?: Record<string, TermRecord>;
   subjects?: Record<string, Array<string | SubjectRecord>> | string[];
+  settings?: Record<string, unknown>;
   grading?: Array<Record<string, unknown>>;
 };
+
+export type AssessmentField = { name: string; max: number; field: "c1" | "c2" | "c3" };
+
+export function getAssessmentFields(config: SchoolConfig | null | undefined): AssessmentField[] {
+  const settings = config?.settings && typeof config.settings === "object" ? config.settings : {};
+  const raw = Array.isArray(settings.marksSchema) ? settings.marksSchema : [];
+  const schema = raw.flatMap((entry): AssessmentField[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const item = entry as Record<string, unknown>;
+    const field = String(item.field ?? "");
+    const name = String(item.name ?? "").trim();
+    const max = Number(item.max ?? 0);
+    return name && ["c1", "c2", "c3"].includes(field) && Number.isFinite(max) && max > 0
+      ? [{ name, max, field: field as AssessmentField["field"] }]
+      : [];
+  });
+  const chosen = schema.length ? schema : [
+    { name: "AOI", max: 10, field: "c1" as const },
+    { name: "Midterm", max: 10, field: "c2" as const },
+    { name: "End of Term", max: 80, field: "c3" as const },
+  ];
+  const active = settings.activeMarkColumns;
+  return Array.isArray(active)
+    ? chosen.filter((field) => active.map(String).includes(field.field))
+    : chosen;
+}
+
+export function configuredHouses(config: SchoolConfig | null | undefined) {
+  const settings = config?.settings && typeof config.settings === "object" ? config.settings : {};
+  const raw = Array.isArray(settings.houses) ? settings.houses : Array.isArray(config?.houses) ? config.houses : [];
+  return Array.from(new Set(raw.map((house) =>
+    typeof house === "string" ? house.trim() :
+      String((house as Record<string, unknown>)?.name ?? "").trim(),
+  ).filter(Boolean)));
+}
 
 export function getTerms(config: SchoolConfig | null | undefined) {
   const terms = config?.terms;

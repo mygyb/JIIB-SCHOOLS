@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, CalendarDays, Check, Download, LockKeyhole, Megaphone, MessageSquare, Plus, Printer, Send, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react';
 import {
   getGetSchoolConfigQueryKey,
+  getListMarksQueryKey,
   getListStudentsQueryKey,
   useGetSchoolConfig,
   useListMarks,
@@ -13,7 +14,7 @@ import {
 } from '@workspace/api-client-react';
 import type { School, Student } from '@workspace/api-client-react';
 import { jiibApi } from '@/lib/jiib-api';
-import { currentTerm, getTerms, normalizePhone, subjectRecords, type SchoolConfig } from '@/lib/school-data';
+import { currentTerm, getAssessmentFields, getTerms, normalizePhone, subjectNames, subjectRecords, type SchoolConfig } from '@/lib/school-data';
 
 type Page =
   | 'overview'
@@ -142,32 +143,57 @@ function ParentsPortal({ school }: { school: School }) {
 }
 
 function UserManagement({ school }: { school: School }) {
+  const config = useConfig(school.id);
+  const configData = config.data as SchoolConfig;
   const roster = useQuery({
     queryKey: ['allowed-users', school.id],
-    queryFn: () => jiibApi<Array<{ email: string; displayName?: string | null; role: string; subjects?: string[] }>>(
+    queryFn: () => jiibApi<Array<{ email: string; displayName?: string | null; role: string; subjects?: Array<string | { class?: string; subject?: string }> }>>(
       `/api/schools/${encodeURIComponent(school.id)}/users`,
     ),
   });
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<'teacher' | 'admin'>('teacher');
-  const [subjects, setSubjects] = useState('');
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const users = roster.data ?? [];
+  const subjectOptions = configData.subjects && typeof configData.subjects === 'object' && !Array.isArray(configData.subjects)
+    ? Object.keys(configData.subjects).flatMap((className) =>
+        subjectRecords(configData, className).map((item) => ({ className, subject: item.name })),
+      )
+    : [];
+  const pairKey = (className: string, subject: string) => `${className}::${subject}`;
+  const ownerFor = (className: string, subject: string) => users.find((user) =>
+    user.email.toLowerCase() !== email.trim().toLowerCase() &&
+    user.role !== 'admin' &&
+    (user.subjects ?? []).some((item) => typeof item === 'object'
+      ? item.class === className && item.subject === subject
+      : item === subject),
+  );
   const add = async () => {
     if (!email.trim() || !name.trim()) return;
     setError('');
+    setSuccess('');
+    if (role === 'teacher' && selectedSubjects.length === 0) {
+      setError('Choose at least one class and subject for this teacher.');
+      return;
+    }
     try {
-      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/users`, {
+      const result = await jiibApi<{ invitationSent?: boolean }>(`/api/schools/${encodeURIComponent(school.id)}/users`, {
         method: 'POST',
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           displayName: name.trim(),
           role,
-          subjects: role === 'teacher' ? subjects.split(',').map((value) => value.trim()).filter(Boolean) : [],
+          subjects: role === 'teacher' ? selectedSubjects.map((key) => {
+            const [className, subject] = key.split('::', 2);
+            return { class: className, subject };
+          }) : [],
         }),
       });
-      setEmail(''); setName(''); setSubjects('');
+      setEmail(''); setName(''); setSelectedSubjects([]);
+      setSuccess(result.invitationSent ? 'Invitation email sent. The staff member can finish setting up their sign-in from that message.' : 'School access added. This email already has a sign-in account, so no invitation was needed.');
       await roster.refetch();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not grant school access.');
@@ -182,7 +208,7 @@ function UserManagement({ school }: { school: School }) {
       setError(cause instanceof Error ? cause.message : 'Could not remove this staff account.');
     }
   };
-  return <div className="fade-up"><SectionHeading eyebrow="People & roles" title="User management" body="Manage the staff roster that can access this school's workspace." /><div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]"><ShellCard><h3 className="font-display text-lg font-semibold">Grant staff access</h3><p className="mt-1 text-sm text-muted-foreground">The staff member must already have a Supabase sign-in account.</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><input data-testid="input-teacher-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-teacher-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teacher@school.org" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><select aria-label="Staff role" value={role} onChange={(e) => setRole(e.target.value as 'teacher' | 'admin')} className="h-11 rounded-lg border border-input bg-background px-3 text-sm"><option value="teacher">Teacher</option><option value="admin">School administrator</option></select>{role === 'teacher' && <input value={subjects} onChange={(e) => setSubjects(e.target.value)} placeholder="Assigned subjects (comma-separated)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />}</div><button data-testid="button-add-teacher" onClick={() => void add()} disabled={!email.trim() || !name.trim()} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Grant access</button>{error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}</ShellCard><ShellCard><h3 className="font-display text-lg font-semibold">Access rules</h3><p className="mt-1 text-sm text-muted-foreground">Teachers can enter marks. Administrators manage students, settings, and staff access.</p><div className="mt-5 rounded-xl bg-muted/50 p-4 text-sm"><p className="font-semibold">Supabase sign-in required</p><p className="mt-1 text-xs leading-5 text-muted-foreground">This roster grants access to the school workspace; it does not create a password or send an invitation email.</p></div></ShellCard></div><ShellCard className="mt-5"><LoadingOrError loading={roster.isLoading} error={roster.isError} retry={() => void roster.refetch()} /><div className="divide-y divide-border">{users.length ? users.map((user) => <div key={user.email} className="flex items-center gap-3 py-4"><span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{(user.displayName || user.email).slice(0, 2).toUpperCase()}</span><div className="flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="text-xs text-muted-foreground">{user.email} · {user.role}{user.subjects?.length ? ` · ${user.subjects.join(', ')}` : ''}</p></div><button aria-label={`Remove ${user.email}`} onClick={() => void remove(user.email)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div>) : !roster.isLoading && !roster.isError ? <p className="py-5 text-sm text-muted-foreground">No staff accounts have access yet.</p> : null}</div></ShellCard></div>;
+  return <div className="fade-up"><SectionHeading eyebrow="People & roles" title="User management" body="Invite staff, assign class subjects, and manage who can access the school's workspace." /><div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]"><ShellCard><h3 className="font-display text-lg font-semibold">Invite staff</h3><p className="mt-1 text-sm text-muted-foreground">A secure Supabase invitation email lets new staff finish setting up their sign-in.</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><input data-testid="input-teacher-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-teacher-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teacher@school.org" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><select aria-label="Staff role" value={role} onChange={(e) => { setRole(e.target.value as 'teacher' | 'admin'); setSelectedSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm"><option value="teacher">Teacher</option><option value="admin">School administrator</option></select></div>{role === 'teacher' && <div className="mt-4 rounded-xl border border-border p-3"><p className="mb-2 text-xs font-semibold">Assign class subjects</p>{subjectOptions.length ? <div className="grid max-h-52 gap-1 overflow-y-auto sm:grid-cols-2">{subjectOptions.map((option) => { const key = pairKey(option.className, option.subject); const owner = ownerFor(option.className, option.subject); const checked = selectedSubjects.includes(key); return <label key={key} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${owner ? 'opacity-50' : 'hover:bg-muted'}`}><input type="checkbox" checked={checked} disabled={Boolean(owner)} onChange={() => setSelectedSubjects((items) => checked ? items.filter((item) => item !== key) : [...items, key])} /><span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span></label>; })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects before inviting teachers.</p>}</div>}<button data-testid="button-add-teacher" onClick={() => void add()} disabled={!email.trim() || !name.trim() || config.saving || roster.isLoading} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Send invitation</button>{error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}{success && <p role="status" className="mt-3 text-sm text-emerald-700">{success}</p>}</ShellCard><ShellCard><h3 className="font-display text-lg font-semibold">Access rules</h3><p className="mt-1 text-sm text-muted-foreground">Teachers can enter marks only for their assigned classes and subjects. Administrators manage the school register, settings, and staff.</p><div className="mt-5 rounded-xl bg-muted/50 p-4 text-sm"><p className="font-semibold">Invitation delivery</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Supabase Auth must have email invitations enabled. A server-only service key is required; it is never sent to the browser.</p></div></ShellCard></div><ShellCard className="mt-5"><LoadingOrError loading={roster.isLoading} error={roster.isError} retry={() => void roster.refetch()} /><div className="divide-y divide-border">{users.length ? users.map((user) => { const assigned = (user.subjects ?? []).map((item) => typeof item === 'string' ? item : `${item.class ?? 'Class'}: ${item.subject ?? ''}`).join(', '); return <div key={user.email} className="flex items-center gap-3 py-4"><span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{(user.displayName || user.email).slice(0, 2).toUpperCase()}</span><div className="flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="text-xs text-muted-foreground">{user.email} · {user.role}{assigned ? ` · ${assigned}` : ''}</p></div><button aria-label={`Remove ${user.email}`} onClick={() => void remove(user.email)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div>; }) : !roster.isLoading && !roster.isError ? <p className="py-5 text-sm text-muted-foreground">No staff accounts have access yet.</p> : null}</div></ShellCard></div>;
 }
 
 function ParentMessages({ school }: { school: School }) {
@@ -247,24 +273,90 @@ function Performance({ school }: { school: School }) {
   const students = useListStudents(school.id, {});
   const termKey = currentTerm(config.data as SchoolConfig);
   const marks = useListMarks(school.id, { termKey });
-  const rows = useMemo(() => (students.data ?? []).map((student) => { const items = (marks.data ?? []).filter((mark) => mark.studentId === student.id); const total = items.reduce((sum, mark) => sum + mark.aoi + mark.midterm + mark.end, 0); return { name: student.name, average: items.length ? Math.round(total / items.length) : 0 }; }).filter((row) => row.average > 0).sort((a, b) => b.average - a.average), [students.data, marks.data]);
-  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Performance" body="Review averages, identify the strongest results, and spot students who need support." /><ShellCard><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Current term averages</h3><p className="mt-1 text-sm text-muted-foreground">{rows.length} students with published marks</p></div><Archive size={18} className="text-primary" /></div><LoadingOrError loading={students.isLoading || marks.isLoading} error={students.isError || marks.isError} retry={() => { students.refetch(); marks.refetch(); }} />{rows.length ? <div className="mt-6 h-80"><Bar data={{ labels: rows.slice(0, 12).map((row) => row.name), datasets: [{ label: 'Average', data: rows.slice(0, 12).map((row) => row.average), backgroundColor: '#284e80', borderRadius: 7 }] }} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 } } }} /></div> : <p className="mt-6 text-sm text-muted-foreground">Enter marks to see performance analytics.</p>}</ShellCard></div>;
+  const configData = config.data as SchoolConfig;
+  const fields = getAssessmentFields(configData);
+  const maxTotal = Math.max(1, fields.reduce((total, field) => total + field.max, 0));
+  const [className, setClassName] = useState('');
+  const classOptions = Array.from(new Set((students.data ?? []).map((student) => student.className))).filter(Boolean).sort();
+  const classStudents = (students.data ?? []).filter((student) => !className || student.className === className);
+  const rows = useMemo(() => classStudents.map((student) => {
+    const items = (marks.data ?? []).filter((mark) => mark.studentId === student.id);
+    const average = items.length
+      ? Math.round(items.reduce((sum, mark) => sum + mark.aoi + mark.midterm + mark.end, 0) / items.length / maxTotal * 100)
+      : 0;
+    return { id: student.id, name: student.name, className: student.className, average, subjects: items.length };
+  }).filter((row) => row.subjects > 0).sort((a, b) => b.average - a.average), [classStudents, marks.data, maxTotal]);
+  const subjectRows = useMemo(() => {
+    const names = className ? [className] : classOptions;
+    return names.flatMap((name) => {
+      const classIds = new Set((students.data ?? []).filter((student) => student.className === name).map((student) => student.id));
+      const bySubject = new Map<string, { total: number; count: number }>();
+      for (const mark of marks.data ?? []) {
+        if (!classIds.has(mark.studentId)) continue;
+        const current = bySubject.get(mark.subject) ?? { total: 0, count: 0 };
+        current.total += mark.aoi + mark.midterm + mark.end;
+        current.count += 1;
+        bySubject.set(mark.subject, current);
+      }
+      return Array.from(bySubject, ([subject, value]) => ({
+        className: name,
+        subject,
+        average: Math.round(value.total / Math.max(1, value.count) / maxTotal * 100),
+      }));
+    }).sort((a, b) => b.average - a.average);
+  }, [className, classOptions.join('|'), students.data, marks.data, maxTotal]);
+  const highPerformers = rows.filter((row) => row.average >= 80).length;
+  const supportNeeded = rows.filter((row) => row.average < 50).length;
+  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Performance" body={`Review ${termKey} results, compare class averages, and identify students and subjects needing support.`} />
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row"><label className="flex-1"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Class</span><select data-testid="select-performance-class" value={className} onChange={(event) => setClassName(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-card px-3 text-sm"><option value="">All classes</option>{classOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><button data-testid="button-export-performance" onClick={() => window.print()} className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-lg border border-border bg-card px-4 text-sm font-semibold hover:bg-muted print:hidden"><Download size={15} /> Export PDF</button></div>
+    <LoadingOrError loading={students.isLoading || marks.isLoading} error={students.isError || marks.isError} retry={() => { void students.refetch(); void marks.refetch(); }} />
+    <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[{ label: 'Class average', value: rows.length ? `${Math.round(rows.reduce((sum, row) => sum + row.average, 0) / rows.length)}%` : '—' }, { label: 'Students with marks', value: rows.length }, { label: 'Giants · 80%+', value: highPerformers }, { label: 'Dwarfs · below 50%', value: supportNeeded }].map((item) => <div key={item.label} className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{item.label}</p><p className="mt-2 font-display text-2xl font-semibold">{item.value}</p></div>)}</div>
+    <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
+      <ShellCard><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Student averages</h3><p className="mt-1 text-sm text-muted-foreground">{className || 'All classes'} · {rows.length} students</p></div><Archive size={18} className="text-primary" /></div>{rows.length ? <div className="mt-6 h-80"><Bar data={{ labels: rows.slice(0, 15).map((row) => row.name.toUpperCase()), datasets: [{ label: 'Average', data: rows.slice(0, 15).map((row) => row.average), backgroundColor: '#284e80', borderRadius: 7 }] }} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: (value) => `${value}%` } } } }} /></div> : <p className="mt-6 text-sm text-muted-foreground">Enter marks to see performance analytics.</p>}</ShellCard>
+      <ShellCard><h3 className="font-display text-lg font-semibold">Best subjects</h3><p className="mt-1 text-sm text-muted-foreground">Average score by subject.</p>{subjectRows.length ? <div className="mt-4 space-y-3">{subjectRows.slice(0, 8).map((item) => <div key={`${item.className}-${item.subject}`}><div className="flex justify-between gap-2 text-sm"><span>{item.subject}{!className && <span className="text-muted-foreground"> · {item.className}</span>}</span><span className="font-semibold">{item.average}%</span></div><div className="mt-1.5 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-[#2e8c72]" style={{ width: `${item.average}%` }} /></div></div>)}</div> : <p className="mt-4 text-sm text-muted-foreground">No subject results yet.</p>}</ShellCard>
+    </div>
+    <ShellCard className="mt-5"><h3 className="font-display text-lg font-semibold">Students needing support</h3><p className="mt-1 text-sm text-muted-foreground">Students with an average below 50% for the selected term.</p>{rows.filter((row) => row.average < 50).length ? <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{rows.filter((row) => row.average < 50).map((row) => <div key={row.id} className="rounded-xl border border-border p-3"><p className="text-sm font-semibold uppercase">{row.name}</p><p className="mt-1 text-xs text-muted-foreground">{row.className} · {row.average}%</p></div>)}</div> : <p className="mt-4 text-sm text-muted-foreground">No students currently fall below 50%.</p>}</ShellCard>
+  </div>;
 }
 
 function PrintMarksheets({ school, report = false }: { school: School; report?: boolean }) {
   const config = useConfig(school.id);
   const students = useListStudents(school.id, {});
-  const termKey = currentTerm(config.data as SchoolConfig);
+  const configData = config.data as SchoolConfig;
+  const termKey = currentTerm(configData);
+  const fields = getAssessmentFields(configData);
   const marks = useListMarks(school.id, { termKey });
   const [className, setClassName] = useState('');
   const classes = Array.from(new Set((students.data ?? []).map((student) => student.className))).filter(Boolean);
   const filtered = (students.data ?? []).filter((student) => !className || student.className === className);
+  const printClasses = className ? [className] : classes;
   const print = () => window.print();
-  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title={report ? 'Report studio' : 'Print marksheets'} body={report ? 'Prepare printable report cards for a class.' : 'Generate a clean marksheet for the selected class.'} /><ShellCard><div className="flex flex-col gap-3 sm:flex-row sm:items-end"><label className="flex-1"><span className="mb-2 block text-xs font-semibold text-muted-foreground">Class</span><select data-testid="select-print-class" value={className} onChange={(e) => setClassName(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><button data-testid="button-print-marksheets" onClick={print} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground"><Printer size={15} /> Print</button></div><div className="mt-6 overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="py-3">Student</th><th className="py-3">Class</th><th className="py-3">Subjects</th><th className="py-3 text-right">Average</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((student) => { const items = (marks.data ?? []).filter((mark) => mark.studentId === student.id); const average = items.length ? Math.round(items.reduce((sum, item) => sum + item.aoi + item.midterm + item.end, 0) / items.length) : 0; return <tr key={student.id}><td className="py-3 font-semibold">{student.name}</td><td className="py-3">{student.className}</td><td className="py-3 text-muted-foreground">{items.length}</td><td className="py-3 text-right font-semibold">{average}/100</td></tr>; })}</tbody></table></div></ShellCard></div>;
+  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title={report ? 'Report studio' : 'Print marksheets'} body={`${report ? 'Prepare printable reports' : 'Print assessment sheets'} using the active term's configured classes, subjects, and assessment components.`} /><ShellCard><div className="flex flex-col gap-3 sm:flex-row sm:items-end print:hidden"><label className="flex-1"><span className="mb-2 block text-xs font-semibold text-muted-foreground">Class</span><select data-testid="select-print-class" value={className} onChange={(e) => setClassName(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><button data-testid="button-print-marksheets" onClick={print} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground"><Printer size={15} /> Print / save PDF</button></div><div className="mt-6 space-y-8">{printClasses.map((group) => { const groupStudents = filtered.filter((student) => student.className === group); const groupSubjects = subjectNames(configData, group); return <section key={group} className="break-inside-avoid"><div className="mb-3 border-b border-border pb-2"><h3 className="font-display text-xl font-semibold">{school.name} · {group}</h3><p className="text-xs text-muted-foreground">{String((configData.terms as Record<string, Record<string, unknown>> | undefined)?.[termKey]?.label ?? termKey)} · {report ? 'Student report' : 'Class marksheet'}</p></div>{groupSubjects.length ? groupSubjects.map((subject) => <div key={`${group}-${subject}`} className="mb-5 overflow-x-auto"><h4 className="mb-2 text-sm font-semibold">{subject}</h4><table className="w-full min-w-[600px] text-left text-xs"><thead className="border-b border-border bg-muted/40 uppercase tracking-wide text-muted-foreground"><tr><th className="px-2 py-2">Student</th>{fields.map((field) => <th key={field.field} className="px-2 py-2">{field.name} / {field.max}</th>)}<th className="px-2 py-2 text-right">Total / {fields.reduce((sum, field) => sum + field.max, 0)}</th></tr></thead><tbody className="divide-y divide-border">{groupStudents.map((student) => { const mark = (marks.data ?? []).find((item) => item.studentId === student.id && item.subject === subject); const values = { c1: mark?.aoi ?? 0, c2: mark?.midterm ?? 0, c3: mark?.end ?? 0 }; const total = fields.reduce((sum, field) => sum + values[field.field], 0); return <tr key={student.id}><td className="px-2 py-2 font-semibold uppercase">{student.name}</td>{fields.map((field) => <td key={field.field} className="px-2 py-2">{mark?.enteredFields?.includes(field.field) || values[field.field] > 0 ? values[field.field] : '—'}</td>)}<td className="px-2 py-2 text-right font-semibold">{total}</td></tr>; })}</tbody></table></div>) : <p className="text-sm text-muted-foreground">No subjects are configured for {group}.</p>}</section>; })}{!filtered.length && <p className="text-sm text-muted-foreground">No students are available for this term.</p>}</div></ShellCard></div>;
+}
+
+function getNextTermIdentity(activeKey: string, activeLabel: string, terms: Record<string, Record<string, unknown>>) {
+  const year = Number(activeLabel.match(/\b(20\d{2})\b/)?.[1] ?? activeKey.match(/\b(20\d{2})\b/)?.[1] ?? new Date().getFullYear());
+  const currentNumber = Number(
+    activeLabel.match(/\b(?:term|t)\s*([1-3])\b/i)?.[1] ??
+    activeKey.match(/(?:term|t)[-_ ]?([1-3])$/i)?.[1] ??
+    0,
+  );
+  let nextYear = currentNumber >= 3 ? year + 1 : year;
+  let nextNumber = currentNumber >= 3 || currentNumber === 0 ? 1 : currentNumber + 1;
+  let key = `${nextYear}-T${nextNumber}`;
+  while (terms[key] && (terms[key].locked || terms[key].status === 'closed')) {
+    if (nextNumber >= 3) {
+      nextYear += 1;
+      nextNumber = 1;
+    } else nextNumber += 1;
+    key = `${nextYear}-T${nextNumber}`;
+  }
+  return { key, label: `Term ${nextNumber}, ${nextYear}` };
 }
 
 function TermManagement({ school }: { school: School }) {
   const config = useConfig(school.id);
+  const queryClient = useQueryClient();
   const terms = (config.data.terms && typeof config.data.terms === 'object' && !Array.isArray(config.data.terms) ? config.data.terms : {}) as Record<string, Record<string, unknown>>;
   const [term, setTerm] = useState('');
   const activeTerm = String(config.data.activeTerm ?? '');
@@ -282,9 +374,8 @@ function TermManagement({ school }: { school: School }) {
       },
     }, () => setTerm(''));
   };
-  const setStatus = (key: string, isLocked: boolean) => config.save({
-    ...config.data,
-    terms: {
+  const setStatus = (key: string, isLocked: boolean) => {
+    const nextTerms = {
       ...terms,
       [key]: {
         ...terms[key],
@@ -292,8 +383,18 @@ function TermManagement({ school }: { school: School }) {
         status: isLocked ? 'closed' : 'open',
         closedDate: isLocked ? new Date().toISOString() : null,
       },
-    },
-  });
+    };
+    let nextActiveTerm = activeTerm;
+    if (isLocked && key === activeTerm) {
+      const identity = getNextTermIdentity(key, String(terms[key]?.label ?? key), nextTerms);
+      const existing = nextTerms[identity.key];
+      nextTerms[identity.key] = existing
+        ? { ...existing, locked: false, status: 'open', closedDate: null }
+        : { label: identity.label, students: [], marks: [], locked: false, status: 'open', closedDate: null, createdDate: new Date().toISOString() };
+      nextActiveTerm = identity.key;
+    }
+    config.save({ ...config.data, activeTerm: nextActiveTerm, terms: nextTerms });
+  };
   const clearMarks = async (key: string) => {
     if (!window.confirm(`Clear marks for closed term ${key}? This cannot be undone.`)) return;
     try {
@@ -302,20 +403,37 @@ function TermManagement({ school }: { school: School }) {
       window.alert(error instanceof Error ? error.message : 'Could not clear term marks.');
     }
   };
-  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Term management" body="Create terms, choose the active term, and lock completed assessment records." /><ShellCard><div className="flex gap-2"><input data-testid="input-new-term" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="e.g. 2026-T2 or Term 2, 2026" className="h-11 flex-1 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-term" onClick={add} disabled={!term.trim() || config.saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add term</button></div><div className="mt-6 divide-y divide-border">{Object.entries(terms).length ? Object.entries(terms).map(([key, item]) => { const isLocked = Boolean(item.locked || item.status === 'closed'); const isActive = activeTerm === key; return <div key={key} className="flex flex-wrap items-center gap-3 py-4"><CalendarDays size={17} className="text-primary" /><div className="flex-1"><p className="text-sm font-semibold">{String(item.label ?? key)} {isActive && <span className="ml-2 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">Active</span>}</p><p className="mt-1 text-xs text-muted-foreground">{isLocked ? 'Closed · marks are read-only' : 'Open for marks entry'}</p></div>{!isActive && <button onClick={() => config.save({ ...config.data, activeTerm: key })} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">Set active</button>}<button onClick={() => setStatus(key, !isLocked)} disabled={config.saving} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">{isLocked ? 'Reopen' : 'Close term'}</button>{isLocked && <button onClick={() => void clearMarks(key)} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5">Clear marks</button>}</div>; }) : <p className="py-5 text-sm text-muted-foreground">No configured terms yet.</p>}</div></ShellCard></div>;
+  const deleteTerm = async (key: string) => {
+    const label = String(terms[key]?.label ?? key);
+    if (!window.confirm(`Delete ${label}, including all student records and marks saved for this term? This cannot be undone.`)) return;
+    try {
+      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/terms/${encodeURIComponent(key)}`, { method: 'DELETE' });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: getGetSchoolConfigQueryKey(school.id) }),
+        queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) }),
+        queryClient.invalidateQueries({ queryKey: getListMarksQueryKey(school.id) }),
+      ]);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not delete the term.');
+    }
+  };
+  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Term management" body="Create terms, choose the active term, and lock completed assessment records. Closing the active term opens the next term automatically." /><ShellCard><div className="flex gap-2"><input data-testid="input-new-term" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="e.g. Term 2, 2026" className="h-11 flex-1 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-term" onClick={add} disabled={!term.trim() || config.saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add term</button></div><div className="mt-6 divide-y divide-border">{Object.entries(terms).length ? Object.entries(terms).map(([key, item]) => { const isLocked = Boolean(item.locked || item.status === 'closed'); const isActive = activeTerm === key; return <div key={key} className="flex flex-wrap items-center gap-3 py-4"><CalendarDays size={17} className="text-primary" /><div className="flex-1"><p className="text-sm font-semibold">{String(item.label ?? key)} {isActive && <span className="ml-2 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">Active</span>}</p><p className="mt-1 text-xs text-muted-foreground">{isLocked ? 'Closed · marks are read-only' : 'Open for marks entry'}</p></div>{!isActive && <button onClick={() => config.save({ ...config.data, activeTerm: key })} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">Set active</button>}<button onClick={() => setStatus(key, !isLocked)} disabled={config.saving} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">{isLocked ? 'Reopen' : 'Close term'}</button>{isLocked && <button onClick={() => void clearMarks(key)} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5">Clear marks</button>}<button onClick={() => void deleteTerm(key)} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5">Delete term</button></div>; }) : <p className="py-5 text-sm text-muted-foreground">No configured terms yet.</p>}</div></ShellCard></div>;
 }
 
 function ManageSubjects({ school }: { school: School }) {
   const config = useConfig(school.id);
+  const students = useListStudents(school.id, {});
   const configData = config.data as SchoolConfig;
   const subjectMap = configData.subjects && typeof configData.subjects === 'object' && !Array.isArray(configData.subjects)
     ? configData.subjects as Record<string, Array<string | { name: string; teacher?: string }>>
     : {};
-  const classes = Object.keys(subjectMap);
+  const classes = Array.from(new Set([...Object.keys(subjectMap), ...(students.data ?? []).map((student) => student.className)])).filter(Boolean).sort();
   const [className, setClassName] = useState('');
+  const [newClass, setNewClass] = useState('');
   const [subject, setSubject] = useState('');
   const [teacher, setTeacher] = useState('');
-  const selectedClass = className || classes[0] || '';
+  const [editing, setEditing] = useState<{ original: string; name: string; teacher: string } | null>(null);
+  const selectedClass = newClass.trim() || className || classes[0] || '';
   const subjects = subjectRecords(configData, selectedClass);
   const saveClass = (records: Array<{ name: string; teacher: string }>) => config.save({
     ...config.data,
@@ -327,7 +445,12 @@ function ManageSubjects({ school }: { school: School }) {
     setSubject('');
     setTeacher('');
   };
-  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Manage subjects" body="Set each class's subjects and assigned teacher. These subject names feed marks entry and reports." /><ShellCard><div className="grid gap-3 md:grid-cols-3"><input data-testid="input-subject-class" value={selectedClass} onChange={(e) => setClassName(e.target.value)} placeholder="Class (e.g. S1)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-manage-subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-subject-teacher" value={teacher} onChange={(e) => setTeacher(e.target.value)} placeholder="Teacher name (optional)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /></div><button data-testid="button-manage-subject-add" onClick={add} disabled={!selectedClass || !subject.trim() || config.saving} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add subject</button><div className="mt-6 flex flex-wrap gap-2">{subjects.map((item) => <span key={item.name} className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-2 text-xs font-semibold">{item.name}{item.teacher && <span className="font-normal text-muted-foreground">· {item.teacher}</span>}<button aria-label={`Remove ${item.name}`} onClick={() => saveClass(subjects.filter((value) => value.name !== item.name))} className="text-muted-foreground hover:text-destructive"><X size={13} /></button></span>)}</div>{classes.length === 0 && !selectedClass && <p className="mt-5 text-sm text-muted-foreground">Add a class name above to create its first subject list.</p>}</ShellCard></div>;
+  const saveEdit = () => {
+    if (!editing?.name.trim() || subjects.some((item) => item.name.toLowerCase() === editing.name.trim().toLowerCase() && item.name !== editing.original)) return;
+    saveClass(subjects.map((item) => item.name === editing.original ? { name: editing.name.trim(), teacher: editing.teacher.trim() } : item));
+    setEditing(null);
+  };
+  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Manage subjects" body="Choose a class to review or edit its subjects and teacher assignments. Subject options feed marks entry and reports." /><ShellCard><div className="grid gap-3 md:grid-cols-3"><label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Filter by class</span><select data-testid="input-subject-class" value={className || classes[0] || ''} onChange={(event) => { setClassName(event.target.value); setNewClass(''); setEditing(null); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"><option value="">Select class</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Add new class (optional)</span><input value={newClass} onChange={(event) => setNewClass(event.target.value)} placeholder="e.g. S1" className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label><div className="hidden md:block" /></div><div className="mt-4 grid gap-3 md:grid-cols-2"><input data-testid="input-manage-subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-subject-teacher" value={teacher} onChange={(e) => setTeacher(e.target.value)} placeholder="Teacher name (optional)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /></div><button data-testid="button-manage-subject-add" onClick={add} disabled={!selectedClass || !subject.trim() || config.saving} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add subject</button><div className="mt-6 divide-y divide-border">{subjects.map((item) => editing?.original === item.name ? <div key={item.name} className="grid gap-2 py-3 sm:grid-cols-[1fr_1fr_auto_auto]"><input aria-label="Edit subject name" value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm" /><input aria-label="Edit assigned teacher" value={editing.teacher} onChange={(event) => setEditing({ ...editing, teacher: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm" /><button onClick={saveEdit} disabled={config.saving} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Save</button><button onClick={() => setEditing(null)} className="rounded-md border border-border px-3 py-2 text-xs font-semibold">Cancel</button></div> : <div key={item.name} className="flex items-center gap-3 py-3"><div className="flex-1"><p className="text-sm font-semibold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.teacher ? `Assigned to ${item.teacher}` : 'No teacher assigned'}</p></div><button aria-label={`Edit ${item.name}`} onClick={() => setEditing({ original: item.name, name: item.name, teacher: item.teacher })} className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">Edit</button><button aria-label={`Remove ${item.name}`} onClick={() => saveClass(subjects.filter((value) => value.name !== item.name))} className="text-muted-foreground hover:text-destructive"><X size={15} /></button></div>)}</div>{classes.length === 0 && !selectedClass && <p className="mt-5 text-sm text-muted-foreground">Add a class name above to create its first subject list.</p>}</ShellCard></div>;
 }
 
 function GradingSystem({ school }: { school: School }) {

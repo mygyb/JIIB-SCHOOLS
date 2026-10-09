@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -25,6 +26,8 @@ import {
 import {
   asRows,
   getSupabaseUser,
+  inviteSupabaseUser,
+  isSupabaseInviteConfigured,
   jsonBody,
   supabaseRequest,
   valueOf,
@@ -105,7 +108,17 @@ function mapAllowedUser(row: Record<string, unknown>) {
     email: String(row.email ?? ""),
     displayName: (row.display_name as string | null | undefined) ?? null,
     role: row.role === "admin" ? "admin" : "teacher",
-    subjects: Array.isArray(row.subjects) ? row.subjects.map(String) : [],
+    subjects: Array.isArray(row.subjects)
+      ? row.subjects.map((entry) => {
+          if (typeof entry === "string") return entry;
+          if (!entry || typeof entry !== "object") return String(entry);
+          const assignment = entry as Record<string, unknown>;
+          return {
+            class: String(assignment.class ?? ""),
+            subject: String(assignment.subject ?? ""),
+          };
+        })
+      : [],
     createdAt: new Date(String(row.created_at ?? new Date().toISOString())),
   };
 }
@@ -146,11 +159,15 @@ const SchoolRegistrationBody = z.object({
   assessmentFields: z.array(AssessmentFieldBody).min(1).max(3).optional(),
 });
 const SchoolStatusBody = z.object({ active: z.boolean() });
+const SubjectAssignmentBody = z.object({
+  class: z.string().trim().min(1),
+  subject: z.string().trim().min(1),
+});
 const AllowedUserBody = z.object({
   email: z.string().email(),
   displayName: z.string().optional(),
   role: z.enum(["admin", "teacher"]).optional(),
-  subjects: z.array(z.string()).optional(),
+  subjects: z.array(z.union([z.string(), SubjectAssignmentBody])).optional(),
 });
 const TermBody = z.object({ termKey: z.string().min(1), label: z.string().min(1) });
 const TermStatusBody = z.object({ status: z.enum(["open", "closed"]) });
@@ -599,7 +616,7 @@ router.get("/schools/portfolio/analytics", async (req, res) => {
     const [schoolRows, studentRows, markRows, configRows, userRows] = await Promise.all([
       supabaseRequest(req, "schools", {}, "?select=*&order=name.asc"),
       supabaseRequest(req, "students", {}, "?select=school_id,id,name,class,house,term_key"),
-      supabaseRequest(req, "marks", {}, "?select=school_id,student_id,term_key,subject,c1,c2,c3,aoi,midterm,end"),
+      supabaseRequest(req, "marks", {}, "?select=school_id,student_id,term_key,subject,aoi,midterm,end"),
       supabaseRequest(req, "school_data", {}, "?select=school_id,data"),
       supabaseRequest(req, "allowed_users", {}, "?select=school_id,email"),
     ]);
@@ -983,17 +1000,21 @@ router.put("/schools/:schoolId/config", async (req, res) => {
 router.get("/schools/:schoolId/dashboard", async (req, res) => {
   try {
     const { schoolId } = GetDashboardSummaryParams.parse(req.params);
-    const [studentRows, markRows, configRows] = await Promise.all([
-      supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id,name,class,house,created_at,term_key&order=created_at.desc`),
-      supabaseRequest(req, "marks", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id,student_id,subject,term_key,updated_at&order=updated_at.desc&limit=5000`),
+    const userEmail = String(req.headers["x-verified-user-email"] ?? "").toLowerCase();
+    const [studentRows, markRows, configRows, assignmentRows] = await Promise.all([
+      supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id,name,class,house,subjects,created_at,term_key&order=created_at.desc`),
+      supabaseRequest(req, "marks", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id,student_id,subject,term_key,aoi,midterm,end,updated_at&order=updated_at.desc&limit=5000`),
       supabaseRequest(req, "school_data", {}, `?school_id=eq.${schoolId}&select=data&limit=1`),
+      res.locals.jiibRole === "teacher" && userEmail
+        ? supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(userEmail)}&select=email,display_name,subjects&limit=1`)
+        : Promise.resolve([]),
     ]);
-    const config = asRows(configRows)[0]?.data as Record<string, unknown> | undefined;
+    const config = (asRows(configRows)[0]?.data as Record<string, unknown> | undefined) ?? {};
     const termKey = String(config?.activeTerm ?? "");
     const terms = config?.terms && typeof config.terms === "object"
       ? config.terms as Record<string, Record<string, unknown>>
       : {};
-    const activeTerm = terms[termKey];
+    const activeTerm = terms[termKey] ?? {};
     const studentMap = new Map<string, Record<string, unknown>>();
     for (const row of asRows(studentRows).filter((item) => !termKey || String(item.term_key ?? "") === termKey)) {
       studentMap.set(String(row.id), row);
@@ -1012,12 +1033,16 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
         name: previous.name || student.name,
         class: previous.class || student.class || student.className,
         house: previous.house || student.house,
+        subjects: previous.subjects ?? student.subjects,
       });
     }
     const students = Array.from(studentMap.values());
     const markMap = new Map<string, Record<string, unknown>>();
     for (const mark of asRows(markRows).filter((item) => !termKey || String(item.term_key ?? "") === termKey)) {
-      markMap.set(`${mark.student_id}|${mark.subject}`, mark);
+      markMap.set(`${String(mark.student_id)}|${String(mark.subject)}`, {
+        ...mark,
+        enteredFields: Array.isArray(mark.entered_fields) ? mark.entered_fields : mark.enteredFields,
+      });
     }
     const legacyMarks = Array.isArray(activeTerm?.marks)
       ? activeTerm.marks as Array<Record<string, unknown>>
@@ -1025,34 +1050,117 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
     for (const mark of legacyMarks) {
       const key = `${String(mark.studentId ?? "")}|${String(mark.subject ?? "")}`;
       if (key.startsWith("|")) continue;
-      markMap.set(key, markMap.get(key) ?? mark);
+      const existing = markMap.get(key);
+      markMap.set(key, existing
+        ? { ...mark, ...existing, enteredFields: mark.enteredFields ?? existing.enteredFields }
+        : mark);
     }
-    const marks = Array.from(markMap.values());
     const classes = new Set(students.map((student) => String(student.class ?? "")));
-    const houses = new Map<string, number>();
+    const settings = config.settings && typeof config.settings === "object" && !Array.isArray(config.settings)
+      ? config.settings as Record<string, unknown>
+      : {};
+    const rawHouses = Array.isArray(settings.houses) ? settings.houses : Array.isArray(config.houses) ? config.houses : [];
+    const configuredHouses = Array.from(new Set(rawHouses
+      .map((house) => typeof house === "string" ? house.trim() : String((house as Record<string, unknown>)?.name ?? "").trim())
+      .filter(Boolean)));
+    const houseCounts = new Map<string, number>();
     students.forEach((student) => {
-      const house = String(student.house ?? "Unassigned") || "Unassigned";
-      houses.set(house, (houses.get(house) ?? 0) + 1);
+      const house = String(student.house ?? "").trim() || "Unassigned";
+      houseCounts.set(house, (houseCounts.get(house) ?? 0) + 1);
     });
+    const houseNames = configuredHouses.length
+      ? [...configuredHouses, ...Array.from(houseCounts.keys()).filter((house) => house !== "Unassigned" && !configuredHouses.includes(house))]
+      : Array.from(houseCounts.keys());
+    if (houseCounts.has("Unassigned") && !houseNames.includes("Unassigned")) houseNames.push("Unassigned");
+    const houseGroups = houseNames.map((label) => ({ label, count: houseCounts.get(label) ?? 0 }));
     const subjectMap = config?.subjects;
     const subjectsByClass = subjectMap && typeof subjectMap === "object" && !Array.isArray(subjectMap)
       ? subjectMap as Record<string, unknown>
       : undefined;
-    const globalSubjectCount = Array.isArray(subjectMap) ? subjectMap.length : 0;
-    const expected = Math.max(
-      students.reduce((total, student) => {
-        const classSubjects = subjectsByClass?.[String(student.class ?? "")];
-        const count = Array.isArray(classSubjects) ? classSubjects.length : globalSubjectCount;
-        return total + Math.max(count, 1);
-      }, 0),
-      marks.length,
-    );
+    const globalSubjects = Array.isArray(subjectMap) ? subjectMap : [];
+    const assessmentFields = activeAssessmentFields(config);
+    const assignments = asRows(assignmentRows)[0]?.subjects;
+    const assignmentList = Array.isArray(assignments) ? assignments : [];
+    const teacherName = String(asRows(assignmentRows)[0]?.display_name ?? "");
+    const subjectCompletion: Array<{
+      className: string; subject: string; teacher: string; entered: number; expected: number; percentage: number;
+    }> = [];
+    const optionalClass = String(settings.optionalSubjectsClass ?? "S.3");
+    const classLevel = (name: string) => Number(name.match(/\d+/)?.[0] ?? 0);
+    const configuredClassNames = subjectsByClass
+      ? Object.keys(subjectsByClass)
+      : Array.from(classes).filter(Boolean);
+    for (const className of configuredClassNames) {
+      const classStudents = students.filter((student) => String(student.class ?? "") === className);
+      if (!classStudents.length) continue;
+      const rawSubjects = subjectsByClass?.[className];
+      const subjectEntries = Array.isArray(rawSubjects) ? rawSubjects : globalSubjects;
+      const subjects = subjectEntries
+        .map((entry) => typeof entry === "string" ? { name: entry, teacher: "" } : {
+          name: String((entry as Record<string, unknown>)?.name ?? ""),
+          teacher: String((entry as Record<string, unknown>)?.teacher ?? ""),
+        })
+        .filter((entry) => entry.name);
+      for (const item of subjects) {
+        const owned = assignmentList.some((entry) =>
+          typeof entry === "string"
+            ? entry === item.name
+            : Boolean(entry && typeof entry === "object" &&
+              String((entry as Record<string, unknown>).class ?? "") === className &&
+              String((entry as Record<string, unknown>).subject ?? "") === item.name),
+        );
+        if (res.locals.jiibRole === "teacher" && !owned) continue;
+        const assignedToCurrentTeacher = assignmentList.some((entry) =>
+          Boolean(entry && typeof entry === "object" &&
+            String((entry as Record<string, unknown>).class ?? "") === className &&
+            String((entry as Record<string, unknown>).subject ?? "") === item.name),
+        ) ? teacherName : item.teacher;
+        const assignedTeacher = assignedToCurrentTeacher || item.teacher;
+        const eligibleStudents = classLevel(className) >= classLevel(optionalClass)
+          ? classStudents.filter((student) => !Array.isArray(student.subjects) || student.subjects.length === 0 ||
+            (student.subjects as unknown[]).some((subject) =>
+              typeof subject === "string" ? subject === item.name :
+                String((subject as Record<string, unknown>)?.name ?? subject) === item.name))
+          : classStudents;
+        const expected = eligibleStudents.length * assessmentFields.length;
+        const entered = eligibleStudents.reduce((total, student) => {
+          const mark = markMap.get(`${String(student.id)}|${item.name}`);
+          return total + (mark ? enteredMarkFields(mark, assessmentFields).length : 0);
+        }, 0);
+        if (expected > 0) subjectCompletion.push({
+          className,
+          subject: item.name,
+          teacher: assignedTeacher,
+          entered,
+          expected,
+          percentage: Math.round((entered / expected) * 100),
+        });
+      }
+    }
+    const marksEntered = subjectCompletion.reduce((total, item) => total + item.entered, 0);
+    const marksExpected = subjectCompletion.reduce((total, item) => total + item.expected, 0);
+    const events = (Array.isArray(config.events) ? config.events : [])
+      .map((event, index) => {
+        if (typeof event === "string") return { id: `event-${index}`, title: event, date: "" };
+        const item = event as Record<string, unknown>;
+        return {
+          id: String(item.id ?? `event-${index}`),
+          title: String(item.title ?? ""),
+          date: String(item.date ?? item.eventDate ?? item.event_date ?? ""),
+        };
+      })
+      .filter((event) => event.title);
     res.json({
       studentCount: students.length,
       classCount: Array.from(classes).filter(Boolean).length,
-      marksEntered: marks.length,
-      marksExpected: expected,
-      houses: Array.from(houses.entries()).map(([label, count]) => ({ label, count })),
+      marksEntered,
+      marksExpected,
+      houses: houseGroups,
+      configuredHouseCount: configuredHouses.length,
+      subjectCompletion,
+      assessmentFields,
+      activeTerm: String(activeTerm.label ?? termKey),
+      events,
       recentActivity: students.slice(0, 6).map((student) => ({
         id: String(student.id),
         label: "Student record updated",
@@ -1134,7 +1242,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
     const body = CreateStudentBody.parse(req.body);
     const config = await readSchoolConfig(req, schoolId);
     const termKey = String(config.activeTerm ?? "2026-T1");
-    const studentId = `${body.className.replace(/[^a-z0-9]/gi, "")}_${Date.now()}`;
+    const studentId = randomUUID();
     const rows = asRows(
       await supabaseRequest(
         req,
@@ -1250,31 +1358,38 @@ router.delete("/schools/:schoolId/students/:studentId", async (req, res) => {
   try {
     const { schoolId, studentId } = DeleteStudentParams.parse(req.params);
     const config = await readSchoolConfig(req, schoolId);
-    const termKey = String(config.activeTerm ?? "");
     await supabaseRequest(
       req,
       "students",
       { method: "DELETE" },
-      `?id=eq.${encodeURIComponent(studentId)}&school_id=eq.${encodeURIComponent(schoolId)}${termKey ? `&term_key=eq.${encodeURIComponent(termKey)}` : ""}`,
+      `?id=eq.${encodeURIComponent(studentId)}&school_id=eq.${encodeURIComponent(schoolId)}`,
+    );
+    await supabaseRequest(
+      req,
+      "marks",
+      { method: "DELETE" },
+      `?student_id=eq.${encodeURIComponent(studentId)}&school_id=eq.${encodeURIComponent(schoolId)}`,
     );
     const terms = config.terms && typeof config.terms === "object"
       ? (config.terms as Record<string, Record<string, unknown>>)
       : {};
-    const activeTerm = terms[termKey];
-    if (activeTerm && Array.isArray(activeTerm.students)) {
-      await writeSchoolConfig(req, schoolId, {
-        ...config,
-        terms: {
-          ...terms,
-          [termKey]: {
-            ...activeTerm,
-            students: (activeTerm.students as Array<Record<string, unknown>>).filter(
-              (student) => String(student.id) !== studentId,
-            ),
-          },
-        },
-      });
-    }
+    const nextTerms = Object.fromEntries(Object.entries(terms).map(([key, term]) => [
+      key,
+      {
+        ...term,
+        ...(Array.isArray(term.students) ? {
+          students: (term.students as Array<Record<string, unknown>>).filter(
+            (student) => String(student.id) !== studentId,
+          ),
+        } : {}),
+        ...(Array.isArray(term.marks) ? {
+          marks: (term.marks as Array<Record<string, unknown>>).filter(
+            (mark) => String(mark.studentId ?? mark.student_id) !== studentId,
+          ),
+        } : {}),
+      },
+    ]));
+    await writeSchoolConfig(req, schoolId, { ...config, terms: nextTerms });
     res.status(204).send();
   } catch (error) {
     sendError(res, error);
@@ -1315,11 +1430,20 @@ router.get("/schools/:schoolId/marks", async (req, res) => {
           aoi: Number(mark.aoi ?? mark.c1 ?? 0),
           midterm: Number(mark.midterm ?? mark.c2 ?? 0),
           end: Number(mark.end ?? mark.c3 ?? 0),
+          ...(Array.isArray(mark.enteredFields) ? { enteredFields: mark.enteredFields.map(String) } : {}),
         }))
       : [];
     const byKey = new Map<string, ReturnType<typeof mapMark>>();
     for (const mark of legacyMarks) byKey.set(`${mark.studentId}|${mark.subject}`, mark);
-    for (const mark of databaseMarks) byKey.set(`${mark.studentId}|${mark.subject}`, mark);
+    for (const mark of databaseMarks) {
+      const key = `${mark.studentId}|${mark.subject}`;
+      const legacy = byKey.get(key);
+      byKey.set(key, {
+        ...legacy,
+        ...mark,
+        ...(legacy?.enteredFields ? { enteredFields: legacy.enteredFields } : {}),
+      });
+    }
     const matching = Array.from(byKey.values()).filter((mark) =>
       (!subject || mark.subject === subject) &&
       (!className || String(
@@ -1339,16 +1463,23 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
     const { schoolId } = UpsertMarkParams.parse(req.params);
     const body = UpsertMarkBody.parse(req.body);
     const now = new Date().toISOString();
-    const [studentRows, config] = await Promise.all([
+    const [studentRows, config, teacherRows] = await Promise.all([
       await supabaseRequest(
         req,
         "students",
         {},
-        `?id=eq.${encodeURIComponent(body.studentId)}&school_id=eq.${encodeURIComponent(schoolId)}&select=class&limit=1`,
+        `?id=eq.${encodeURIComponent(body.studentId)}&school_id=eq.${encodeURIComponent(schoolId)}&select=class,subjects&limit=1`,
       ),
       readSchoolConfig(req, schoolId),
+      res.locals.jiibRole === "teacher"
+        ? supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(String(req.headers["x-verified-user-email"] ?? "").toLowerCase())}&select=subjects&limit=1`)
+        : Promise.resolve([]),
     ]);
     const termKey = body.termKey || String(config.activeTerm ?? "");
+    if (res.locals.jiibRole === "teacher" && termKey !== String(config.activeTerm ?? "")) {
+      res.status(403).json({ error: "Teachers can enter marks only in the active term." });
+      return;
+    }
     const termMap = config.terms && typeof config.terms === "object"
       ? (config.terms as Record<string, Record<string, unknown>>)
       : {};
@@ -1364,6 +1495,31 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
       : undefined;
     const normalizedStudentRows = asRows(studentRows);
     const studentClass = String(normalizedStudentRows[0]?.class ?? legacyStudent?.class ?? legacyStudent?.className ?? "");
+    if (res.locals.jiibRole === "teacher") {
+      const assignedSubjects = asRows(teacherRows)[0]?.subjects;
+      const assignments = Array.isArray(assignedSubjects) ? assignedSubjects : [];
+      const allowed = assignments.some((assignment) =>
+        typeof assignment === "string"
+          ? assignment === body.subject
+          : Boolean(assignment && typeof assignment === "object" &&
+            String((assignment as Record<string, unknown>).class ?? "") === studentClass &&
+            String((assignment as Record<string, unknown>).subject ?? "") === body.subject),
+      );
+      if (!allowed) {
+        res.status(403).json({ error: "You can enter marks only for subjects assigned to your class." });
+        return;
+      }
+    }
+    const fields = activeAssessmentFields(config);
+    const scores = { c1: body.aoi ?? 0, c2: body.midterm ?? 0, c3: body.end ?? 0 };
+    const invalidScore = fields.find((field) => Number(scores[field.field]) > field.max);
+    if (invalidScore) {
+      res.status(400).json({ error: `${invalidScore.name} cannot be greater than ${invalidScore.max}.` });
+      return;
+    }
+    const enteredFields = Array.isArray(body.enteredFields)
+      ? body.enteredFields.filter((field) => fields.some((item) => item.field === field))
+      : [];
     const rows = asRows(
       await supabaseRequest(
         req,
@@ -1376,9 +1532,9 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
             term_key: termKey,
             subject: body.subject,
             class: studentClass,
-            c1: body.aoi ?? 0,
-            c2: body.midterm ?? 0,
-            c3: body.end ?? 0,
+            aoi: body.aoi ?? 0,
+            midterm: body.midterm ?? 0,
+            end: body.end ?? 0,
             updated_at: now,
             updated_by: req.header("x-user-email") ?? "app",
           }),
@@ -1397,6 +1553,7 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
       aoi: body.aoi ?? 0,
       midterm: body.midterm ?? 0,
       end: body.end ?? 0,
+      enteredFields,
       updatedAt: now,
     };
     await writeSchoolConfig(req, schoolId, {
@@ -1415,7 +1572,7 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
         },
       },
     });
-    res.json(mapMark(rows[0]));
+    res.json(mapMark({ ...rows[0], enteredFields }));
   } catch (error) {
     sendError(res, error);
   }
@@ -1593,6 +1750,39 @@ router.post("/schools/:schoolId/users", async (req, res) => {
   try {
     const schoolId = String(req.params.schoolId);
     const body = AllowedUserBody.parse(req.body);
+    const email = body.email.toLowerCase();
+    const role = body.role ?? "teacher";
+    const subjects = role === "teacher" ? body.subjects ?? [] : [];
+    const newAssignments = subjects.filter((item): item is { class: string; subject: string } =>
+      typeof item === "object" && item !== null,
+    );
+    if (role === "teacher" && !subjects.length) {
+      res.status(400).json({ error: "Assign at least one class subject to this teacher." });
+      return;
+    }
+    const roster = asRows(
+      await supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=email,display_name,role,subjects`),
+    );
+    const conflict = newAssignments.flatMap((assignment) => {
+      const owner = roster.find((user) => {
+        if (String(user.email ?? "").toLowerCase() === email || user.role === "admin") return false;
+        return Array.isArray(user.subjects) && user.subjects.some((owned) =>
+          Boolean(owned && typeof owned === "object" &&
+            String((owned as Record<string, unknown>).class ?? "") === assignment.class &&
+            String((owned as Record<string, unknown>).subject ?? "") === assignment.subject),
+        );
+      });
+      return owner ? [`${assignment.class} · ${assignment.subject} is already assigned to ${String(owner.display_name || owner.email)}.`] : [];
+    })[0];
+    if (conflict) {
+      res.status(409).json({ error: conflict });
+      return;
+    }
+    if (!isSupabaseInviteConfigured()) {
+      res.status(503).json({ error: "Staff invitations are not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
+      return;
+    }
+    const invitation = await inviteSupabaseUser(email, body.displayName ?? "");
     const rows = asRows(
       await supabaseRequest(
         req,
@@ -1601,17 +1791,17 @@ router.post("/schools/:schoolId/users", async (req, res) => {
           method: "POST",
           body: jsonBody({
             school_id: schoolId,
-            email: body.email.toLowerCase(),
+            email,
             display_name: body.displayName ?? null,
-            role: body.role ?? "teacher",
-            subjects: body.subjects ?? [],
+            role,
+            subjects,
           }),
         },
         "?on_conflict=school_id,email&select=*",
       ),
     );
     if (!rows[0]) throw new Error("The staff account was not added. Check database access and the email address.");
-    res.status(201).json(mapAllowedUser(rows[0]));
+    res.status(201).json({ ...mapAllowedUser(rows[0]), invitationSent: invitation.invitationSent });
   } catch (error) {
     sendError(res, error);
   }
@@ -1732,6 +1922,37 @@ router.delete("/schools/:schoolId/terms/:termKey/data", async (req, res) => {
         [termKey]: { ...term, marks: [] },
       },
     });
+    res.status(204).send();
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.delete("/schools/:schoolId/terms/:termKey", async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const termKey = String(req.params.termKey);
+    const config = await readSchoolConfig(req, schoolId);
+    const terms = config.terms && typeof config.terms === "object" && !Array.isArray(config.terms)
+      ? config.terms as Record<string, Record<string, unknown>>
+      : {};
+    if (!terms[termKey]) {
+      res.status(404).json({ error: "Term not found." });
+      return;
+    }
+    await Promise.all([
+      supabaseRequest(req, "marks", { method: "DELETE" }, `?school_id=eq.${encodeURIComponent(schoolId)}&term_key=eq.${encodeURIComponent(termKey)}`),
+      supabaseRequest(req, "students", { method: "DELETE" }, `?school_id=eq.${encodeURIComponent(schoolId)}&term_key=eq.${encodeURIComponent(termKey)}`),
+    ]);
+    const nextTerms = { ...terms };
+    delete nextTerms[termKey];
+    const remaining = Object.entries(nextTerms);
+    const activeTerm = config.activeTerm === termKey
+      ? remaining.filter(([, term]) => !(term.locked || term.status === "closed")).slice(-1)[0]?.[0]
+        ?? remaining.slice(-1)[0]?.[0]
+        ?? ""
+      : config.activeTerm;
+    await writeSchoolConfig(req, schoolId, { ...config, activeTerm, terms: nextTerms });
     res.status(204).send();
   } catch (error) {
     sendError(res, error);
