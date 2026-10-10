@@ -159,6 +159,11 @@ const SchoolRegistrationBody = z.object({
   assessmentFields: z.array(AssessmentFieldBody).min(1).max(3).optional(),
 });
 const SchoolStatusBody = z.object({ active: z.boolean() });
+const HelpMessageBody = z.object({ message: z.string().trim().min(1).max(5000) });
+const SupportBroadcastBody = z.object({
+  message: z.string().trim().min(1).max(5000),
+  schoolIds: z.array(z.string().uuid()).optional(),
+});
 const SubjectAssignmentBody = z.object({
   class: z.string().trim().min(1),
   subject: z.string().trim().min(1),
@@ -754,11 +759,88 @@ router.get("/schools/portfolio/messages", async (req, res) => {
     ]);
     const schoolNames = new Map(asRows(schoolRows).map((row) => [String(row.id), String(row.name ?? "")]));
     res.json(asRows(messageRows)
-      .filter((row) => String(row.message ?? "").toLowerCase().startsWith("[system administrator help]"))
+      .filter((row) => row.direction !== "out" && String(row.message ?? "").toLowerCase().startsWith("[system administrator help]"))
       .map((row) => ({
         ...mapMessage(row),
         schoolName: schoolNames.get(String(row.school_id)) ?? "Unknown school",
       })));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.post("/schools/portfolio/messages", async (req, res) => {
+  try {
+    const user = await authorizeSuperAdmin(req, res);
+    if (!user) return;
+    const body = SupportBroadcastBody.parse(req.body);
+    const schoolRows = asRows(await supabaseRequest(req, "schools", {}, "?select=id,name,active&order=name.asc"));
+    const chosen = body.schoolIds?.length
+      ? schoolRows.filter((school) => body.schoolIds?.includes(String(school.id)))
+      : schoolRows.filter((school) => Boolean(school.active));
+    if (!chosen.length) {
+      res.status(400).json({ error: "Choose at least one active school to receive the message." });
+      return;
+    }
+    await Promise.all(chosen.map((school) => supabaseRequest(
+      req,
+      "contact_messages",
+      {
+        method: "POST",
+        body: jsonBody({
+          school_id: String(school.id),
+          sender_name: user.email ?? "JIIB system administrator",
+          sender_email: user.email ?? null,
+          message: `[System administrator help] ${body.message}`,
+          direction: "out",
+          read: false,
+        }),
+      },
+      "?select=id",
+    )));
+    res.status(201).json({ sentTo: chosen.length });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.post("/schools/:schoolId/help-messages", async (req, res) => {
+  try {
+    const body = HelpMessageBody.parse(req.body);
+    const rows = asRows(await supabaseRequest(
+      req,
+      "contact_messages",
+      {
+        method: "POST",
+        body: jsonBody({
+          school_id: String(req.params.schoolId),
+          sender_name: "School administrator",
+          sender_email: String(req.header("x-verified-user-email") ?? "") || null,
+          message: `[System administrator help] ${body.message}`,
+          direction: "in",
+          read: false,
+        }),
+      },
+      "?select=id,school_id,sender_name,sender_email,message,direction,read,created_at",
+    ));
+    res.status(201).json(rows[0] ?? { sent: true });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.get("/schools/:schoolId/help-messages", async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const rows = asRows(await supabaseRequest(
+      req,
+      "contact_messages",
+      {},
+      `?school_id=eq.${encodeURIComponent(schoolId)}&select=*&order=created_at.asc&limit=250`,
+    ));
+    res.json(rows
+      .filter((row) => String(row.message ?? "").toLowerCase().startsWith("[system administrator help]"))
+      .map((row) => mapMessage(row)));
   } catch (error) {
     sendError(res, error);
   }
@@ -956,6 +1038,9 @@ router.get("/schools/:schoolId/users", requireSchoolAdmin);
 router.post("/schools/:schoolId/users", requireSchoolAdmin);
 router.delete("/schools/:schoolId/users/:email", requireSchoolAdmin);
 router.delete("/schools/:schoolId/marks", requireSchoolAdmin);
+router.post("/schools/:schoolId/help-messages", requireSchoolAdmin);
+router.get("/schools/:schoolId/help-messages", requireSchoolAdmin);
+router.delete("/schools/:schoolId/terms/:termKey", requireSchoolAdmin);
 
 router.get("/schools/:schoolId/config", async (req, res) => {
   try {

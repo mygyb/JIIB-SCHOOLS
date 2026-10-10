@@ -13,4 +13,5 @@ export interface MarkInput {
   aoi?: number;
   midterm?: number;
   end?: number;
+  enteredFields?: string[];
 }

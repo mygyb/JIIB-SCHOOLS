@@ -29,9 +29,14 @@ import type {
   MarkInput,
   Message,
   MessageInput,
+  PortfolioAnalytics,
+  PortfolioMessage,
+  PortfolioUser,
   School,
   SchoolConfig,
   SchoolConfigInput,
+  SchoolRegistrationInput,
+  SchoolStatusInput,
   Student,
   StudentInput,
   StudentUpdate
@@ -207,6 +212,380 @@ export function useGetSchoolBySlug<TData = Awaited<ReturnType<typeof getSchoolBy
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetSchoolBySlugQueryOptions(slug,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateSchoolUrl = () => {
+
+
+
+
+  return `/api/schools`
+}
+
+/**
+ * @summary Register a school workspace
+ */
+export const createSchool = async (schoolRegistrationInput: SchoolRegistrationInput, options?: Parameters<typeof customFetch>[1]): Promise<School> => {
+
+  return customFetch<School>(getCreateSchoolUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(schoolRegistrationInput)
+  }
+);}
+
+
+
+
+
+export const getCreateSchoolMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSchool>>, TError,{data: BodyType<SchoolRegistrationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSchool>>, TError,{data: BodyType<SchoolRegistrationInput>}, TContext> => {
+
+const mutationKey = ['createSchool'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSchool>>, {data: BodyType<SchoolRegistrationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createSchool(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSchoolMutationResult = NonNullable<Awaited<ReturnType<typeof createSchool>>>
+    export type CreateSchoolMutationBody = BodyType<SchoolRegistrationInput>
+    export type CreateSchoolMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Register a school workspace
+ */
+export const useCreateSchool = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSchool>>, TError,{data: BodyType<SchoolRegistrationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSchool>>,
+        TError,
+        {data: BodyType<SchoolRegistrationInput>},
+        TContext
+      > => {
+      return useMutation(getCreateSchoolMutationOptions(options));
+    }
+
+export const getUpdateSchoolStatusUrl = (schoolId: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/status`
+}
+
+/**
+ * @summary Activate or suspend a school workspace
+ */
+export const updateSchoolStatus = async (schoolId: string,
+    schoolStatusInput: SchoolStatusInput, options?: Parameters<typeof customFetch>[1]): Promise<School> => {
+
+  return customFetch<School>(getUpdateSchoolStatusUrl(schoolId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(schoolStatusInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateSchoolStatusMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSchoolStatus>>, TError,{schoolId: string;data: BodyType<SchoolStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSchoolStatus>>, TError,{schoolId: string;data: BodyType<SchoolStatusInput>}, TContext> => {
+
+const mutationKey = ['updateSchoolStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSchoolStatus>>, {schoolId: string;data: BodyType<SchoolStatusInput>}> = (props) => {
+          const {schoolId,data} = props ?? {};
+
+          return  updateSchoolStatus(schoolId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSchoolStatusMutationResult = NonNullable<Awaited<ReturnType<typeof updateSchoolStatus>>>
+    export type UpdateSchoolStatusMutationBody = BodyType<SchoolStatusInput>
+    export type UpdateSchoolStatusMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Activate or suspend a school workspace
+ */
+export const useUpdateSchoolStatus = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSchoolStatus>>, TError,{schoolId: string;data: BodyType<SchoolStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSchoolStatus>>,
+        TError,
+        {schoolId: string;data: BodyType<SchoolStatusInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateSchoolStatusMutationOptions(options));
+    }
+
+export const getGetSchoolPortfolioAnalyticsUrl = () => {
+
+
+
+
+  return `/api/schools/portfolio/analytics`
+}
+
+/**
+ * @summary Read aggregated metrics for all school workspaces
+ */
+export const getSchoolPortfolioAnalytics = async ( options?: Parameters<typeof customFetch>[1]): Promise<PortfolioAnalytics> => {
+
+  return customFetch<PortfolioAnalytics>(getGetSchoolPortfolioAnalyticsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSchoolPortfolioAnalyticsQueryKey = () => {
+    return [
+    `/api/schools/portfolio/analytics`
+    ] as const;
+    }
+
+
+export const getGetSchoolPortfolioAnalyticsQueryOptions = <TData = Awaited<ReturnType<typeof getSchoolPortfolioAnalytics>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSchoolPortfolioAnalyticsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSchoolPortfolioAnalytics>>> = ({ signal }) => getSchoolPortfolioAnalytics({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioAnalytics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSchoolPortfolioAnalyticsQueryResult = NonNullable<Awaited<ReturnType<typeof getSchoolPortfolioAnalytics>>>
+export type GetSchoolPortfolioAnalyticsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Read aggregated metrics for all school workspaces
+ */
+
+export function useGetSchoolPortfolioAnalytics<TData = Awaited<ReturnType<typeof getSchoolPortfolioAnalytics>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioAnalytics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSchoolPortfolioAnalyticsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetSchoolPortfolioUsersUrl = () => {
+
+
+
+
+  return `/api/schools/portfolio/users`
+}
+
+/**
+ * @summary List staff access across all schools
+ */
+export const getSchoolPortfolioUsers = async ( options?: Parameters<typeof customFetch>[1]): Promise<PortfolioUser[]> => {
+
+  return customFetch<PortfolioUser[]>(getGetSchoolPortfolioUsersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSchoolPortfolioUsersQueryKey = () => {
+    return [
+    `/api/schools/portfolio/users`
+    ] as const;
+    }
+
+
+export const getGetSchoolPortfolioUsersQueryOptions = <TData = Awaited<ReturnType<typeof getSchoolPortfolioUsers>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioUsers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSchoolPortfolioUsersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSchoolPortfolioUsers>>> = ({ signal }) => getSchoolPortfolioUsers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioUsers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSchoolPortfolioUsersQueryResult = NonNullable<Awaited<ReturnType<typeof getSchoolPortfolioUsers>>>
+export type GetSchoolPortfolioUsersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List staff access across all schools
+ */
+
+export function useGetSchoolPortfolioUsers<TData = Awaited<ReturnType<typeof getSchoolPortfolioUsers>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioUsers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSchoolPortfolioUsersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetSchoolPortfolioMessagesUrl = () => {
+
+
+
+
+  return `/api/schools/portfolio/messages`
+}
+
+/**
+ * @summary List messages addressed to the system administrator
+ */
+export const getSchoolPortfolioMessages = async ( options?: Parameters<typeof customFetch>[1]): Promise<PortfolioMessage[]> => {
+
+  return customFetch<PortfolioMessage[]>(getGetSchoolPortfolioMessagesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSchoolPortfolioMessagesQueryKey = () => {
+    return [
+    `/api/schools/portfolio/messages`
+    ] as const;
+    }
+
+
+export const getGetSchoolPortfolioMessagesQueryOptions = <TData = Awaited<ReturnType<typeof getSchoolPortfolioMessages>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSchoolPortfolioMessagesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSchoolPortfolioMessages>>> = ({ signal }) => getSchoolPortfolioMessages({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioMessages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSchoolPortfolioMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof getSchoolPortfolioMessages>>>
+export type GetSchoolPortfolioMessagesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List messages addressed to the system administrator
+ */
+
+export function useGetSchoolPortfolioMessages<TData = Awaited<ReturnType<typeof getSchoolPortfolioMessages>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSchoolPortfolioMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSchoolPortfolioMessagesQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -751,6 +1130,79 @@ export const useDeleteStudent = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteStudentMutationOptions(options));
+    }
+
+export const getDeleteSchoolTermUrl = (schoolId: string,
+    termKey: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/terms/${termKey}`
+}
+
+/**
+ * @summary Delete a closed, inactive term and its records
+ */
+export const deleteSchoolTerm = async (schoolId: string,
+    termKey: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteSchoolTermUrl(schoolId,termKey),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteSchoolTermMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSchoolTerm>>, TError,{schoolId: string;termKey: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteSchoolTerm>>, TError,{schoolId: string;termKey: string}, TContext> => {
+
+const mutationKey = ['deleteSchoolTerm'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSchoolTerm>>, {schoolId: string;termKey: string}> = (props) => {
+          const {schoolId,termKey} = props ?? {};
+
+          return  deleteSchoolTerm(schoolId,termKey,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteSchoolTermMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSchoolTerm>>>
+
+    export type DeleteSchoolTermMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete a closed, inactive term and its records
+ */
+export const useDeleteSchoolTerm = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSchoolTerm>>, TError,{schoolId: string;termKey: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteSchoolTerm>>,
+        TError,
+        {schoolId: string;termKey: string},
+        TContext
+      > => {
+      return useMutation(getDeleteSchoolTermMutationOptions(options));
     }
 
 export const getListMarksUrl = (schoolId: string,

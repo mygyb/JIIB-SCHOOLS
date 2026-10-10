@@ -6,7 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ActivityItem } from './activityItem';
+import type { AssessmentField } from './assessmentField';
+import type { DashboardEvent } from './dashboardEvent';
 import type { GroupedCount } from './groupedCount';
+import type { SubjectCompletion } from './subjectCompletion';
 
 export interface DashboardSummary {
   studentCount: number;
@@ -15,4 +18,9 @@ export interface DashboardSummary {
   marksExpected: number;
   houses: GroupedCount[];
   recentActivity: ActivityItem[];
+  configuredHouseCount: number;
+  activeTerm: string;
+  assessmentFields: AssessmentField[];
+  subjectCompletion: SubjectCompletion[];
+  events: DashboardEvent[];
 }

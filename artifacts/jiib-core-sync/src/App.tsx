@@ -156,6 +156,7 @@ function Router() {
         <Route path="/students"><AppShell><Students /></AppShell></Route>
         <Route path="/marks"><AppShell><MarksPage /></AppShell></Route>
         <Route path="/messages"><AppShell><Messages /></AppShell></Route>
+        <Route path="/support"><AppShell><SupportPage /></AppShell></Route>
         <Route path="/parent-messages"><AppShell><OperationsRoute page="parentMessages" /></AppShell></Route>
         <Route path="/settings"><AppShell><OperationsRoute page="schoolSettings" /></AppShell></Route>
         <Route path="/overview"><AppShell><OperationsRoute page="overview" /></AppShell></Route>
@@ -358,15 +359,15 @@ function SignIn() {
           <div className="relative w-full max-w-[440px] fade-up">
             <div className="mb-10 flex items-center gap-3 lg:hidden">
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground"><GraduationCap size={22} /></div>
-              <div><div className="font-display text-xl font-semibold">JIIB</div><div className="text-[10px] uppercase tracking-[.24em] text-muted-foreground">Core Sync</div></div>
+              <div><div className="font-display text-xl font-semibold">JIIB</div><div className="text-[10px] uppercase tracking-[.24em] text-muted-foreground">Score-sync</div></div>
             </div>
             <div className="mb-9">
               <p className="mb-3 text-xs font-semibold uppercase tracking-[.2em] text-primary">Welcome back</p>
-              <h2 className="font-display text-4xl font-semibold tracking-[-.04em]">Open your school workspace.</h2>
+              <h2 className="font-display text-4xl font-semibold tracking-[-.04em]">Open your school Portal.</h2>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">Resolve your school first, then continue to the right view for your role.</p>
             </div>
               <form onSubmit={resolve} className="space-y-6">
-               {role !== 'Parent / guardian' && <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-sm font-semibold">Staff email</span><input data-testid="input-login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@school.org" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label><label className="block"><span className="mb-2 block text-sm font-semibold">Password</span><input data-testid="input-login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label></div>}
+               {role !== 'Parent / guardian' && <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-sm font-semibold">Staff email</span><input data-testid="input-login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jii@school.com" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label><label className="block"><span className="mb-2 block text-sm font-semibold">Password</span><input data-testid="input-login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label></div>}
               <label className="block"><span className="mb-2 block text-sm font-semibold">School slug</span><div className="flex items-center rounded-xl border border-input bg-card px-3 shadow-sm focus-within:ring-2 focus-within:ring-ring"><span className="text-sm text-muted-foreground">jiib.school/</span><input data-testid="input-school-slug" autoFocus value={slug} onChange={(e) => { setSlug(e.target.value); setSubmitted(false); }} placeholder="northbridge" className="h-12 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none" /></div></label>
                {role === 'Parent / guardian' && <label className="block"><span className="mb-2 block text-sm font-semibold">Parent phone</span><input data-testid="input-parent-phone" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} placeholder="Phone number on the school register" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label>}
               <label className="block"><span className="mb-2 block text-sm font-semibold">Continue as</span><select data-testid="select-role" value={role} onChange={(e) => setRole(e.target.value)} className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option>School administrator</option><option>Teacher</option><option>Parent / guardian</option><option>Super administrator</option></select></label>
@@ -478,7 +479,7 @@ function AppShell({ children }: { children: ReactNode }) {
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex h-[78px] items-center justify-between border-b border-border bg-background/90 px-5 backdrop-blur-md sm:px-8">
           <div className="flex items-center gap-3"><button data-testid="button-open-mobile-nav" onClick={() => setOpen(true)} className="rounded-lg p-2 hover:bg-muted lg:hidden"><Menu size={20} /></button><div><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-muted-foreground">Workspace</p><h1 data-testid="text-page-title" className="font-display text-xl font-semibold tracking-tight">{title}</h1></div></div>
-          <div className="flex items-center gap-3"><div data-sync-revision={syncRevision} className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs text-muted-foreground sm:flex"><span className={`h-2 w-2 rounded-full ${online ? 'bg-[#61b990]' : 'bg-accent'}`} />{online ? (getPendingMarks(school.id).length ? 'Sync pending' : 'Connected') : 'Offline · queued'}</div><div className="relative"><button data-testid="button-profile" aria-expanded={profileOpen} aria-label="Open user profile menu" onClick={() => setProfileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(userName)}</button>{profileOpen && <div role="menu" className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-3 shadow-xl"><div className="border-b border-border px-2 pb-3"><p className="truncate text-sm font-semibold">{userName}</p><p className="truncate text-xs text-muted-foreground">{localStorage.getItem('jiib.email') || role}</p><p className="mt-1 truncate text-xs text-muted-foreground">{school.name}</p></div><Link role="menuitem" href="/messages" onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isTeacher ? 'Ask your school admin for help' : 'Contact JIIB support'}</Link><p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">JIIB Core Sync · Version 8.2</p><button role="menuitem" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); setLocation('/'); }} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-destructive hover:bg-destructive/5"><LogOut size={14} /> Sign out</button></div>}</div></div>
+          <div className="flex items-center gap-3"><div data-sync-revision={syncRevision} className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs text-muted-foreground sm:flex"><span className={`h-2 w-2 rounded-full ${online ? 'bg-[#61b990]' : 'bg-accent'}`} />{online ? (getPendingMarks(school.id).length ? 'Sync pending' : 'Connected') : 'Offline · queued'}</div><div className="relative"><button data-testid="button-profile" aria-expanded={profileOpen} aria-label="Open user profile menu" onClick={() => setProfileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(userName)}</button>{profileOpen && <div role="menu" className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-3 shadow-xl"><div className="border-b border-border px-2 pb-3"><p className="truncate text-sm font-semibold">{userName}</p><p className="truncate text-xs text-muted-foreground">{localStorage.getItem('jiib.email') || role}</p><p className="mt-1 truncate text-xs text-muted-foreground">{school.name}</p></div><Link role="menuitem" href={isSuperAdmin || (!isTeacher && !isParent) ? '/support' : isParent ? '/parent-messages' : '/messages'} onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isSuperAdmin ? 'Support inbox' : isParent ? 'Contact the school' : isTeacher ? 'Messages to families' : 'Contact JIIB support'}</Link><p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">JIIB Core Sync · Version 8.2</p><button role="menuitem" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); setLocation('/'); }} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-destructive hover:bg-destructive/5"><LogOut size={14} /> Sign out</button></div>}</div></div>
         </header>
         <main className="mx-auto w-full max-w-[1440px] p-5 sm:p-8">{children}</main>
       </div>
@@ -531,6 +532,74 @@ function Dashboard() {
         {!isTeacher && <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Recent activity</h3><p className="mt-1 text-sm text-muted-foreground">What changed recently.</p></div><Activity size={18} className="text-muted-foreground" /></div>{data.recentActivity.length ? <div className="mt-5 space-y-4">{data.recentActivity.slice(0, 5).map((item) => <div key={item.id} data-testid={`activity-${item.id}`} className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" /><div className="min-w-0"><p className="text-sm leading-5">{item.label}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{item.detail} · {fmtDate(item.createdAt)}</p></div></div>)}</div> : <p className="mt-6 text-sm text-muted-foreground">No recent activity yet.</p>}</section>}
       </div>
     </> : <EmptyState icon={LayoutDashboard} title="Your overview is quiet" body="Once your school has records, the operating picture will appear here." />}
+  </div>;
+}
+
+function SupportPage() {
+  type SupportMessage = {
+    id: string;
+    schoolId: string;
+    schoolName?: string;
+    senderName: string;
+    senderEmail?: string | null;
+    message: string;
+    direction: 'in' | 'out';
+    createdAt: string;
+  };
+  const school = useActiveSchool();
+  const queryClient = useQueryClient();
+  const isSuperAdmin = localStorage.getItem('jiib.role') === 'Super administrator';
+  const [draft, setDraft] = useState('');
+  const [selectedId, setSelectedId] = useState('');
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const supportQueryKey = isSuperAdmin ? ['portfolio-support-messages'] : ['school-support-messages', school.id];
+  const query = useQuery({
+    queryKey: supportQueryKey,
+    queryFn: () => jiibApi<SupportMessage[]>(isSuperAdmin
+      ? '/api/schools/portfolio/messages'
+      : `/api/schools/${encodeURIComponent(school.id)}/help-messages`),
+    enabled: isSuperAdmin || localStorage.getItem('jiib.role') === 'School administrator',
+  });
+  const messages = query.data ?? [];
+  const selected = messages.find((item) => item.id === selectedId) ?? messages[0];
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!draft.trim()) return;
+    setError(''); setNotice('');
+    try {
+      if (isSuperAdmin) {
+        if (!selected) {
+          setError('Select a school support request before replying.');
+          return;
+        }
+        await jiibApi('/api/schools/portfolio/messages', {
+          method: 'POST',
+          body: JSON.stringify({ message: draft.trim(), schoolIds: [selected.schoolId] }),
+        });
+      } else {
+        await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/help-messages`, {
+          method: 'POST',
+          body: JSON.stringify({ message: draft.trim() }),
+        });
+      }
+      setDraft('');
+      setNotice(isSuperAdmin ? 'Reply sent to the school.' : 'Your request was sent to JIIB support.');
+      await queryClient.invalidateQueries({ queryKey: supportQueryKey });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The message could not be sent.');
+    }
+  };
+  if (!isSuperAdmin && localStorage.getItem('jiib.role') !== 'School administrator') {
+    return <div className="fade-up"><PageHeader eyebrow="Help" title="Contact support" description="This support area is available to school administrators and system administrators." /><EmptyState icon={ShieldCheck} title="Ask your school administrator" body="Your school administrator can send a support request to JIIB." /></div>;
+  }
+  return <div className="fade-up"><PageHeader eyebrow={isSuperAdmin ? 'System support' : 'School support'} title={isSuperAdmin ? 'Support inbox' : 'Contact JIIB support'} description={isSuperAdmin ? 'Review requests from school administrators and send replies to the relevant school.' : 'Send a request to the JIIB support team and review replies.'} />
+    {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+    {notice && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
+    <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
+      <section className="rounded-2xl border border-border bg-card p-5"><h3 className="font-display text-lg font-semibold">{isSuperAdmin ? 'Requests' : 'Support history'}</h3>{query.isLoading ? <p className="py-5 text-sm text-muted-foreground">Loading messages…</p> : query.isError ? <div className="py-5 text-sm text-destructive">Could not load messages. <button onClick={() => void query.refetch()} className="underline">Retry</button></div> : messages.length ? <div className="mt-4 space-y-2">{messages.map((item) => <button key={item.id} onClick={() => setSelectedId(item.id)} className={`w-full rounded-xl border p-3 text-left ${selected?.id === item.id ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/40'}`}><p className="text-sm font-semibold">{isSuperAdmin ? item.schoolName ?? item.senderName : item.direction === 'out' ? 'JIIB support' : 'You'}</p><p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.message.replace(/^\[system administrator help\]\s*/i, '')}</p><p className="mt-2 text-[10px] text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</p></button>)}</div> : <p className="py-5 text-sm text-muted-foreground">No messages yet.</p>}</section>
+      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><h3 className="font-display text-lg font-semibold">{isSuperAdmin ? selected ? `Reply to ${selected.schoolName ?? selected.senderName}` : 'Select a request' : 'Send a support request'}</h3>{isSuperAdmin && selected && <div className="mt-4 rounded-xl bg-muted/40 p-4 text-sm leading-6">{selected.message.replace(/^\[system administrator help\]\s*/i, '')}<p className="mt-2 text-xs text-muted-foreground">{selected.senderEmail || selected.senderName}</p></div>}<form onSubmit={(event) => void submit(event)}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={7} maxLength={5000} placeholder={isSuperAdmin ? 'Write a reply to this school…' : 'Describe the issue or question…'} className="mt-4 w-full resize-y rounded-xl border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" /><button disabled={!draft.trim() || (isSuperAdmin && !selected)} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Send size={15} /> {isSuperAdmin ? 'Send reply' : 'Send to support'}</button></form></section>
+    </div>
   </div>;
 }
 
@@ -760,8 +829,97 @@ function Parent() {
 }
 
 function SuperAdmin() {
-  const school = useActiveSchool(); const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey() } }); const dashboard = useGetDashboardSummary(school.id, { query: { queryKey: getGetDashboardSummaryQueryKey(school.id) } }); const [broadcast, setBroadcast] = useState(''); const [sent, setSent] = useState(false);
-  return <div className="fade-up"><PageHeader eyebrow="System oversight" title="Portfolio administration" description="A high-level view across the school portfolio and the health of its records." action={<span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold"><span className={`h-2 w-2 rounded-full ${health.isSuccess ? 'bg-[#61b990]' : 'bg-accent'}`} /> {health.isSuccess ? 'All services operational' : 'Checking services'}</span>} /><div className="grid gap-5 xl:grid-cols-[1.3fr_.7fr]"><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">School portfolio</h3><p className="mt-1 text-sm text-muted-foreground">Connected school workspaces and operating status.</p></div><button data-testid="button-refresh-portfolio" onClick={() => dashboard.refetch()} className="rounded-lg border border-border p-2 hover:bg-muted"><RefreshCw size={16} /></button></div><div className="mt-6 overflow-hidden rounded-xl border border-border"><div className="flex items-center gap-3 bg-muted/40 p-4"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground"><Building2 size={17} /></span><div className="flex-1"><p data-testid="text-portfolio-school" className="text-sm font-semibold">{school.name}</p><p className="text-xs text-muted-foreground">{school.slug} · Primary workspace</p></div><span className="rounded-full bg-[#e0f3ea] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#277556]">Active</span><MoreHorizontal size={17} className="text-muted-foreground" /></div><div className="grid grid-cols-3 divide-x border-t border-border"><div className="p-4"><p className="text-xs text-muted-foreground">Students</p><p className="mt-1 font-display text-xl font-semibold">{dashboard.data?.studentCount ?? '—'}</p></div><div className="p-4"><p className="text-xs text-muted-foreground">Classes</p><p className="mt-1 font-display text-xl font-semibold">{dashboard.data?.classCount ?? '—'}</p></div><div className="p-4"><p className="text-xs text-muted-foreground">Marks progress</p><p className="mt-1 font-display text-xl font-semibold">{dashboard.data ? `${Math.round(dashboard.data.marksEntered / Math.max(1, dashboard.data.marksExpected) * 100)}%` : '—'}</p></div></div></div><button data-testid="button-add-school" className="mt-5 inline-flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted"><Plus size={15} /> Register another school</button></section><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-lg bg-accent/25 text-[#87631c]"><Send size={16} /></div><div><h3 className="font-display text-lg font-semibold">Cross-school note</h3><p className="mt-1 text-xs text-muted-foreground">Send an operational message.</p></div></div><textarea data-testid="textarea-broadcast" value={broadcast} onChange={(e) => setBroadcast(e.target.value)} placeholder="Share an update with school administrators…" rows={6} className="mt-6 w-full resize-none rounded-xl border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" /><button data-testid="button-send-broadcast" onClick={() => { if (broadcast.trim()) { setSent(true); setBroadcast(''); setTimeout(() => setSent(false), 2200); } }} disabled={!broadcast.trim()} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{sent ? <Check size={15} /> : <Send size={15} />} {sent ? 'Message queued' : 'Send to administrators'}</button></section></div></div>;
+  type PortfolioSchool = School & { studentCount: number; classCount: number; marksCompletionPercent: number };
+  type PortfolioMetrics = { schoolCount: number; activeSchoolCount: number; suspendedSchoolCount: number; staffCount: number; studentCount: number; marksCompletionPercent: number; schools: PortfolioSchool[] };
+  const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey() } });
+  const queryClient = useQueryClient();
+  const [broadcast, setBroadcast] = useState('');
+  const [selectedSchools, setSelectedSchools] = useState<string[]>([]);
+  const [registering, setRegistering] = useState(false);
+  const [schoolName, setSchoolName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const portfolio = useQuery({
+    queryKey: ['portfolio-schools'],
+    queryFn: () => jiibApi<School[]>('/api/schools/portfolio'),
+  });
+  const analytics = useQuery({
+    queryKey: ['portfolio-analytics'],
+    queryFn: () => jiibApi<PortfolioMetrics>('/api/schools/portfolio/analytics'),
+  });
+  const schools = portfolio.data ?? [];
+  const refresh = () => {
+    void portfolio.refetch();
+    void analytics.refetch();
+  };
+  const registerSchool = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(''); setNotice('');
+    try {
+      await jiibApi<School>('/api/schools', {
+        method: 'POST',
+        body: JSON.stringify({ name: schoolName.trim(), slug: slug.trim(), ...(adminEmail.trim() ? { initialAdminEmail: adminEmail.trim() } : {}) }),
+      });
+      setSchoolName(''); setSlug(''); setAdminEmail(''); setRegistering(false);
+      setNotice('School workspace registered.');
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not register this school.');
+    }
+  };
+  const setSchoolStatus = async (school: School) => {
+    setError('');
+    try {
+      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ active: !school.active }),
+      });
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not update school status.');
+    }
+  };
+  const sendBroadcast = async () => {
+    if (!broadcast.trim()) return;
+    setError(''); setNotice('');
+    try {
+      const result = await jiibApi<{ sentTo: number }>('/api/schools/portfolio/messages', {
+        method: 'POST',
+        body: JSON.stringify({ message: broadcast.trim(), ...(selectedSchools.length ? { schoolIds: selectedSchools } : {}) }),
+      });
+      setBroadcast('');
+      setNotice(`Message sent to ${result.sentTo} school${result.sentTo === 1 ? '' : 's'}.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not send this message.');
+    }
+  };
+  const metricCards = [
+    ['Schools', analytics.data?.schoolCount ?? '—'],
+    ['Active', analytics.data?.activeSchoolCount ?? '—'],
+    ['Staff', analytics.data?.staffCount ?? '—'],
+    ['Students', analytics.data?.studentCount ?? '—'],
+    ['Marks completion', analytics.data ? `${analytics.data.marksCompletionPercent}%` : '—'],
+  ];
+  return <div className="fade-up"><PageHeader eyebrow="System oversight" title="Portfolio administration" description="Manage school workspaces, review portfolio-wide progress, and communicate with school administrators." action={<span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold"><span className={`h-2 w-2 rounded-full ${health.isSuccess ? 'bg-[#61b990]' : 'bg-accent'}`} /> {health.isSuccess ? 'All services operational' : 'Checking services'}</span>} />
+    <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{metricCards.map(([label, value]) => <div key={label} className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{label}</p><p className="mt-2 font-display text-2xl font-semibold">{value}</p></div>)}</div>
+    {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+    {notice && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
+    <div className="grid gap-5 xl:grid-cols-[1.3fr_.7fr]">
+      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">School portfolio</h3><p className="mt-1 text-sm text-muted-foreground">Select recipients for a broadcast and activate or suspend workspaces.</p></div><button data-testid="button-refresh-portfolio" onClick={refresh} className="rounded-lg border border-border p-2 hover:bg-muted"><RefreshCw size={16} /></button></div>
+        {portfolio.isLoading ? <p className="py-6 text-sm text-muted-foreground">Loading portfolio…</p> : portfolio.isError ? <div className="py-6 text-sm text-destructive">Portfolio data could not be loaded. <button onClick={refresh} className="underline">Retry</button></div> : <div className="mt-5 space-y-3">{schools.map((school) => {
+          const metrics = analytics.data?.schools.find((item) => item.id === school.id);
+          const checked = selectedSchools.includes(school.id);
+          return <div key={school.id} className="rounded-xl border border-border p-4"><div className="flex items-start gap-3"><input aria-label={`Select ${school.name} as message recipient`} type="checkbox" checked={checked} onChange={() => setSelectedSchools((items) => checked ? items.filter((id) => id !== school.id) : [...items, school.id])} /><div className="flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{school.name}</p><span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${school.active ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>{school.active ? 'Active' : 'Suspended'}</span></div><p className="mt-1 text-xs text-muted-foreground">{school.slug} · {metrics?.studentCount ?? 0} students · {metrics?.classCount ?? 0} classes · {metrics?.marksCompletionPercent ?? 0}% marks complete</p></div><button onClick={() => void setSchoolStatus(school)} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">{school.active ? 'Suspend' : 'Activate'}</button></div></div>;
+        })}</div>}
+        <div className="mt-5 border-t border-border pt-4"><button data-testid="button-add-school" onClick={() => setRegistering((value) => !value)} className="inline-flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted"><Plus size={15} /> {registering ? 'Cancel registration' : 'Register another school'}</button>
+          {registering && <form onSubmit={(event) => void registerSchool(event)} className="mt-4 grid gap-3 sm:grid-cols-2"><input required value={schoolName} onChange={(event) => { setSchoolName(event.target.value); if (!slug) setSlug(event.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')); }} placeholder="School name" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" /><input required value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="school-url-slug" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" /><input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="Initial administrator email (optional)" className="h-10 rounded-lg border border-input bg-background px-3 text-sm sm:col-span-2" /><button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground sm:col-span-2"><Plus size={15} /> Create workspace</button></form>}
+        </div>
+      </section>
+      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/25 text-[#87631c]"><Send size={16} /></span><div><h3 className="font-display text-lg font-semibold">Cross-school note</h3><p className="mt-1 text-xs text-muted-foreground">{selectedSchools.length ? `${selectedSchools.length} schools selected` : 'All active schools will receive this message.'}</p></div></div><textarea data-testid="textarea-broadcast" value={broadcast} onChange={(event) => setBroadcast(event.target.value)} placeholder="Share an operational update with school administrators…" rows={6} className="mt-6 w-full resize-none rounded-xl border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" /><button data-testid="button-send-broadcast" onClick={() => void sendBroadcast()} disabled={!broadcast.trim()} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Send size={15} /> Send to schools</button></section>
+    </div>
+  </div>;
 }
 
 export default App;

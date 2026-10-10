@@ -37,6 +37,113 @@ export const GetSchoolBySlugResponse = zod.object({
 
 
 /**
+ * @summary Register a school workspace
+ */
+
+export const createSchoolBodySlugMin = 3;
+export const createSchoolBodySlugMax = 40;
+
+
+export const createSchoolBodySlugRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)*$');
+
+
+export const CreateSchoolBody = zod.object({
+  "name": zod.string().min(1),
+  "slug": zod.string().min(createSchoolBodySlugMin).max(createSchoolBodySlugMax).regex(createSchoolBodySlugRegExp),
+  "logoUrl": zod.string().nullish(),
+  "initialAdminEmail": zod.string().email().nullish(),
+  "initialAdminName": zod.string().nullish(),
+  "address": zod.string().optional(),
+  "assessmentFields": zod.array(zod.object({
+  "name": zod.string(),
+  "field": zod.enum(['c1', 'c2', 'c3']),
+  "max": zod.number()
+})).optional()
+})
+
+export const CreateSchoolResponse = zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "logoUrl": zod.string().nullish(),
+  "active": zod.boolean()
+})
+
+
+/**
+ * @summary Activate or suspend a school workspace
+ */
+export const UpdateSchoolStatusParams = zod.object({
+  "schoolId": zod.coerce.string().uuid()
+})
+
+export const UpdateSchoolStatusBody = zod.object({
+  "active": zod.boolean()
+})
+
+export const UpdateSchoolStatusResponse = zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "logoUrl": zod.string().nullish(),
+  "active": zod.boolean()
+})
+
+
+/**
+ * @summary Read aggregated metrics for all school workspaces
+ */
+export const GetSchoolPortfolioAnalyticsResponse = zod.object({
+  "schoolCount": zod.number().int(),
+  "activeSchoolCount": zod.number().int(),
+  "suspendedSchoolCount": zod.number().int(),
+  "staffCount": zod.number().int(),
+  "studentCount": zod.number().int(),
+  "marksCompletionPercent": zod.number(),
+  "schools": zod.array(zod.object({
+  "schoolId": zod.string(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "active": zod.boolean(),
+  "studentCount": zod.number().int(),
+  "classCount": zod.number().int(),
+  "marksCompletionPercent": zod.number()
+}))
+})
+
+
+/**
+ * @summary List staff access across all schools
+ */
+export const GetSchoolPortfolioUsersResponseItem = zod.object({
+  "schoolId": zod.string(),
+  "schoolName": zod.string(),
+  "email": zod.string(),
+  "displayName": zod.string().nullish(),
+  "role": zod.string(),
+  "subjects": zod.array(zod.string())
+})
+export const GetSchoolPortfolioUsersResponse = zod.array(GetSchoolPortfolioUsersResponseItem)
+
+
+/**
+ * @summary List messages addressed to the system administrator
+ */
+export const GetSchoolPortfolioMessagesResponseItem = zod.object({
+  "id": zod.string(),
+  "schoolId": zod.string(),
+  "schoolName": zod.string(),
+  "senderName": zod.string(),
+  "senderEmail": zod.string().nullish(),
+  "message": zod.string(),
+  "direction": zod.string(),
+  "read": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+export const GetSchoolPortfolioMessagesResponse = zod.array(GetSchoolPortfolioMessagesResponseItem)
+
+
+/**
  * @summary Read the school data configuration
  */
 export const GetSchoolConfigParams = zod.object({
@@ -89,6 +196,26 @@ export const GetDashboardSummaryResponse = zod.object({
   "label": zod.string(),
   "detail": zod.string(),
   "createdAt": zod.coerce.date()
+})),
+  "configuredHouseCount": zod.number().int(),
+  "activeTerm": zod.string(),
+  "assessmentFields": zod.array(zod.object({
+  "name": zod.string(),
+  "field": zod.enum(['c1', 'c2', 'c3']),
+  "max": zod.number()
+})),
+  "subjectCompletion": zod.array(zod.object({
+  "className": zod.string(),
+  "subject": zod.string(),
+  "teacher": zod.string(),
+  "entered": zod.number().int(),
+  "expected": zod.number().int(),
+  "percentage": zod.number()
+})),
+  "events": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "date": zod.string()
 }))
 })
 
@@ -197,6 +324,17 @@ export const DeleteStudentResponse = zod.void()
 
 
 /**
+ * @summary Delete a closed, inactive term and its records
+ */
+export const DeleteSchoolTermParams = zod.object({
+  "schoolId": zod.coerce.string().uuid(),
+  "termKey": zod.coerce.string()
+})
+
+export const DeleteSchoolTermResponse = zod.void()
+
+
+/**
  * @summary List marks for the active term
  */
 export const ListMarksParams = zod.object({
@@ -217,7 +355,8 @@ export const ListMarksResponseItem = zod.object({
   "subject": zod.string(),
   "aoi": zod.number(),
   "midterm": zod.number(),
-  "end": zod.number()
+  "end": zod.number(),
+  "enteredFields": zod.array(zod.string()).optional()
 })
 export const ListMarksResponse = zod.array(ListMarksResponseItem)
 
@@ -235,7 +374,8 @@ export const UpsertMarkBody = zod.object({
   "subject": zod.string(),
   "aoi": zod.number().optional(),
   "midterm": zod.number().optional(),
-  "end": zod.number().optional()
+  "end": zod.number().optional(),
+  "enteredFields": zod.array(zod.string()).optional()
 })
 
 export const UpsertMarkResponse = zod.object({
@@ -246,7 +386,8 @@ export const UpsertMarkResponse = zod.object({
   "subject": zod.string(),
   "aoi": zod.number(),
   "midterm": zod.number(),
-  "end": zod.number()
+  "end": zod.number(),
+  "enteredFields": zod.array(zod.string()).optional()
 })
 
 

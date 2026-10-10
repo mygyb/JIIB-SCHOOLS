@@ -7,6 +7,9 @@
  */
 
 export * from './activityItem';
+export * from './assessmentField';
+export * from './assessmentFieldField';
+export * from './dashboardEvent';
 export * from './dashboardSummary';
 export * from './errorResponse';
 export * from './groupedCount';
@@ -18,11 +21,18 @@ export * from './markInput';
 export * from './message';
 export * from './messageDirection';
 export * from './messageInput';
+export * from './portfolioAnalytics';
+export * from './portfolioAnalyticsSchoolsItem';
+export * from './portfolioMessage';
+export * from './portfolioUser';
 export * from './school';
 export * from './schoolConfig';
 export * from './schoolConfigData';
 export * from './schoolConfigInput';
 export * from './schoolConfigInputData';
+export * from './schoolRegistrationInput';
+export * from './schoolStatusInput';
 export * from './student';
 export * from './studentInput';
 export * from './studentUpdate';
+export * from './subjectCompletion';

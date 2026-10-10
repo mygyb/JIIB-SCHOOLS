@@ -15,4 +15,5 @@ export interface Mark {
   aoi: number;
   midterm: number;
   end: number;
+  enteredFields?: string[];
 }

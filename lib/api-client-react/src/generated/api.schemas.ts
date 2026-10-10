@@ -22,6 +22,44 @@ export interface School {
   active: boolean;
 }
 
+export type AssessmentFieldField = typeof AssessmentFieldField[keyof typeof AssessmentFieldField];
+
+
+export const AssessmentFieldField = {
+  c1: 'c1',
+  c2: 'c2',
+  c3: 'c3',
+} as const;
+
+export interface AssessmentField {
+  name: string;
+  field: AssessmentFieldField;
+  max: number;
+}
+
+export interface SchoolRegistrationInput {
+  /** @minLength 1 */
+  name: string;
+  /**
+     * @minLength 3
+     * @maxLength 40
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+  slug: string;
+  /** @nullable */
+  logoUrl?: string | null;
+  /** @nullable */
+  initialAdminEmail?: string | null;
+  /** @nullable */
+  initialAdminName?: string | null;
+  address?: string;
+  assessmentFields?: AssessmentField[];
+}
+
+export interface SchoolStatusInput {
+  active: boolean;
+}
+
 export type SchoolConfigData = { [key: string]: unknown };
 
 export interface SchoolConfig {
@@ -48,6 +86,21 @@ export interface ActivityItem {
   createdAt: string;
 }
 
+export interface SubjectCompletion {
+  className: string;
+  subject: string;
+  teacher: string;
+  entered: number;
+  expected: number;
+  percentage: number;
+}
+
+export interface DashboardEvent {
+  id: string;
+  title: string;
+  date: string;
+}
+
 export interface DashboardSummary {
   studentCount: number;
   classCount: number;
@@ -55,6 +108,11 @@ export interface DashboardSummary {
   marksExpected: number;
   houses: GroupedCount[];
   recentActivity: ActivityItem[];
+  configuredHouseCount: number;
+  activeTerm: string;
+  assessmentFields: AssessmentField[];
+  subjectCompletion: SubjectCompletion[];
+  events: DashboardEvent[];
 }
 
 export interface Student {
@@ -102,6 +160,7 @@ export interface Mark {
   aoi: number;
   midterm: number;
   end: number;
+  enteredFields?: string[];
 }
 
 export interface MarkInput {
@@ -111,6 +170,50 @@ export interface MarkInput {
   aoi?: number;
   midterm?: number;
   end?: number;
+  enteredFields?: string[];
+}
+
+export type PortfolioAnalyticsSchoolsItem = {
+  schoolId: string;
+  name: string;
+  slug: string;
+  active: boolean;
+  studentCount: number;
+  classCount: number;
+  marksCompletionPercent: number;
+};
+
+export interface PortfolioAnalytics {
+  schoolCount: number;
+  activeSchoolCount: number;
+  suspendedSchoolCount: number;
+  staffCount: number;
+  studentCount: number;
+  marksCompletionPercent: number;
+  schools: PortfolioAnalyticsSchoolsItem[];
+}
+
+export interface PortfolioUser {
+  schoolId: string;
+  schoolName: string;
+  email: string;
+  /** @nullable */
+  displayName?: string | null;
+  role: string;
+  subjects: string[];
+}
+
+export interface PortfolioMessage {
+  id: string;
+  schoolId: string;
+  schoolName: string;
+  senderName: string;
+  /** @nullable */
+  senderEmail?: string | null;
+  message: string;
+  direction: string;
+  read: boolean;
+  createdAt: string;
 }
 
 export type MessageDirection = typeof MessageDirection[keyof typeof MessageDirection];
