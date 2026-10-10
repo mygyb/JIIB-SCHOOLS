@@ -858,12 +858,16 @@ function SuperAdmin() {
     event.preventDefault();
     setError(''); setNotice('');
     try {
-      await jiibApi<School>('/api/schools', {
+      const created = await jiibApi<School & { invitationSent?: boolean }>('/api/schools', {
         method: 'POST',
         body: JSON.stringify({ name: schoolName.trim(), slug: slug.trim(), ...(adminEmail.trim() ? { initialAdminEmail: adminEmail.trim() } : {}) }),
       });
       setSchoolName(''); setSlug(''); setAdminEmail(''); setRegistering(false);
-      setNotice('School workspace registered.');
+      setNotice(created.invitationSent === true
+        ? 'School workspace registered and the administrator invitation was sent.'
+        : created.invitationSent === false
+          ? 'School workspace registered. The administrator already has an account and has been granted access.'
+          : 'School workspace registered.');
       refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not register this school.');

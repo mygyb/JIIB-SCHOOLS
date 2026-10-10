@@ -485,6 +485,10 @@ router.post("/schools", async (req, res) => {
   try {
     if (!await authorizeSuperAdmin(req, res)) return;
     const body = SchoolRegistrationBody.parse(req.body);
+    if (body.initialAdminEmail && !isSupabaseInviteConfigured()) {
+      res.status(503).json({ error: "School administrator invitations are not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
+      return;
+    }
     const assessmentFields = body.assessmentFields ?? [
       { name: "AOI", field: "c1" as const, max: 10 },
       { name: "Midterm", field: "c2" as const, max: 10 },
@@ -547,6 +551,7 @@ router.post("/schools", async (req, res) => {
         activeMarkColumns: assessmentFields.map((field) => field.field),
       },
     };
+    let invitationSent: boolean | undefined;
     try {
       await supabaseRequest(
         req,
@@ -578,6 +583,11 @@ router.post("/schools", async (req, res) => {
           },
           "?on_conflict=school_id,email",
         );
+        const invite = await inviteSupabaseUser(
+          body.initialAdminEmail.toLowerCase(),
+          body.initialAdminName?.trim() || body.initialAdminEmail.split("@")[0],
+        );
+        invitationSent = invite.invitationSent;
       }
     } catch (error) {
       await supabaseRequest(
@@ -588,7 +598,10 @@ router.post("/schools", async (req, res) => {
       ).catch(() => undefined);
       throw error;
     }
-    res.status(201).json(mapSchool(school));
+    res.status(201).json({
+      ...mapSchool(school),
+      ...(invitationSent === undefined ? {} : { invitationSent }),
+    });
   } catch (error) {
     sendError(res, error);
   }
