@@ -1188,9 +1188,18 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
     const configuredClassNames = subjectsByClass
       ? Object.keys(subjectsByClass)
       : Array.from(classes).filter(Boolean);
-    for (const className of configuredClassNames) {
+    const subjectsFromMarks = new Map<string, Set<string>>();
+    for (const mark of markMap.values()) {
+      const studentId = String(mark.student_id ?? mark.studentId ?? "");
+      const className = String(studentMap.get(studentId)?.class ?? "");
+      const subject = String(mark.subject ?? "").trim();
+      if (!className || !subject) continue;
+      if (!subjectsFromMarks.has(className)) subjectsFromMarks.set(className, new Set());
+      subjectsFromMarks.get(className)?.add(subject);
+    }
+    const allClassNames = new Set([...configuredClassNames, ...subjectsFromMarks.keys()]);
+    for (const className of allClassNames) {
       const classStudents = students.filter((student) => String(student.class ?? "") === className);
-      if (!classStudents.length) continue;
       const rawSubjects = subjectsByClass?.[className];
       const subjectEntries = Array.isArray(rawSubjects) ? rawSubjects : globalSubjects;
       const subjects = subjectEntries
@@ -1199,6 +1208,9 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
           teacher: String((entry as Record<string, unknown>)?.teacher ?? ""),
         })
         .filter((entry) => entry.name);
+      for (const subject of subjectsFromMarks.get(className) ?? []) {
+        if (!subjects.some((item) => item.name === subject)) subjects.push({ name: subject, teacher: "" });
+      }
       for (const item of subjects) {
         const owned = assignmentList.some((entry) =>
           typeof entry === "string"
@@ -1225,13 +1237,13 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
           const mark = markMap.get(`${String(student.id)}|${item.name}`);
           return total + (mark ? enteredMarkFields(mark, assessmentFields).length : 0);
         }, 0);
-        if (expected > 0) subjectCompletion.push({
+        subjectCompletion.push({
           className,
           subject: item.name,
           teacher: assignedTeacher,
           entered,
           expected,
-          percentage: Math.round((entered / expected) * 100),
+          percentage: expected ? Math.round((entered / expected) * 100) : 0,
         });
       }
     }

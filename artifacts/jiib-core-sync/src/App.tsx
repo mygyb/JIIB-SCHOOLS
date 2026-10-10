@@ -14,7 +14,7 @@ import {
   useGetSchoolConfig, useHealthCheck, useListMarks, useListMessages, useListStudents,
   useUpdateSchoolConfig, useUpdateStudent, useUpsertMark,
 } from '@workspace/api-client-react';
-import type { Mark, Message, School, Student } from '@workspace/api-client-react';
+import type { Mark, Message, School, Student, SubjectCompletion } from '@workspace/api-client-react';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import {
   ArcElement,
@@ -508,25 +508,150 @@ function Dashboard() {
   const isTeacher = localStorage.getItem('jiib.role') === 'Teacher';
   const hour = now.getHours();
   const greeting = hour >= 7 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 16 ? 'Good afternoon' : hour >= 16 && hour < 23 ? 'Good evening' : 'Night shift';
-  const completion = data ? Math.round((data.marksEntered / Math.max(data.marksExpected, 1)) * 100) : 0;
+  const completion = data && data.marksExpected > 0
+    ? Math.round((data.marksEntered / data.marksExpected) * 100)
+    : null;
   const subjects = data?.subjectCompletion ?? [];
   const events = (data?.events ?? []).filter((item) => {
     if (!item.date) return true;
     return new Date(`${item.date.slice(0, 10)}T23:59:59`).getTime() >= now.getTime();
   }).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 5);
+  const subjectTotals = subjects.reduce((total, item) => ({
+    entered: total.entered + item.entered,
+    expected: total.expected + item.expected,
+  }), { entered: 0, expected: 0 });
+  const rankedSubjects = [...subjects].sort((a, b) =>
+    a.className.localeCompare(b.className) || a.subject.localeCompare(b.subject),
+  );
+  const houseTotal = (data?.houses ?? []).reduce((total, house) => total + house.count, 0);
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '66%',
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: true },
+    },
+  };
+  const subjectStatus = (item: SubjectCompletion) => item.expected > 0
+    ? `${Math.min(100, Math.max(0, item.percentage))}%`
+    : 'No entries expected';
   return <div className="fade-up"><PageHeader eyebrow={fmtHeaderDate()} title={`${greeting}, ${userName}`} description={`Here’s the operating picture for ${school.name}.`} action={<button data-testid="button-dashboard-refresh" onClick={() => summary.refetch()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold hover:bg-muted"><RefreshCw size={15} /> Refresh</button>} />
     {summary.isLoading ? <div className="grid gap-4 md:grid-cols-4">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-32" />)}</div> : summary.isError ? <ErrorState retry={() => summary.refetch()} /> : data ? <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{ label: 'Students enrolled', value: data.studentCount, icon: UsersRound, tone: 'text-primary' }, { label: 'Active classes', value: data.classCount, icon: BookOpen, tone: 'text-[#2e8c72]' }, { label: isTeacher ? 'Your marks entered' : 'Marks entered', value: `${data.marksEntered}/${data.marksExpected}`, icon: BarChart3, tone: 'text-[#c88e17]' }, { label: 'Houses', value: data.configuredHouseCount, icon: Building2, tone: 'text-[#a44f47]' }].map(({ label, value, icon: Icon, tone }) => <div key={label} data-testid={`card-metric-${label.toLowerCase().replaceAll(' ', '-')}`} className="rounded-2xl border border-border bg-card p-5 shadow-[0_1px_2px_hsl(var(--foreground)/.03)]"><div className="flex items-start justify-between"><p className="text-xs font-semibold uppercase tracking-[.12em] text-muted-foreground">{label}</p><Icon size={18} className={tone} /></div><p className="mt-5 font-display text-3xl font-semibold tracking-tight">{value}</p><p className="mt-1 text-xs text-muted-foreground">{label.toLowerCase().includes('marks') ? `${completion}% complete · ${data.activeTerm || 'active term'}` : 'Across the active school'}</p></div>)}</div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{ label: 'Students enrolled', value: data.studentCount, icon: UsersRound, tone: 'text-primary' }, { label: 'Active classes', value: data.classCount, icon: BookOpen, tone: 'text-[#2e8c72]' }, { label: isTeacher ? 'Your marks entered' : 'Marks entered', value: `${data.marksEntered}/${data.marksExpected}`, icon: BarChart3, tone: 'text-[#c88e17]' }, { label: 'Houses', value: data.configuredHouseCount, icon: Building2, tone: 'text-[#a44f47]' }].map(({ label, value, icon: Icon, tone }) => <div key={label} data-testid={`card-metric-${label.toLowerCase().replaceAll(' ', '-')}`} className="rounded-2xl border border-border bg-card p-5 shadow-[0_1px_2px_hsl(var(--foreground)/.03)]"><div className="flex items-start justify-between"><p className="text-xs font-semibold uppercase tracking-[.12em] text-muted-foreground">{label}</p><Icon size={18} className={tone} /></div><p className="mt-5 font-display text-3xl font-semibold tracking-tight">{value}</p><p className="mt-1 text-xs text-muted-foreground">{label.toLowerCase().includes('marks') ? `${completion === null ? 'No expected entries' : `${completion}% complete`} · ${data.activeTerm || 'active term'}` : 'Across the active school'}</p></div>)}</div>
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-        <section className="rounded-2xl border border-border bg-card p-5 sm:p-6">
-          <div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">{isTeacher ? 'Your marks completion' : 'Marks completion by subject'}</h3><p className="mt-1 text-sm text-muted-foreground">{data.activeTerm ? `Active term · ${data.activeTerm}` : 'Assessment entry across the active term.'}</p></div><span className="font-display text-2xl font-semibold text-primary">{completion}%</span></div>
-          <div className="mt-6 grid gap-5 sm:grid-cols-[170px_1fr] sm:items-center">
-            <div className="mx-auto h-40 w-40"><Doughnut data={{ labels: ['Completed', 'Remaining'], datasets: [{ data: [data.marksEntered, Math.max(0, data.marksExpected - data.marksEntered)], backgroundColor: ['#284e80', '#e7edf2'], borderWidth: 0, hoverOffset: 4 }] }} options={{ responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom' } } }} /></div>
-            <div className="space-y-3">{subjects.length ? subjects.slice(0, 7).map((item) => <div key={`${item.className}-${item.subject}`}><div className="mb-1 flex items-center justify-between gap-3 text-xs"><span className="truncate font-medium">{item.subject} <span className="text-muted-foreground">· {item.className}</span></span><span className="shrink-0 font-semibold">{item.percentage}%</span></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(100, item.percentage)}%` }} /></div><p className="mt-1 text-[10px] text-muted-foreground">{item.entered}/{item.expected} assessment entries{item.teacher ? ` · ${item.teacher}` : ''}</p></div>) : <p className="text-sm text-muted-foreground">{isTeacher ? 'No subjects are assigned to your account yet.' : 'No subjects are configured for classes with students.'}</p>}</div>
+        <section aria-labelledby="marks-overview-title" className="rounded-2xl border border-border bg-card p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 id="marks-overview-title" className="font-display text-lg font-semibold">{isTeacher ? 'Your marks completion' : 'Marks completion'}</h3><p className="mt-1 text-sm text-muted-foreground">{data.activeTerm ? `Active term · ${data.activeTerm}` : 'Assessment entry across the active term.'}</p></div><span className="font-display text-2xl font-semibold text-primary">{completion === null ? '—' : `${completion}%`}</span></div>
+          <div className="mt-6 grid gap-6 sm:grid-cols-[180px_1fr] sm:items-center">
+            <div className="relative mx-auto h-40 w-40">
+              {data.marksExpected > 0 ? <Doughnut aria-label={`Marks completion: ${data.marksEntered} of ${data.marksExpected} entries`} role="img" data={{ labels: ['Entered', 'Remaining'], datasets: [{ data: [Math.min(data.marksEntered, data.marksExpected), Math.max(0, data.marksExpected - data.marksEntered)], backgroundColor: ['#284e80', '#e4eaf0'], borderWidth: 0, hoverOffset: 5, borderRadius: 3 }] }} options={chartOptions} /> : <div role="img" aria-label="No assessment entries expected" className="grid h-full w-full place-items-center rounded-full border-[14px] border-muted"><span className="text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">No expected<br />entries</span></div>}
+              {data.marksExpected > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center"><span className="font-display text-xl font-semibold">{completion}%</span></div>}
+            </div>
+            <div className="space-y-4">
+              <p className="max-w-lg text-sm leading-6 text-muted-foreground">Marks recorded for the active term, against the expected assessment entries.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-[#eef3f8] p-3"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Entered</p><p className="mt-1 font-display text-xl font-semibold">{data.marksEntered}</p></div>
+                <div className="rounded-xl bg-muted/60 p-3"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Remaining</p><p className="mt-1 font-display text-xl font-semibold">{Math.max(0, data.marksExpected - data.marksEntered)}</p></div>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-[#284e80]" />Entered</span><span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-[#e4eaf0]" />Remaining</span></div>
+            </div>
           </div>
         </section>
-        <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Students by house</h3><p className="mt-1 text-sm text-muted-foreground">{data.configuredHouseCount} houses configured</p></div><House size={18} className="text-muted-foreground" /></div>{data.houses.length ? <div className="mt-5 h-56"><Bar data={{ labels: data.houses.map((house) => house.label), datasets: [{ label: 'Students', data: data.houses.map((house) => house.count), backgroundColor: '#d3a237', borderRadius: 7, barThickness: 22 }] }} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } }} /></div> : <p className="mt-6 text-sm text-muted-foreground">No houses have been configured.</p>}</section>
+        <section aria-labelledby="house-chart-title" className="rounded-2xl border border-border bg-card p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-4"><div><h3 id="house-chart-title" className="font-display text-lg font-semibold">Students by house</h3><p className="mt-1 text-sm text-muted-foreground">{data.configuredHouseCount} houses configured · {houseTotal} students counted</p></div><House size={18} className="mt-1 shrink-0 text-muted-foreground" /></div>
+          {data.houses.length && houseTotal > 0 ? <div className="mt-5 grid gap-4 sm:grid-cols-[160px_1fr] sm:items-center">
+            <div className="mx-auto h-40 w-40"><Doughnut role="img" aria-label={`Distribution of ${houseTotal} students across ${data.houses.length} houses`} data={{ labels: data.houses.map((house) => house.label), datasets: [{ data: data.houses.map((house) => house.count), backgroundColor: ['#284e80', '#d3a237', '#438b76', '#b65b50', '#7292a8', '#8c7197', '#c77a45'], borderWidth: 2, borderColor: '#ffffff', hoverOffset: 5 }] }} options={chartOptions} /></div>
+            <ul className="space-y-2" aria-label="House student counts">{data.houses.map((house, index) => {
+              const colors = ['#284e80', '#d3a237', '#438b76', '#b65b50', '#7292a8', '#8c7197', '#c77a45'];
+              const share = Math.round((house.count / houseTotal) * 100);
+              return <li key={house.label} className="flex items-center justify-between gap-3 text-xs"><span className="flex min-w-0 items-center gap-2"><span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: colors[index % colors.length] }} /><span className="truncate font-medium">{house.label}</span></span><span className="shrink-0 text-muted-foreground">{house.count} <span className="text-foreground">· {share}%</span></span></li>;
+            })}</ul>
+          </div> : <div className="mt-5 grid min-h-40 place-items-center rounded-xl border border-dashed border-border px-4 text-center"><p className="max-w-xs text-sm leading-6 text-muted-foreground">{data.houses.length ? 'No students are currently counted in configured houses.' : 'No houses have been configured.'}</p></div>}
+        </section>
       </div>
+      <section aria-labelledby="subject-chart-title" className="mt-5 rounded-2xl border border-border bg-card p-5 sm:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-[.18em] text-primary">Assessment progress</p>
+            <h3 id="subject-chart-title" className="font-display text-lg font-semibold">Completion by subject</h3>
+            <p className="mt-1 text-sm text-muted-foreground">All class and subject assignments · {data.activeTerm || 'active term'}</p>
+          </div>
+          <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">{rankedSubjects.length} subject rows</span>
+        </div>
+        {rankedSubjects.length ? <div className="mt-5 max-h-[520px] overflow-y-auto rounded-xl bg-muted/20 px-2 py-3">
+          <div style={{ height: `${Math.max(220, rankedSubjects.length * 34)}px` }}>
+            <Bar
+              role="img"
+              aria-label={`Marks completion for ${rankedSubjects.length} class and subject assignments`}
+              data-testid="chart-subject-completion"
+              data={{
+                labels: rankedSubjects.map((item) => `${item.subject} · ${item.className}`),
+                datasets: [{
+                  label: 'Completion',
+                  data: rankedSubjects.map((item) => item.expected > 0 ? Math.min(100, Math.max(0, item.percentage)) : 0),
+                  backgroundColor: '#284e80',
+                  borderRadius: 7,
+                  barThickness: 18,
+                  maxBarThickness: 22,
+                }],
+              }}
+              options={{
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 350 },
+                scales: {
+                  x: {
+                    beginAtZero: true,
+                    max: 100,
+                    grid: { color: 'rgba(40, 78, 128, 0.08)' },
+                    ticks: { stepSize: 20, callback: (value) => `${value}%` },
+                  },
+                  y: {
+                    grid: { display: false },
+                    ticks: { autoSkip: false },
+                  },
+                },
+                plugins: {
+                  legend: { display: false },
+                  tooltip: {
+                    callbacks: {
+                      label: (context) => {
+                        const item = rankedSubjects[context.dataIndex];
+                        return item
+                          ? ` ${item.entered} / ${item.expected} entries (${item.expected > 0 ? Math.min(100, Math.max(0, item.percentage)) : 0}%)`
+                          : '';
+                      },
+                    },
+                  },
+                },
+              }}
+            />
+          </div>
+        </div> : <div className="mt-5 grid min-h-40 place-items-center rounded-xl border border-dashed border-border px-4 text-center"><p className="max-w-md text-sm leading-6 text-muted-foreground">Subject completion charts will appear when the active term has configured subject assignments.</p></div>}
+      </section>
+      <section aria-labelledby="subject-completion-title" className="mt-5 overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="flex flex-col justify-between gap-3 border-b border-border px-5 py-5 sm:flex-row sm:items-end sm:px-6">
+          <div><p className="mb-1 text-[10px] font-bold uppercase tracking-[.18em] text-primary">Active term · {data.activeTerm || 'current'}</p><h3 id="subject-completion-title" className="font-display text-xl font-semibold">{isTeacher ? 'Your subject completion' : 'Marks completion by subject'}</h3><p className="mt-1 text-sm text-muted-foreground">Every class and subject returned for this school term.</p></div>
+          {subjects.length > 0 && <div className="text-left sm:text-right"><p className="text-xs text-muted-foreground">Across listed subjects</p><p className="font-display text-lg font-semibold">{subjectTotals.entered} <span className="text-sm font-medium text-muted-foreground">/ {subjectTotals.expected} entries</span></p></div>}
+        </div>
+        {rankedSubjects.length ? <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] text-left">
+            <caption className="sr-only">Marks completion for every class and subject in the active term</caption>
+            <thead className="bg-muted/45 text-[10px] uppercase tracking-[.14em] text-muted-foreground"><tr><th scope="col" className="px-5 py-3 font-bold">Class</th><th scope="col" className="px-4 py-3 font-bold">Subject</th><th scope="col" className="px-4 py-3 font-bold">Teacher</th><th scope="col" className="min-w-52 px-4 py-3 font-bold">Completion</th><th scope="col" className="px-5 py-3 text-right font-bold">Entries</th></tr></thead>
+            <tbody className="divide-y divide-border">{rankedSubjects.map((item, index) => {
+              const percentage = item.expected > 0 ? Math.min(100, Math.max(0, item.percentage)) : 0;
+              return <tr key={`${item.className}-${item.subject}-${index}`} data-testid={`row-subject-completion-${index}`} className="transition-colors hover:bg-muted/25">
+                <td className="whitespace-nowrap px-5 py-4 text-sm font-semibold">{item.className || '—'}</td>
+                <td className="px-4 py-4 text-sm">{item.subject || '—'}</td>
+                <td className="px-4 py-4 text-sm text-muted-foreground">{item.teacher || 'Unassigned'}</td>
+                <td className="px-4 py-4"><div className="flex items-center gap-3"><div className="h-2 min-w-24 flex-1 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={`${item.className} ${item.subject} marks completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage}><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percentage}%` }} /></div><span className="w-12 shrink-0 text-right text-xs font-semibold">{subjectStatus(item)}</span></div></td>
+                <td className="whitespace-nowrap px-5 py-4 text-right text-sm font-semibold tabular-nums">{item.entered} <span className="font-normal text-muted-foreground">/ {item.expected}</span></td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div> : <div className="grid min-h-44 place-items-center px-5 py-9 text-center"><div><span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><ClipboardList size={19} /></span><p className="mt-3 text-sm font-semibold">{isTeacher ? 'No subject rows available' : 'No subject completion to show'}</p><p className="mx-auto mt-1 max-w-md text-sm leading-6 text-muted-foreground">{isTeacher ? 'There are no subject completion records for your account in the active term.' : 'The active term has no subject completion rows yet. Subject results will appear here when the API returns them.'}</p></div></div>}
+      </section>
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Upcoming events</h3><p className="mt-1 text-sm text-muted-foreground">School dates to keep in view.</p></div><CalendarDays size={18} className="text-muted-foreground" /></div>{events.length ? <div className="mt-5 space-y-3">{events.map((event) => <div key={event.id} className="flex gap-3 rounded-xl bg-muted/40 p-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><CalendarDays size={16} /></span><div><p className="text-sm font-semibold">{event.title}</p><p className="mt-1 text-xs text-muted-foreground">{event.date ? fmtDate(event.date) : 'Date to be announced'}</p></div></div>)}</div> : <p className="mt-5 text-sm text-muted-foreground">No upcoming events.</p>}</section>
         {!isTeacher && <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Recent activity</h3><p className="mt-1 text-sm text-muted-foreground">What changed recently.</p></div><Activity size={18} className="text-muted-foreground" /></div>{data.recentActivity.length ? <div className="mt-5 space-y-4">{data.recentActivity.slice(0, 5).map((item) => <div key={item.id} data-testid={`activity-${item.id}`} className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" /><div className="min-w-0"><p className="text-sm leading-5">{item.label}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{item.detail} · {fmtDate(item.createdAt)}</p></div></div>)}</div> : <p className="mt-6 text-sm text-muted-foreground">No recent activity yet.</p>}</section>}

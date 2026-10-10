@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  getGetDashboardSummaryQueryKey,
   getGetSchoolConfigQueryKey,
   getListMarksQueryKey,
   getListStudentsQueryKey,
@@ -165,6 +166,9 @@ export function MarksRegister({ school }: { school: School }) {
               subject: selectedSubject || undefined,
             }),
           });
+          await queryClient.invalidateQueries({
+            queryKey: getGetDashboardSummaryQueryKey(school.id),
+          });
           localStorage.setItem("jiib.lastSyncAt", new Date().toISOString());
         },
         onError: (cause) => {
@@ -184,6 +188,9 @@ export function MarksRegister({ school }: { school: School }) {
     try {
       await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/marks?termKey=${encodeURIComponent(selectedTerm)}`, { method: "DELETE" });
       await queryClient.invalidateQueries({ queryKey: getListMarksQueryKey(school.id) });
+      await queryClient.invalidateQueries({
+        queryKey: getGetDashboardSummaryQueryKey(school.id),
+      });
       await marksQuery.refetch();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not clear marks for this term.");
