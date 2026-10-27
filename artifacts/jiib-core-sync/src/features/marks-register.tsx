@@ -85,8 +85,8 @@ export function MarksRegister({ school }: { school: School }) {
   const selectedSubject = subject || availableSubjects[0] || "";
 
   useEffect(() => {
-    if (!term && configQuery.isSuccess) setTerm(activeTerm);
-  }, [activeTerm, configQuery.isSuccess, term]);
+    if (configQuery.isSuccess) setTerm(activeTerm);
+  }, [activeTerm, configQuery.isSuccess]);
   useEffect(() => {
     if (isTeacher && !className && availableClasses[0]) setClassName(availableClasses[0]);
   }, [availableClasses, className, isTeacher]);

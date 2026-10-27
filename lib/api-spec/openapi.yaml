@@ -261,7 +261,66 @@ paths:
       responses:
         "204":
           description: Deleted
+  /schools/{schoolId}/terms:
+    get:
+      operationId: listSchoolTerms
+      tags: [schools]
+      summary: List school terms
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      responses:
+        "200":
+          description: School terms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SchoolTerm"
+    post:
+      operationId: createSchoolTerm
+      tags: [schools]
+      summary: Create a school term
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchoolTermInput"
+      responses:
+        "201":
+          description: Updated school configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolConfig"
   /schools/{schoolId}/terms/{termKey}:
+    patch:
+      operationId: updateSchoolTerm
+      tags: [schools]
+      summary: Change term status or activate it
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - name: termKey
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchoolTermUpdate"
+      responses:
+        "200":
+          description: Updated school configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolConfig"
     delete:
       operationId: deleteSchoolTerm
       tags: [schools]
@@ -276,6 +335,40 @@ paths:
       responses:
         "204":
           description: Term and its records deleted
+  /schools/{schoolId}/terms/{termKey}/activate:
+    post:
+      operationId: activateSchoolTerm
+      tags: [schools]
+      summary: Make a school term active
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - name: termKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated school configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolConfig"
+  /schools/{schoolId}/terms/{termKey}/data:
+    delete:
+      operationId: clearSchoolTermMarks
+      tags: [schools]
+      summary: Clear marks from a closed term
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - name: termKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Term marks cleared
   /schools/{schoolId}/marks:
     get:
       operationId: listMarks
@@ -461,6 +554,36 @@ components:
         data:
           type: object
           additionalProperties: true
+    SchoolTerm:
+      type: object
+      required: [key, label, status, active]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        status:
+          type: string
+          enum: [open, closed]
+        active:
+          type: boolean
+    SchoolTermInput:
+      type: object
+      required: [termKey, label]
+      properties:
+        termKey:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+    SchoolTermUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [open, closed]
     DashboardSummary:
       type: object
       required: [studentCount, classCount, marksEntered, marksExpected, houses, recentActivity, configuredHouseCount, subjectCompletion, assessmentFields, activeTerm, events]

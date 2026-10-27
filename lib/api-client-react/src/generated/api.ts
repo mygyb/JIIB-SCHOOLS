@@ -37,6 +37,9 @@ import type {
   SchoolConfigInput,
   SchoolRegistrationInput,
   SchoolStatusInput,
+  SchoolTerm,
+  SchoolTermInput,
+  SchoolTermUpdate,
   Student,
   StudentInput,
   StudentUpdate
@@ -1132,6 +1135,229 @@ export const useDeleteStudent = <TError = ErrorType<unknown>,
       return useMutation(getDeleteStudentMutationOptions(options));
     }
 
+export const getListSchoolTermsUrl = (schoolId: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/terms`
+}
+
+/**
+ * @summary List school terms
+ */
+export const listSchoolTerms = async (schoolId: string, options?: Parameters<typeof customFetch>[1]): Promise<SchoolTerm[]> => {
+
+  return customFetch<SchoolTerm[]>(getListSchoolTermsUrl(schoolId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSchoolTermsQueryKey = (schoolId: string,) => {
+    return [
+    `/api/schools/${schoolId}/terms`
+    ] as const;
+    }
+
+
+export const getListSchoolTermsQueryOptions = <TData = Awaited<ReturnType<typeof listSchoolTerms>>, TError = ErrorType<unknown>>(schoolId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSchoolTerms>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSchoolTermsQueryKey(schoolId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSchoolTerms>>> = ({ signal }) => listSchoolTerms(schoolId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: schoolId !== null && schoolId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSchoolTerms>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListSchoolTermsQueryResult = NonNullable<Awaited<ReturnType<typeof listSchoolTerms>>>
+export type ListSchoolTermsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List school terms
+ */
+
+export function useListSchoolTerms<TData = Awaited<ReturnType<typeof listSchoolTerms>>, TError = ErrorType<unknown>>(
+ schoolId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSchoolTerms>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListSchoolTermsQueryOptions(schoolId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateSchoolTermUrl = (schoolId: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/terms`
+}
+
+/**
+ * @summary Create a school term
+ */
+export const createSchoolTerm = async (schoolId: string,
+    schoolTermInput: SchoolTermInput, options?: Parameters<typeof customFetch>[1]): Promise<SchoolConfig> => {
+
+  return customFetch<SchoolConfig>(getCreateSchoolTermUrl(schoolId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(schoolTermInput)
+  }
+);}
+
+
+
+
+
+export const getCreateSchoolTermMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSchoolTerm>>, TError,{schoolId: string;data: BodyType<SchoolTermInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSchoolTerm>>, TError,{schoolId: string;data: BodyType<SchoolTermInput>}, TContext> => {
+
+const mutationKey = ['createSchoolTerm'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSchoolTerm>>, {schoolId: string;data: BodyType<SchoolTermInput>}> = (props) => {
+          const {schoolId,data} = props ?? {};
+
+          return  createSchoolTerm(schoolId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSchoolTermMutationResult = NonNullable<Awaited<ReturnType<typeof createSchoolTerm>>>
+    export type CreateSchoolTermMutationBody = BodyType<SchoolTermInput>
+    export type CreateSchoolTermMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a school term
+ */
+export const useCreateSchoolTerm = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSchoolTerm>>, TError,{schoolId: string;data: BodyType<SchoolTermInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSchoolTerm>>,
+        TError,
+        {schoolId: string;data: BodyType<SchoolTermInput>},
+        TContext
+      > => {
+      return useMutation(getCreateSchoolTermMutationOptions(options));
+    }
+
+export const getUpdateSchoolTermUrl = (schoolId: string,
+    termKey: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/terms/${termKey}`
+}
+
+/**
+ * @summary Change term status or activate it
+ */
+export const updateSchoolTerm = async (schoolId: string,
+    termKey: string,
+    schoolTermUpdate: SchoolTermUpdate, options?: Parameters<typeof customFetch>[1]): Promise<SchoolConfig> => {
+
+  return customFetch<SchoolConfig>(getUpdateSchoolTermUrl(schoolId,termKey),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(schoolTermUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateSchoolTermMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSchoolTerm>>, TError,{schoolId: string;termKey: string;data: BodyType<SchoolTermUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSchoolTerm>>, TError,{schoolId: string;termKey: string;data: BodyType<SchoolTermUpdate>}, TContext> => {
+
+const mutationKey = ['updateSchoolTerm'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSchoolTerm>>, {schoolId: string;termKey: string;data: BodyType<SchoolTermUpdate>}> = (props) => {
+          const {schoolId,termKey,data} = props ?? {};
+
+          return  updateSchoolTerm(schoolId,termKey,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSchoolTermMutationResult = NonNullable<Awaited<ReturnType<typeof updateSchoolTerm>>>
+    export type UpdateSchoolTermMutationBody = BodyType<SchoolTermUpdate>
+    export type UpdateSchoolTermMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Change term status or activate it
+ */
+export const useUpdateSchoolTerm = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSchoolTerm>>, TError,{schoolId: string;termKey: string;data: BodyType<SchoolTermUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSchoolTerm>>,
+        TError,
+        {schoolId: string;termKey: string;data: BodyType<SchoolTermUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateSchoolTermMutationOptions(options));
+    }
+
 export const getDeleteSchoolTermUrl = (schoolId: string,
     termKey: string,) => {
 
@@ -1203,6 +1429,152 @@ export const useDeleteSchoolTerm = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteSchoolTermMutationOptions(options));
+    }
+
+export const getActivateSchoolTermUrl = (schoolId: string,
+    termKey: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/terms/${termKey}/activate`
+}
+
+/**
+ * @summary Make a school term active
+ */
+export const activateSchoolTerm = async (schoolId: string,
+    termKey: string, options?: Parameters<typeof customFetch>[1]): Promise<SchoolConfig> => {
+
+  return customFetch<SchoolConfig>(getActivateSchoolTermUrl(schoolId,termKey),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getActivateSchoolTermMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateSchoolTerm>>, TError,{schoolId: string;termKey: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof activateSchoolTerm>>, TError,{schoolId: string;termKey: string}, TContext> => {
+
+const mutationKey = ['activateSchoolTerm'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateSchoolTerm>>, {schoolId: string;termKey: string}> = (props) => {
+          const {schoolId,termKey} = props ?? {};
+
+          return  activateSchoolTerm(schoolId,termKey,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivateSchoolTermMutationResult = NonNullable<Awaited<ReturnType<typeof activateSchoolTerm>>>
+
+    export type ActivateSchoolTermMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Make a school term active
+ */
+export const useActivateSchoolTerm = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateSchoolTerm>>, TError,{schoolId: string;termKey: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof activateSchoolTerm>>,
+        TError,
+        {schoolId: string;termKey: string},
+        TContext
+      > => {
+      return useMutation(getActivateSchoolTermMutationOptions(options));
+    }
+
+export const getClearSchoolTermMarksUrl = (schoolId: string,
+    termKey: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/terms/${termKey}/data`
+}
+
+/**
+ * @summary Clear marks from a closed term
+ */
+export const clearSchoolTermMarks = async (schoolId: string,
+    termKey: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getClearSchoolTermMarksUrl(schoolId,termKey),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getClearSchoolTermMarksMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearSchoolTermMarks>>, TError,{schoolId: string;termKey: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearSchoolTermMarks>>, TError,{schoolId: string;termKey: string}, TContext> => {
+
+const mutationKey = ['clearSchoolTermMarks'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearSchoolTermMarks>>, {schoolId: string;termKey: string}> = (props) => {
+          const {schoolId,termKey} = props ?? {};
+
+          return  clearSchoolTermMarks(schoolId,termKey,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearSchoolTermMarksMutationResult = NonNullable<Awaited<ReturnType<typeof clearSchoolTermMarks>>>
+
+    export type ClearSchoolTermMarksMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Clear marks from a closed term
+ */
+export const useClearSchoolTermMarks = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearSchoolTermMarks>>, TError,{schoolId: string;termKey: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearSchoolTermMarks>>,
+        TError,
+        {schoolId: string;termKey: string},
+        TContext
+      > => {
+      return useMutation(getClearSchoolTermMarksMutationOptions(options));
     }
 
 export const getListMarksUrl = (schoolId: string,

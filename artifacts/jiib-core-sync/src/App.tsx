@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation } from 'wouter';
 import {
@@ -400,8 +400,23 @@ function AppShell({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState(() => navigator.onLine);
   const [syncRevision, setSyncRevision] = useState(0);
   const config = useGetSchoolConfig(school.id, {
-    query: { enabled: !isParent, queryKey: getGetSchoolConfigQueryKey(school.id) },
+    query: {
+      enabled: !isParent,
+      queryKey: getGetSchoolConfigQueryKey(school.id),
+      refetchInterval: 15_000,
+    },
   });
+  const activeTerm = String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '');
+  const previousActiveTerm = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousActiveTerm.current;
+    previousActiveTerm.current = activeTerm;
+    if (previous !== null && previous !== activeTerm) {
+      void queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey.includes(school.id),
+      });
+    }
+  }, [activeTerm, school.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1045,6 +1060,7 @@ function Parent() {
       events: Array<string | { id?: string; title?: string; date?: string }>;
     }>(`/api/schools/${encodeURIComponent(school.id)}/parents/portal?phone=${encodeURIComponent(parentPhone)}`),
     enabled: Boolean(parentPhone),
+    refetchInterval: 15_000,
   });
   const term = selectedTerm || portal.data?.activeTerm || portal.data?.students[0]?.termKey || '';
   const familyStudents = (portal.data?.students ?? []).filter((student) => student.termKey === term);

@@ -74,6 +74,40 @@ export interface SchoolConfigInput {
   data: SchoolConfigInputData;
 }
 
+export type SchoolTermStatus = typeof SchoolTermStatus[keyof typeof SchoolTermStatus];
+
+
+export const SchoolTermStatus = {
+  open: 'open',
+  closed: 'closed',
+} as const;
+
+export interface SchoolTerm {
+  key: string;
+  label: string;
+  status: SchoolTermStatus;
+  active: boolean;
+}
+
+export interface SchoolTermInput {
+  /** @minLength 1 */
+  termKey: string;
+  /** @minLength 1 */
+  label: string;
+}
+
+export type SchoolTermUpdateStatus = typeof SchoolTermUpdateStatus[keyof typeof SchoolTermUpdateStatus];
+
+
+export const SchoolTermUpdateStatus = {
+  open: 'open',
+  closed: 'closed',
+} as const;
+
+export interface SchoolTermUpdate {
+  status: SchoolTermUpdateStatus;
+}
+
 export interface GroupedCount {
   label: string;
   count: number;

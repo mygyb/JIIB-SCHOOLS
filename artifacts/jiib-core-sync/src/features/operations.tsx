@@ -6,13 +6,18 @@ import {
   getGetSchoolConfigQueryKey,
   getListMarksQueryKey,
   getListStudentsQueryKey,
+  useActivateSchoolTerm,
+  useClearSchoolTermMarks,
+  useCreateSchoolTerm,
+  useDeleteSchoolTerm,
   useGetSchoolConfig,
   useListMarks,
   useListStudents,
+  useUpdateSchoolTerm,
   useUpdateSchoolConfig,
   useUpdateStudent,
 } from '@workspace/api-client-react';
-import type { School, Student } from '@workspace/api-client-react';
+import type { School, SchoolConfig as SchoolConfigResponse, Student } from '@workspace/api-client-react';
 import { jiibApi } from '@/lib/jiib-api';
 import { currentTerm, getAssessmentFields, getTerms, normalizePhone, subjectNames, subjectRecords, type SchoolConfig } from '@/lib/school-data';
 
@@ -37,7 +42,7 @@ type Config = Record<string, unknown>;
 
 function useConfig(schoolId: string) {
   const queryClient = useQueryClient();
-  const query = useGetSchoolConfig(schoolId, { query: { queryKey: getGetSchoolConfigQueryKey(schoolId) } });
+  const query = useGetSchoolConfig(schoolId, { query: { queryKey: getGetSchoolConfigQueryKey(schoolId), refetchInterval: 15_000 } });
   const update = useUpdateSchoolConfig();
   const data = (query.data?.data ?? {}) as Config;
   const save = (next: Config, onDone?: () => void) => {
@@ -334,90 +339,125 @@ function PrintMarksheets({ school, report = false }: { school: School; report?: 
   return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title={report ? 'Report studio' : 'Print marksheets'} body={`${report ? 'Prepare printable reports' : 'Print assessment sheets'} using the active term's configured classes, subjects, and assessment components.`} /><ShellCard><div className="flex flex-col gap-3 sm:flex-row sm:items-end print:hidden"><label className="flex-1"><span className="mb-2 block text-xs font-semibold text-muted-foreground">Class</span><select data-testid="select-print-class" value={className} onChange={(e) => setClassName(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><button data-testid="button-print-marksheets" onClick={print} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground"><Printer size={15} /> Print / save PDF</button></div><div className="mt-6 space-y-8">{printClasses.map((group) => { const groupStudents = filtered.filter((student) => student.className === group); const groupSubjects = subjectNames(configData, group); return <section key={group} className="break-inside-avoid"><div className="mb-3 border-b border-border pb-2"><h3 className="font-display text-xl font-semibold">{school.name} · {group}</h3><p className="text-xs text-muted-foreground">{String((configData.terms as Record<string, Record<string, unknown>> | undefined)?.[termKey]?.label ?? termKey)} · {report ? 'Student report' : 'Class marksheet'}</p></div>{groupSubjects.length ? groupSubjects.map((subject) => <div key={`${group}-${subject}`} className="mb-5 overflow-x-auto"><h4 className="mb-2 text-sm font-semibold">{subject}</h4><table className="w-full min-w-[600px] text-left text-xs"><thead className="border-b border-border bg-muted/40 uppercase tracking-wide text-muted-foreground"><tr><th className="px-2 py-2">Student</th>{fields.map((field) => <th key={field.field} className="px-2 py-2">{field.name} / {field.max}</th>)}<th className="px-2 py-2 text-right">Total / {fields.reduce((sum, field) => sum + field.max, 0)}</th></tr></thead><tbody className="divide-y divide-border">{groupStudents.map((student) => { const mark = (marks.data ?? []).find((item) => item.studentId === student.id && item.subject === subject); const values = { c1: mark?.aoi ?? 0, c2: mark?.midterm ?? 0, c3: mark?.end ?? 0 }; const total = fields.reduce((sum, field) => sum + values[field.field], 0); return <tr key={student.id}><td className="px-2 py-2 font-semibold uppercase">{student.name}</td>{fields.map((field) => <td key={field.field} className="px-2 py-2">{mark?.enteredFields?.includes(field.field) || values[field.field] > 0 ? values[field.field] : '—'}</td>)}<td className="px-2 py-2 text-right font-semibold">{total}</td></tr>; })}</tbody></table></div>) : <p className="text-sm text-muted-foreground">No subjects are configured for {group}.</p>}</section>; })}{!filtered.length && <p className="text-sm text-muted-foreground">No students are available for this term.</p>}</div></ShellCard></div>;
 }
 
-function getNextTermIdentity(activeKey: string, activeLabel: string, terms: Record<string, Record<string, unknown>>) {
-  const year = Number(activeLabel.match(/\b(20\d{2})\b/)?.[1] ?? activeKey.match(/\b(20\d{2})\b/)?.[1] ?? new Date().getFullYear());
-  const currentNumber = Number(
-    activeLabel.match(/\b(?:term|t)\s*([1-3])\b/i)?.[1] ??
-    activeKey.match(/(?:term|t)[-_ ]?([1-3])$/i)?.[1] ??
-    0,
-  );
-  let nextYear = currentNumber >= 3 ? year + 1 : year;
-  let nextNumber = currentNumber >= 3 || currentNumber === 0 ? 1 : currentNumber + 1;
-  let key = `${nextYear}-T${nextNumber}`;
-  while (terms[key] && (terms[key].locked || terms[key].status === 'closed')) {
-    if (nextNumber >= 3) {
-      nextYear += 1;
-      nextNumber = 1;
-    } else nextNumber += 1;
-    key = `${nextYear}-T${nextNumber}`;
-  }
-  return { key, label: `Term ${nextNumber}, ${nextYear}` };
-}
-
 function TermManagement({ school }: { school: School }) {
   const config = useConfig(school.id);
   const queryClient = useQueryClient();
+  const createTerm = useCreateSchoolTerm();
+  const updateTerm = useUpdateSchoolTerm();
+  const activateTerm = useActivateSchoolTerm();
+  const clearTermMarks = useClearSchoolTermMarks();
+  const deleteTermMutation = useDeleteSchoolTerm();
   const terms = (config.data.terms && typeof config.data.terms === 'object' && !Array.isArray(config.data.terms) ? config.data.terms : {}) as Record<string, Record<string, unknown>>;
   const [term, setTerm] = useState('');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const activeTerm = String(config.data.activeTerm ?? '');
+  const saving = createTerm.isPending || updateTerm.isPending || activateTerm.isPending ||
+    clearTermMarks.isPending || deleteTermMutation.isPending;
+  const invalidateSchoolData = () => queryClient.invalidateQueries({
+    predicate: (query) => query.queryKey.includes(school.id),
+  });
+  const performTermAction = async (
+    request: () => Promise<SchoolConfigResponse>,
+    successMessage: string,
+    options: { optimisticConfig?: Config; onSuccess?: () => void } = {},
+  ) => {
+    setError('');
+    setNotice('');
+    const configKey = getGetSchoolConfigQueryKey(school.id);
+    const previous = queryClient.getQueryData<SchoolConfigResponse>(configKey);
+    if (previous && options.optimisticConfig) {
+      queryClient.setQueryData<SchoolConfigResponse>(configKey, {
+        ...previous,
+        data: options.optimisticConfig,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    try {
+      const saved = await request();
+      queryClient.setQueryData(configKey, saved);
+      await invalidateSchoolData();
+      setNotice(successMessage);
+      options.onSuccess?.();
+    } catch (cause) {
+      if (previous && options.optimisticConfig) queryClient.setQueryData(configKey, previous);
+      setError(cause instanceof Error ? cause.message : 'The term change could not be saved.');
+    }
+  };
   const add = () => {
     const label = term.trim();
     if (!label) return;
     const key = label.replace(/\s+/g, '-');
     if (terms[key]) return;
-    config.save({
-      ...config.data,
-      activeTerm: activeTerm || key,
-      terms: {
-        ...terms,
-        [key]: { label, students: [], marks: [], locked: false, closedDate: null, createdDate: new Date().toISOString() },
-      },
-    }, () => setTerm(''));
+    void performTermAction(
+      () => createTerm.mutateAsync({ schoolId: school.id, data: { termKey: key, label } }),
+      'Term added.',
+      { onSuccess: () => setTerm('') },
+    );
   };
-  const setStatus = (key: string, isLocked: boolean) => {
-    const nextTerms = {
-      ...terms,
-      [key]: {
-        ...terms[key],
-        locked: isLocked,
-        status: isLocked ? 'closed' : 'open',
-        closedDate: isLocked ? new Date().toISOString() : null,
-      },
-    };
-    let nextActiveTerm = activeTerm;
-    if (isLocked && key === activeTerm) {
-      const identity = getNextTermIdentity(key, String(terms[key]?.label ?? key), nextTerms);
-      const existing = nextTerms[identity.key];
-      nextTerms[identity.key] = existing
-        ? { ...existing, locked: false, status: 'open', closedDate: null }
-        : { label: identity.label, students: [], marks: [], locked: false, status: 'open', closedDate: null, createdDate: new Date().toISOString() };
-      nextActiveTerm = identity.key;
-    }
-    config.save({ ...config.data, activeTerm: nextActiveTerm, terms: nextTerms });
-  };
+  const setStatus = (key: string, isLocked: boolean) => void performTermAction(
+    () => updateTerm.mutateAsync({
+      schoolId: school.id,
+      termKey: key,
+      data: { status: isLocked ? 'open' : 'closed' },
+    }),
+    isLocked ? 'Term reopened.' : 'Term closed.',
+  );
   const clearMarks = async (key: string) => {
     if (!window.confirm(`Clear marks for closed term ${key}? This cannot be undone.`)) return;
     try {
-      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/terms/${encodeURIComponent(key)}/data`, { method: 'DELETE' });
+      await clearTermMarks.mutateAsync({ schoolId: school.id, termKey: key });
+      await invalidateSchoolData();
+      setNotice('Term marks cleared.');
+      setError('');
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Could not clear term marks.');
+      setError(error instanceof Error ? error.message : 'Could not clear term marks.');
     }
   };
   const deleteTerm = async (key: string) => {
     const label = String(terms[key]?.label ?? key);
     if (!window.confirm(`Delete ${label}, including all student records and marks saved for this term? This cannot be undone.`)) return;
     try {
-      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/terms/${encodeURIComponent(key)}`, { method: 'DELETE' });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: getGetSchoolConfigQueryKey(school.id) }),
-        queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) }),
-        queryClient.invalidateQueries({ queryKey: getListMarksQueryKey(school.id) }),
-      ]);
+      await deleteTermMutation.mutateAsync({ schoolId: school.id, termKey: key });
+      await invalidateSchoolData();
+      setNotice(`${label} deleted.`);
+      setError('');
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Could not delete the term.');
+      setError(error instanceof Error ? error.message : 'Could not delete the term.');
     }
   };
-  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Term management" body="Create terms, choose the active term, and lock completed assessment records. Closing the active term opens the next term automatically." /><ShellCard><div className="flex gap-2"><input data-testid="input-new-term" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="e.g. Term 2, 2026" className="h-11 flex-1 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-term" onClick={add} disabled={!term.trim() || config.saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add term</button></div><div className="mt-6 divide-y divide-border">{Object.entries(terms).length ? Object.entries(terms).map(([key, item]) => { const isLocked = Boolean(item.locked || item.status === 'closed'); const isActive = activeTerm === key; return <div key={key} className="flex flex-wrap items-center gap-3 py-4"><CalendarDays size={17} className="text-primary" /><div className="flex-1"><p className="text-sm font-semibold">{String(item.label ?? key)} {isActive && <span className="ml-2 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">Active</span>}</p><p className="mt-1 text-xs text-muted-foreground">{isLocked ? 'Closed · marks are read-only' : 'Open for marks entry'}</p></div>{!isActive && <button onClick={() => config.save({ ...config.data, activeTerm: key })} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">Set active</button>}<button onClick={() => setStatus(key, !isLocked)} disabled={config.saving} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">{isLocked ? 'Reopen' : 'Close term'}</button>{isLocked && <button onClick={() => void clearMarks(key)} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5">Clear marks</button>}<button onClick={() => void deleteTerm(key)} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5">Delete term</button></div>; }) : <p className="py-5 text-sm text-muted-foreground">No configured terms yet.</p>}</div></ShellCard></div>;
+  return <div className="fade-up">
+    <SectionHeading eyebrow="Academics & marks" title="Term management" body="Create terms, choose the active term, and lock completed assessment records. Closing the active term opens the next term automatically." />
+    <ShellCard>
+      <div className="flex gap-2">
+        <input data-testid="input-new-term" value={term} onChange={(event) => setTerm(event.target.value)} placeholder="e.g. Term 2, 2026" className="h-11 flex-1 rounded-lg border border-input bg-background px-3 text-sm" />
+        <button data-testid="button-add-term" onClick={add} disabled={!term.trim() || saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add term</button>
+      </div>
+      {error && <p role="alert" className="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      {notice && <p role="status" className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p>}
+      <div className="mt-6 divide-y divide-border">
+        {Object.entries(terms).length ? Object.entries(terms).map(([key, item]) => {
+          const isLocked = Boolean(item.locked || item.status === 'closed');
+          const isActive = activeTerm === key;
+          return <div key={key} className="flex flex-wrap items-center gap-3 py-4">
+            <CalendarDays size={17} className="text-primary" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">{String(item.label ?? key)} {isActive && <span className="ml-2 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">Active</span>}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{isLocked ? 'Closed · marks are read-only' : 'Open for marks entry'}</p>
+            </div>
+            {!isActive && <button data-testid={`button-set-active-${key}`} onClick={() => void performTermAction(
+              () => activateTerm.mutateAsync({ schoolId: school.id, termKey: key }),
+              `${String(item.label ?? key)} is now active.`,
+              { optimisticConfig: { ...config.data, activeTerm: key } },
+            )} disabled={saving} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">Set active</button>}
+            <button data-testid={`button-close-term-${key}`} onClick={() => setStatus(key, !isLocked)} disabled={saving} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">{isLocked ? 'Reopen' : 'Close term'}</button>
+            {isLocked && <button onClick={() => void clearMarks(key)} disabled={saving} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">Clear marks</button>}
+            <button onClick={() => void deleteTerm(key)} disabled={saving} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">Delete term</button>
+          </div>;
+        }) : <p className="py-5 text-sm text-muted-foreground">No configured terms yet.</p>}
+      </div>
+    </ShellCard>
+  </div>;
 }
 
 function ManageSubjects({ school }: { school: School }) {

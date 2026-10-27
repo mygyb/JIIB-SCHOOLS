@@ -328,6 +328,64 @@ export const DeleteStudentResponse = zod.void()
 
 
 /**
+ * @summary List school terms
+ */
+export const ListSchoolTermsParams = zod.object({
+  "schoolId": zod.coerce.string().uuid()
+})
+
+export const ListSchoolTermsResponseItem = zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "status": zod.enum(['open', 'closed']),
+  "active": zod.boolean()
+})
+export const ListSchoolTermsResponse = zod.array(ListSchoolTermsResponseItem)
+
+
+/**
+ * @summary Create a school term
+ */
+export const CreateSchoolTermParams = zod.object({
+  "schoolId": zod.coerce.string().uuid()
+})
+
+
+
+
+
+export const CreateSchoolTermBody = zod.object({
+  "termKey": zod.string().min(1),
+  "label": zod.string().min(1)
+})
+
+export const CreateSchoolTermResponse = zod.object({
+  "schoolId": zod.string().uuid(),
+  "data": zod.record(zod.string(), zod.unknown()),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Change term status or activate it
+ */
+export const UpdateSchoolTermParams = zod.object({
+  "schoolId": zod.coerce.string().uuid(),
+  "termKey": zod.coerce.string()
+})
+
+export const UpdateSchoolTermBody = zod.object({
+  "status": zod.enum(['open', 'closed'])
+})
+
+export const UpdateSchoolTermResponse = zod.object({
+  "schoolId": zod.string().uuid(),
+  "data": zod.record(zod.string(), zod.unknown()),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Delete a closed, inactive term and its records
  */
 export const DeleteSchoolTermParams = zod.object({
@@ -336,6 +394,32 @@ export const DeleteSchoolTermParams = zod.object({
 })
 
 export const DeleteSchoolTermResponse = zod.void()
+
+
+/**
+ * @summary Make a school term active
+ */
+export const ActivateSchoolTermParams = zod.object({
+  "schoolId": zod.coerce.string().uuid(),
+  "termKey": zod.coerce.string()
+})
+
+export const ActivateSchoolTermResponse = zod.object({
+  "schoolId": zod.string().uuid(),
+  "data": zod.record(zod.string(), zod.unknown()),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Clear marks from a closed term
+ */
+export const ClearSchoolTermMarksParams = zod.object({
+  "schoolId": zod.coerce.string().uuid(),
+  "termKey": zod.coerce.string()
+})
+
+export const ClearSchoolTermMarksResponse = zod.void()
 
 
 /**

@@ -4,12 +4,18 @@ import { z } from "zod";
 import {
   CreateMessageBody,
   CreateMessageParams,
+  CreateSchoolTermBody,
+  CreateSchoolTermParams,
   CreateStudentBody,
   CreateStudentParams,
+  ActivateSchoolTermParams,
+  ClearSchoolTermMarksParams,
+  DeleteSchoolTermParams,
   DeleteStudentParams,
   GetDashboardSummaryParams,
   GetSchoolBySlugParams,
   GetSchoolConfigParams,
+  GetSchoolConfigResponse,
   ListMarksParams,
   ListMarksQueryParams,
   ListMessagesParams,
@@ -18,6 +24,8 @@ import {
   MarkInput,
   UpdateSchoolConfigBody,
   UpdateSchoolConfigParams,
+  UpdateSchoolTermBody,
+  UpdateSchoolTermParams,
   UpdateStudentBody,
   UpdateStudentParams,
   UpsertMarkBody,
@@ -175,8 +183,6 @@ const AllowedUserBody = z.object({
   role: z.enum(["admin", "teacher"]).optional(),
   subjects: z.array(z.union([z.string(), SubjectAssignmentBody])).optional(),
 });
-const TermBody = z.object({ termKey: z.string().min(1), label: z.string().min(1) });
-const TermStatusBody = z.object({ status: z.enum(["open", "closed"]) });
 const GradeBody = z.object({ grade: z.string().min(1), min: z.number(), descriptor: z.string().optional() });
 const PromoteBody = z.object({
   fromClass: z.string().min(1),
@@ -1943,6 +1949,32 @@ router.delete("/schools/:schoolId/users/:email", async (req, res) => {
 });
 
 // ---- Term management uses the original JSON term model in school_data ----
+function getNextTermIdentity(activeKey: string, activeLabel: string, terms: Record<string, Record<string, unknown>>) {
+  const year = Number(
+    activeLabel.match(/\b(20\d{2})\b/)?.[1] ??
+    activeKey.match(/\b(20\d{2})\b/)?.[1] ??
+    new Date().getFullYear(),
+  );
+  const currentNumber = Number(
+    activeLabel.match(/\b(?:term|t)\s*([1-3])\b/i)?.[1] ??
+    activeKey.match(/(?:term|t)[-_ ]?([1-3])$/i)?.[1] ??
+    0,
+  );
+  let nextYear = currentNumber >= 3 ? year + 1 : year;
+  let nextNumber = currentNumber >= 3 || currentNumber === 0 ? 1 : currentNumber + 1;
+  let key = `${nextYear}-T${nextNumber}`;
+  while (terms[key] && (terms[key].locked || terms[key].status === "closed")) {
+    if (nextNumber >= 3) {
+      nextYear += 1;
+      nextNumber = 1;
+    } else {
+      nextNumber += 1;
+    }
+    key = `${nextYear}-T${nextNumber}`;
+  }
+  return { key, label: `Term ${nextNumber}, ${nextYear}` };
+}
+
 router.get("/schools/:schoolId/terms", async (req, res) => {
   try {
     const config = await readSchoolConfig(req, String(req.params.schoolId));
@@ -1960,10 +1992,10 @@ router.get("/schools/:schoolId/terms", async (req, res) => {
   }
 });
 
-router.post("/schools/:schoolId/terms", async (req, res) => {
+router.post("/schools/:schoolId/terms", requireSchoolAdmin, async (req, res): Promise<void> => {
   try {
-    const schoolId = String(req.params.schoolId);
-    const body = TermBody.parse(req.body);
+    const { schoolId } = CreateSchoolTermParams.parse(req.params);
+    const body = CreateSchoolTermBody.parse(req.body);
     const config = await readSchoolConfig(req, schoolId);
     const terms = config.terms && typeof config.terms === "object" && !Array.isArray(config.terms)
       ? (config.terms as Record<string, Record<string, unknown>>)
@@ -1980,21 +2012,25 @@ router.post("/schools/:schoolId/terms", async (req, res) => {
       closedDate: null,
       createdDate: new Date().toISOString(),
     };
-    await writeSchoolConfig(req, schoolId, {
+    const saved = await writeSchoolConfig(req, schoolId, {
       ...config,
       activeTerm: config.activeTerm ?? body.termKey,
       terms: { ...terms, [body.termKey]: term },
     });
-    res.status(201).json({ key: body.termKey, ...term, status: "open" });
+    res.status(201).json(GetSchoolConfigResponse.parse({
+      schoolId,
+      data: saved,
+      updatedAt: new Date(),
+    }));
   } catch (error) {
     sendError(res, error);
   }
 });
 
-router.patch("/schools/:schoolId/terms/:termKey", async (req, res) => {
+router.patch("/schools/:schoolId/terms/:termKey", requireSchoolAdmin, async (req, res): Promise<void> => {
   try {
-    const { schoolId, termKey } = req.params;
-    const body = TermStatusBody.parse(req.body);
+    const { schoolId, termKey } = UpdateSchoolTermParams.parse(req.params);
+    const body = UpdateSchoolTermBody.parse(req.body);
     const config = await readSchoolConfig(req, schoolId);
     const terms = config.terms && typeof config.terms === "object" && !Array.isArray(config.terms)
       ? (config.terms as Record<string, Record<string, unknown>>)
@@ -2003,22 +2039,67 @@ router.patch("/schools/:schoolId/terms/:termKey", async (req, res) => {
       res.status(404).json({ error: "Term not found" });
       return;
     }
+    const nextTerms = { ...terms };
     const term = {
       ...terms[termKey],
       locked: body.status === "closed",
       status: body.status,
       closedDate: body.status === "closed" ? new Date().toISOString() : null,
     };
-    await writeSchoolConfig(req, schoolId, { ...config, terms: { ...terms, [termKey]: term } });
-    res.json({ key: termKey, ...term });
+    nextTerms[termKey] = term;
+    let activeTerm = String(config.activeTerm ?? "");
+    if (body.status === "closed" && activeTerm === termKey) {
+      const identity = getNextTermIdentity(termKey, String(terms[termKey]?.label ?? termKey), nextTerms);
+      const existing = nextTerms[identity.key];
+      nextTerms[identity.key] = existing
+        ? { ...existing, locked: false, status: "open", closedDate: null }
+        : {
+            label: identity.label,
+            students: [],
+            marks: [],
+            locked: false,
+            status: "open",
+            closedDate: null,
+            createdDate: new Date().toISOString(),
+          };
+      activeTerm = identity.key;
+    }
+    const saved = await writeSchoolConfig(req, schoolId, { ...config, activeTerm, terms: nextTerms });
+    res.json(GetSchoolConfigResponse.parse({
+      schoolId,
+      data: saved,
+      updatedAt: new Date(),
+    }));
   } catch (error) {
     sendError(res, error);
   }
 });
 
-router.delete("/schools/:schoolId/terms/:termKey/data", async (req, res) => {
+router.post("/schools/:schoolId/terms/:termKey/activate", requireSchoolAdmin, async (req, res): Promise<void> => {
   try {
-    const { schoolId, termKey } = req.params;
+    const { schoolId, termKey } = ActivateSchoolTermParams.parse(req.params);
+    const config = await readSchoolConfig(req, schoolId);
+    const terms = config.terms && typeof config.terms === "object" && !Array.isArray(config.terms)
+      ? (config.terms as Record<string, Record<string, unknown>>)
+      : {};
+    if (!terms[termKey]) {
+      res.status(404).json({ error: "Term not found." });
+      return;
+    }
+    const saved = await writeSchoolConfig(req, schoolId, { ...config, activeTerm: termKey });
+    res.json(GetSchoolConfigResponse.parse({
+      schoolId,
+      data: saved,
+      updatedAt: new Date(),
+    }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.delete("/schools/:schoolId/terms/:termKey/data", requireSchoolAdmin, async (req, res): Promise<void> => {
+  try {
+    const { schoolId, termKey } = ClearSchoolTermMarksParams.parse(req.params);
     const config = await readSchoolConfig(req, schoolId);
     const terms = config.terms && typeof config.terms === "object" && !Array.isArray(config.terms)
       ? (config.terms as Record<string, Record<string, unknown>>)
@@ -2049,8 +2130,7 @@ router.delete("/schools/:schoolId/terms/:termKey/data", async (req, res) => {
 
 router.delete("/schools/:schoolId/terms/:termKey", async (req, res) => {
   try {
-    const schoolId = String(req.params.schoolId);
-    const termKey = String(req.params.termKey);
+    const { schoolId, termKey } = DeleteSchoolTermParams.parse(req.params);
     const config = await readSchoolConfig(req, schoolId);
     const terms = config.terms && typeof config.terms === "object" && !Array.isArray(config.terms)
       ? config.terms as Record<string, Record<string, unknown>>
