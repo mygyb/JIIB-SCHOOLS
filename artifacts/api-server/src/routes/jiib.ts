@@ -1100,8 +1100,8 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
     const { schoolId } = GetDashboardSummaryParams.parse(req.params);
     const userEmail = String(req.headers["x-verified-user-email"] ?? "").toLowerCase();
     const [studentRows, markRows, configRows, assignmentRows] = await Promise.all([
-      supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id,name,class,house,subjects,created_at,term_key&order=created_at.desc`),
-      supabaseRequest(req, "marks", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id,student_id,subject,term_key,aoi,midterm,end,updated_at&order=updated_at.desc&limit=5000`),
+      supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=*`),
+      supabaseRequest(req, "marks", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=*&limit=5000`),
       supabaseRequest(req, "school_data", {}, `?school_id=eq.${schoolId}&select=data&limit=1`),
       res.locals.jiibRole === "teacher" && userEmail
         ? supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(userEmail)}&select=email,display_name,subjects&limit=1`)
