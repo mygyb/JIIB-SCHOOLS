@@ -771,15 +771,162 @@ function Students() {
     }
   };
   const saveStudent = (payload: { name: string; className: string; house: string; parentPhone?: string | null; badges?: string[] }) => {
-    if (editing) update.mutate({ schoolId: school.id, studentId: editing.id, data: payload }, { onSuccess: () => { qc.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) }); setEditing(null); setShowForm(false); } });
-    else create.mutate({ schoolId: school.id, data: payload }, { onSuccess: () => { qc.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) }); setShowForm(false); } });
+    if (!editing) return;
+    update.mutate({ schoolId: school.id, studentId: editing.id, data: payload }, {
+      onSuccess: async () => {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) }),
+          qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey(school.id) }),
+        ]);
+        setEditing(null);
+        setShowForm(false);
+      },
+    });
+  };
+  const createStudent = (payload: { name: string; className: string; house: string; parentPhone?: string | null; subjects?: string[] }) => {
+    create.mutate({ schoolId: school.id, data: payload }, {
+      onSuccess: async () => {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) }),
+          qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey(school.id) }),
+        ]);
+        setShowForm(false);
+      },
+    });
   };
   const deleteStudent = (student: Student) => { if (window.confirm(`Delete ${student.name} from the register and remove all linked marks? This cannot be undone.`)) remove.mutate({ schoolId: school.id, studentId: student.id }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) }) }); };
+  if (showForm && !editing) {
+    return <StudentCreatePage
+      classes={classes}
+      houses={houses}
+      configData={configData}
+      pending={create.isPending}
+      error={create.error instanceof Error ? create.error.message : ''}
+      onCancel={() => setShowForm(false)}
+      onSave={createStudent}
+    />;
+  }
   return <div className="fade-up"><PageHeader eyebrow="School register" title="Students" description="Keep the school register accurate, searchable, and ready for every team." action={<div className="flex flex-wrap gap-2">{selectedIds.length > 0 && <button data-testid="button-delete-selected-students" onClick={() => void bulkDelete()} disabled={bulkPending} className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 px-4 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50"><Trash2 size={15} /> {bulkPending ? 'Deleting…' : `Delete selected (${selectedIds.length})`}</button>}<button data-testid="button-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={16} /> Add student</button></div>} />
     <div className="mb-5 flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={17} className="absolute left-3 top-3.5 text-muted-foreground" /><input data-testid="input-student-search" value={search} onChange={(e) => { setSearch(e.target.value); setSelectedIds([]); }} placeholder="Search by student name" className="h-11 w-full rounded-xl border border-input bg-card pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></div><select data-testid="select-student-class" value={className} onChange={(e) => { setClassName(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select><select data-testid="select-student-house" value={house} onChange={(e) => { setHouse(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All houses</option>{houses.map((item) => <option key={item} value={item}>{item}</option>)}</select><button data-testid="button-filter-students" onClick={() => { setSearch(''); setClassName(''); setHouse(''); setSelectedIds([]); }} disabled={!search && !className && !house} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50"><SlidersHorizontal size={15} /> Clear filters</button></div>
     {bulkError && <p role="alert" className="mb-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{bulkError}</p>}
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">{query.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-14" />)}</div> : query.isError ? <div className="p-5"><ErrorState retry={() => query.refetch()} /></div> : students.length === 0 ? <EmptyState icon={UsersRound} title="No students match" body={search || className || house ? 'Try a different search or clear the filters.' : 'Your register is ready for its first student.'} action={!search && !className && !house ? <button data-testid="button-empty-add-student" onClick={() => setShowForm(true)} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Add first student</button> : undefined} /> : <div className="overflow-x-auto"><table className="w-full min-w-[780px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-4 py-4"><input aria-label="Select all visible students" type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : students.map((student) => student.id))} /></th><th className="px-5 py-4 font-bold">Student</th><th className="px-5 py-4 font-bold">Class</th><th className="px-5 py-4 font-bold">House</th><th className="px-5 py-4 font-bold">Parent contact</th><th className="px-5 py-4 text-right font-bold">Actions</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => <tr key={student.id} data-testid={`row-student-${student.id}`} className="group transition hover:bg-muted/25"><td className="px-4 py-4"><input aria-label={`Select ${student.name}`} type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /></td><td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">{initials(student.name)}</span><div><p data-testid={`text-student-${student.id}`} className="text-sm font-semibold uppercase">{student.name}</p><p className="mt-0.5 text-xs text-muted-foreground">Joined {fmtDate(student.createdAt)}</p></div></div></td><td className="px-5 py-4 text-sm">{student.className}</td><td className="px-5 py-4"><span className="rounded-full bg-[#f7edcf] px-2.5 py-1 text-xs font-semibold text-[#87631c]">{student.house}</span></td><td className="px-5 py-4 text-sm text-muted-foreground">{student.parentPhone || 'Not provided'}</td><td className="px-5 py-4"><div className="flex justify-end gap-1 opacity-70 group-hover:opacity-100"><button data-testid={`button-edit-student-${student.id}`} onClick={() => { setEditing(student); setShowForm(true); }} className="rounded-lg p-2 hover:bg-muted"><Pencil size={15} /></button><button data-testid={`button-delete-student-${student.id}`} onClick={() => deleteStudent(student)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div></td></tr>)}</tbody></table></div>}</div>
-    {showForm && <StudentDialog student={editing} pending={create.isPending || update.isPending} classes={classes} houses={houses} defaultClass={className} onClose={() => { setShowForm(false); setEditing(null); }} onSave={saveStudent} />}
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">{query.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-14" />)}</div> : query.isError ? <div className="p-5"><ErrorState retry={() => query.refetch()} /></div> : students.length === 0 ? <EmptyState icon={UsersRound} title="No students match" body={search || className || house ? 'Try a different search or clear the filters.' : 'Your register is ready for its first student.'} action={!search && !className && !house ? <button data-testid="button-empty-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Add first student</button> : undefined} /> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-4 py-4"><input aria-label="Select all visible students" type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : students.map((student) => student.id))} /></th><th className="px-5 py-4 font-bold">Student</th><th className="px-5 py-4 font-bold">Class</th><th className="px-5 py-4 font-bold">House</th><th className="px-5 py-4 font-bold">Optional subjects</th><th className="px-5 py-4 font-bold">Parent contact</th><th className="px-5 py-4 text-right font-bold">Actions</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => <tr key={student.id} data-testid={`row-student-${student.id}`} className="group transition hover:bg-muted/25"><td className="px-4 py-4"><input aria-label={`Select ${student.name}`} type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /></td><td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">{initials(student.name)}</span><div><p data-testid={`text-student-${student.id}`} className="text-sm font-semibold uppercase">{student.name}</p><p className="mt-0.5 text-xs text-muted-foreground">Joined {fmtDate(student.createdAt)}</p></div></div></td><td className="px-5 py-4 text-sm">{student.className}</td><td className="px-5 py-4"><span className="rounded-full bg-[#f7edcf] px-2.5 py-1 text-xs font-semibold text-[#87631c]">{student.house}</span></td><td className="px-5 py-4"><div className="flex flex-wrap gap-1.5">{student.subjects?.length ? student.subjects.map((item) => <span key={item} className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">{item}</span>) : <span className="text-sm text-muted-foreground">None</span>}</div></td><td className="px-5 py-4 text-sm text-muted-foreground">{student.parentPhone || 'Not provided'}</td><td className="px-5 py-4"><div className="flex justify-end gap-1 opacity-70 group-hover:opacity-100"><button data-testid={`button-edit-student-${student.id}`} onClick={() => { setEditing(student); setShowForm(true); }} className="rounded-lg p-2 hover:bg-muted"><Pencil size={15} /></button><button data-testid={`button-delete-student-${student.id}`} onClick={() => deleteStudent(student)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div></td></tr>)}</tbody></table></div>}</div>
+    {showForm && editing && <StudentDialog student={editing} pending={update.isPending} classes={classes} houses={houses} defaultClass={className} onClose={() => { setShowForm(false); setEditing(null); }} onSave={saveStudent} />}
+  </div>;
+}
+
+function StudentCreatePage({
+  classes,
+  houses,
+  configData,
+  pending,
+  error,
+  onCancel,
+  onSave,
+}: {
+  classes: string[];
+  houses: string[];
+  configData: SchoolConfig;
+  pending: boolean;
+  error: string;
+  onCancel: () => void;
+  onSave: (data: { name: string; className: string; house: string; parentPhone?: string | null; subjects?: string[] }) => void;
+}) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [className, setClassName] = useState(classes[0] ?? '');
+  const [house, setHouse] = useState(houses[0] ?? '');
+  const [parentPhone, setParentPhone] = useState('');
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  const availableSubjects = subjectNames(configData, className);
+  const settings = configData.settings && typeof configData.settings === 'object'
+    ? configData.settings
+    : {};
+  const optionalSubjectsClass = String(settings.optionalSubjectsClass ?? 'S.3');
+  const classLevel = (value: string) => Number(value.match(/\d+/)?.[0] ?? 0);
+  const canChooseOptionalSubjects = Boolean(className) &&
+    classLevel(className) >= classLevel(optionalSubjectsClass);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const first = firstName.trim();
+    const last = lastName.trim();
+    if (!first || !last || !className || !house.trim()) return;
+    onSave({
+      name: `${first} ${last}`,
+      className,
+      house: house.trim(),
+      parentPhone: parentPhone.trim() || null,
+      subjects: canChooseOptionalSubjects ? selectedSubjects : [],
+    });
+  };
+  return <div className="fade-up">
+    <PageHeader
+      eyebrow="School register"
+      title="Add a student"
+      description="Create a student record for the active term. Optional subject choices are saved with the student."
+      action={<button type="button" data-testid="button-back-to-students" onClick={onCancel} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted"><ArrowRight className="rotate-180" size={15} /> Back to students</button>}
+    />
+    <form onSubmit={submit} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <section className="rounded-2xl border border-border bg-card p-5 sm:p-7">
+        <div className="mb-6"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">Student profile</p><h3 className="mt-1 font-display text-xl font-semibold">Basic information</h3><p className="mt-1 text-sm text-muted-foreground">Enter the student’s name and school placement.</p></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="First name" value={firstName} onChange={setFirstName} testId="input-student-first-name" required />
+          <Field label="Last name" value={lastName} onChange={setLastName} testId="input-student-last-name" required />
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Class</span>
+            <select data-testid="input-student-class" required disabled={!classes.length} value={className} onChange={(event) => { setClassName(event.target.value); setSelectedSubjects([]); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60">
+              <option value="">{classes.length ? 'Select a class' : 'No classes configured'}</option>
+              {classes.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            {!classes.length && <Link href="/manage-subjects" className="mt-2 inline-block text-xs font-semibold text-primary hover:underline">Configure classes first</Link>}
+          </label>
+          {houses.length ? <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">House</span>
+            <select data-testid="input-student-house-form" required value={house} onChange={(event) => setHouse(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring">
+              <option value="">Select a house</option>
+              {houses.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label> : <Field label="House" value={house} onChange={setHouse} testId="input-student-house-form" required />}
+        </div>
+        <div className="mt-4 max-w-md"><Field label="Parent phone (optional)" value={parentPhone} onChange={setParentPhone} testId="input-student-parent-phone" /></div>
+        {error && <p role="alert" className="mt-5 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+        <div className="mt-7 flex flex-wrap justify-end gap-3 border-t border-border pt-5">
+          <button type="button" data-testid="button-cancel-student" onClick={onCancel} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">Cancel</button>
+          <button type="submit" disabled={pending || !classes.length} data-testid="button-save-student" className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60">
+            {pending ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+            {pending ? 'Adding student…' : 'Add student'}
+          </button>
+        </div>
+      </section>
+      <aside className="rounded-2xl border border-border bg-card p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">Class choices</p><h3 className="mt-1 font-display text-lg font-semibold">Optional subjects</h3></div>
+          <BookOpen size={18} className="mt-1 text-muted-foreground" />
+        </div>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">Choose any optional subjects this student takes. Leave them unchecked if none apply.</p>
+        {canChooseOptionalSubjects ? availableSubjects.length ? <fieldset className="mt-5 space-y-2">
+          <legend className="sr-only">Choose optional subjects</legend>
+          {availableSubjects.map((subject) => <label key={subject} className="flex cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-3 text-sm transition hover:bg-muted/40">
+            <input
+              type="checkbox"
+              data-testid={`checkbox-optional-subject-${subject.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+              checked={selectedSubjects.includes(subject)}
+              onChange={(event) => setSelectedSubjects((current) => event.target.checked
+                ? [...current, subject]
+                : current.filter((item) => item !== subject))}
+              className="h-4 w-4 rounded border-input accent-primary"
+            />
+            <span className="font-medium">{subject}</span>
+          </label>)}
+        </fieldset> : <div className="mt-5 rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+          No subjects are configured for {className || 'this class'}. <Link href="/manage-subjects" className="font-semibold text-primary hover:underline">Manage subjects</Link>.
+        </div> : <div className="mt-5 rounded-xl bg-muted/45 p-4 text-sm leading-6 text-muted-foreground">
+          Optional subject choices begin in {optionalSubjectsClass}. Subjects for earlier classes are assigned from their class configuration.
+        </div>}
+        {canChooseOptionalSubjects && selectedSubjects.length > 0 && <p className="mt-4 text-xs font-medium text-muted-foreground">{selectedSubjects.length} selected</p>}
+      </aside>
+    </form>
   </div>;
 }
 

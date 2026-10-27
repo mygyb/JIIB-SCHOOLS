@@ -1,0 +1,1 @@
+- [Optional-subject storage](student-optional-subject-storage.md) — keep student subject selections in the active-term record so older school databases need no new column.

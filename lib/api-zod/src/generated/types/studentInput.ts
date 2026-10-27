@@ -16,4 +16,5 @@ export interface StudentInput {
   /** @nullable */
   parentPhone?: string | null;
   badges?: string[];
+  subjects?: string[];
 }

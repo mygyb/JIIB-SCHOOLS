@@ -242,6 +242,7 @@ export const ListStudentsResponseItem = zod.object({
   "house": zod.string(),
   "parentPhone": zod.string().nullable(),
   "badges": zod.array(zod.string()),
+  "subjects": zod.array(zod.string()),
   "createdAt": zod.coerce.date()
 })
 export const ListStudentsResponse = zod.array(ListStudentsResponseItem)
@@ -264,7 +265,8 @@ export const CreateStudentBody = zod.object({
   "className": zod.string().min(1),
   "house": zod.string().min(1),
   "parentPhone": zod.string().nullish(),
-  "badges": zod.array(zod.string()).optional()
+  "badges": zod.array(zod.string()).optional(),
+  "subjects": zod.array(zod.string()).optional()
 })
 
 export const CreateStudentResponse = zod.object({
@@ -275,6 +277,7 @@ export const CreateStudentResponse = zod.object({
   "house": zod.string(),
   "parentPhone": zod.string().nullable(),
   "badges": zod.array(zod.string()),
+  "subjects": zod.array(zod.string()),
   "createdAt": zod.coerce.date()
 })
 
@@ -308,6 +311,7 @@ export const UpdateStudentResponse = zod.object({
   "house": zod.string(),
   "parentPhone": zod.string().nullable(),
   "badges": zod.array(zod.string()),
+  "subjects": zod.array(zod.string()),
   "createdAt": zod.coerce.date()
 })
 

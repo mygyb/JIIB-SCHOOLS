@@ -15,5 +15,6 @@ export interface Student {
   /** @nullable */
   parentPhone: string | null;
   badges: string[];
+  subjects: string[];
   createdAt: Date;
 }

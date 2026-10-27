@@ -124,6 +124,7 @@ export interface Student {
   /** @nullable */
   parentPhone: string | null;
   badges: string[];
+  subjects: string[];
   createdAt: string;
 }
 
@@ -137,6 +138,7 @@ export interface StudentInput {
   /** @nullable */
   parentPhone?: string | null;
   badges?: string[];
+  subjects?: string[];
 }
 
 export interface StudentUpdate {

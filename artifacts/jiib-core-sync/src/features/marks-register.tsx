@@ -96,6 +96,13 @@ export function MarksRegister({ school }: { school: School }) {
   useEffect(() => {
     setPendingMarks(getPendingMarks(school.id));
   }, [school.id]);
+  const settings = configData.settings && typeof configData.settings === "object"
+    ? configData.settings
+    : {};
+  const optionalSubjectsClass = String(settings.optionalSubjectsClass ?? "S.3");
+  const classLevel = (value: string) => Number(value.match(/\d+/)?.[0] ?? 0);
+  const usesOptionalSubjects = Boolean(className) &&
+    classLevel(className) >= classLevel(optionalSubjectsClass);
 
   const studentsQuery = useQuery({
     queryKey: ["marks-register-students", school.id, selectedTerm, className, search],
@@ -109,7 +116,10 @@ export function MarksRegister({ school }: { school: School }) {
     subject: selectedSubject || undefined,
   });
   const upsert = useUpsertMark();
-  const students = studentsQuery.data ?? [];
+  const students = (studentsQuery.data ?? []).filter((student) =>
+    !usesOptionalSubjects || !selectedSubject || !student.subjects?.length ||
+    student.subjects.includes(selectedSubject),
+  );
   const marks = marksQuery.data ?? [];
   const locked = Boolean(configData.marksLocked || isTermLocked(configData, selectedTerm));
   const pendingForTerm = pendingMarks.filter((item) => item.termKey === selectedTerm);

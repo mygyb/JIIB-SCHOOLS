@@ -59,6 +59,7 @@ function mapStudent(row: Record<string, unknown>) {
     house: String(row.house ?? ""),
     parentPhone: (row.parent_phone as string | null | undefined) ?? null,
     badges: Array.isArray(row.badges) ? row.badges.map(String) : [],
+    subjects: Array.isArray(row.subjects) ? row.subjects.map(String) : [],
     createdAt: new Date(String(row.created_at ?? new Date().toISOString())),
   };
 }
@@ -288,6 +289,7 @@ async function getParentPortalData(req: Request, schoolId: string, phoneInput: s
         house: String(student.house ?? ""),
         parentPhone: String(student.parentPhone ?? student.parent_phone ?? ""),
         badges: Array.isArray(student.badges) ? student.badges.map(String) : [],
+        subjects: Array.isArray(student.subjects) ? student.subjects.map(String) : [],
         createdAt: new Date(),
         termKey,
       });
@@ -1131,7 +1133,9 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
         name: previous.name || student.name,
         class: previous.class || student.class || student.className,
         house: previous.house || student.house,
-        subjects: previous.subjects ?? student.subjects,
+        subjects: Array.isArray(previous.subjects) && previous.subjects.length
+          ? previous.subjects
+          : student.subjects ?? [],
       });
     }
     const students = Array.from(studentMap.values());
@@ -1320,6 +1324,9 @@ router.get("/schools/:schoolId/students", async (req, res) => {
         house: student.house || String(legacy?.house ?? ""),
         parentPhone: student.parentPhone || String(legacy?.parentPhone ?? legacy?.parent_phone ?? "") || null,
         badges: student.badges.length ? student.badges : Array.isArray(legacy?.badges) ? legacy.badges.map(String) : [],
+        subjects: student.subjects?.length
+          ? student.subjects
+          : Array.isArray(legacy?.subjects) ? legacy.subjects.map(String) : [],
       });
     }
     for (const legacy of legacyStudents) {
@@ -1331,6 +1338,7 @@ router.get("/schools/:schoolId/students", async (req, res) => {
         house: String(legacy.house ?? ""),
         parentPhone: String(legacy.parentPhone ?? legacy.parent_phone ?? "") || null,
         badges: Array.isArray(legacy.badges) ? legacy.badges.map(String) : [],
+        subjects: Array.isArray(legacy.subjects) ? legacy.subjects.map(String) : [],
         createdAt: new Date(String(legacy.createdAt ?? legacy.created_at ?? new Date().toISOString())),
       };
       if (student.id && !byId.has(student.id)) byId.set(student.id, student);
@@ -1350,6 +1358,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
   try {
     const { schoolId } = CreateStudentParams.parse(req.params);
     const body = CreateStudentBody.parse(req.body);
+    const subjects = Array.from(new Set((body.subjects ?? []).map((subject) => subject.trim()).filter(Boolean)));
     const config = await readSchoolConfig(req, schoolId);
     const termKey = String(config.activeTerm ?? "2026-T1");
     const studentId = randomUUID();
@@ -1384,7 +1393,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
       class: body.className,
       house: body.house,
       parentPhone: body.parentPhone ?? "",
-      subjects: [],
+      subjects,
     };
     await writeSchoolConfig(req, schoolId, {
       ...config,
@@ -1402,7 +1411,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
         },
       },
     });
-    res.status(201).json(mapStudent(rows[0]));
+    res.status(201).json({ ...mapStudent(rows[0]), subjects });
   } catch (error) {
     sendError(res, error);
   }
