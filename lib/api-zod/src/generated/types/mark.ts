@@ -7,8 +7,10 @@
  */
 
 export interface Mark {
+  /** @minLength 1 */
   id: string;
   schoolId: string;
+  /** @minLength 1 */
   studentId: string;
   termKey: string;
   subject: string;

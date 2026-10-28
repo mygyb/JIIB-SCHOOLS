@@ -1,2 +1,3 @@
 - [Optional-subject storage](student-optional-subject-storage.md) — keep student subject selections in the active-term record so older school databases need no new column.
 - [Term update boundaries](term-management-updates.md) — use narrow term endpoints; replacing the full school config can exceed the request size limit.
+- [API codegen barrel exports](api-codegen-barrel-exports.md) — check the Zod barrel after Orval codegen; a broad generated-types export can collide with API schemas.

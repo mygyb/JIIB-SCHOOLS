@@ -377,7 +377,7 @@ function SignIn() {
                {authError && <div data-testid="error-login" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{authError}</div>}
               <button data-testid="button-open-workspace" className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90" type="submit">LOGIN <ArrowRight size={17} /></button>
             </form>
-            <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">Need access to a different school? Ask your system administrator for its workspace slug.</p>
+            <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">© 2025 - 2026 System Developed by JIIB Technologies</p>
           </div>
         </section>
       </div>

@@ -150,6 +150,7 @@ export interface DashboardSummary {
 }
 
 export interface Student {
+  /** @minLength 1 */
   id: string;
   schoolId: string;
   name: string;
@@ -188,8 +189,10 @@ export interface StudentUpdate {
 }
 
 export interface Mark {
+  /** @minLength 1 */
   id: string;
   schoolId: string;
+  /** @minLength 1 */
   studentId: string;
   termKey: string;
   subject: string;
@@ -200,6 +203,7 @@ export interface Mark {
 }
 
 export interface MarkInput {
+  /** @minLength 1 */
   studentId: string;
   termKey: string;
   subject: string;

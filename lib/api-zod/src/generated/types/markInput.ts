@@ -7,6 +7,7 @@
  */
 
 export interface MarkInput {
+  /** @minLength 1 */
   studentId: string;
   termKey: string;
   subject: string;

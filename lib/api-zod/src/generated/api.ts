@@ -234,8 +234,11 @@ export const ListStudentsQueryParams = zod.object({
   "termKey": zod.coerce.string().nullish()
 })
 
+
+
+
 export const ListStudentsResponseItem = zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1),
   "schoolId": zod.string().uuid(),
   "name": zod.string(),
   "className": zod.string(),
@@ -269,8 +272,11 @@ export const CreateStudentBody = zod.object({
   "subjects": zod.array(zod.string()).optional()
 })
 
+
+
+
 export const CreateStudentResponse = zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1),
   "schoolId": zod.string().uuid(),
   "name": zod.string(),
   "className": zod.string(),
@@ -303,8 +309,11 @@ export const UpdateStudentBody = zod.object({
   "badges": zod.array(zod.string()).optional()
 })
 
+
+
+
 export const UpdateStudentResponse = zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1),
   "schoolId": zod.string().uuid(),
   "name": zod.string(),
   "className": zod.string(),
@@ -435,10 +444,14 @@ export const ListMarksQueryParams = zod.object({
   "subject": zod.coerce.string().nullish()
 })
 
+
+
+
+
 export const ListMarksResponseItem = zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1),
   "schoolId": zod.string().uuid(),
-  "studentId": zod.string().uuid(),
+  "studentId": zod.string().min(1),
   "termKey": zod.string(),
   "subject": zod.string(),
   "aoi": zod.number(),
@@ -456,8 +469,11 @@ export const UpsertMarkParams = zod.object({
   "schoolId": zod.coerce.string().uuid()
 })
 
+
+
+
 export const UpsertMarkBody = zod.object({
-  "studentId": zod.string().uuid(),
+  "studentId": zod.string().min(1),
   "termKey": zod.string(),
   "subject": zod.string(),
   "aoi": zod.number().optional(),
@@ -466,10 +482,14 @@ export const UpsertMarkBody = zod.object({
   "enteredFields": zod.array(zod.string()).optional()
 })
 
+
+
+
+
 export const UpsertMarkResponse = zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1),
   "schoolId": zod.string().uuid(),
-  "studentId": zod.string().uuid(),
+  "studentId": zod.string().min(1),
   "termKey": zod.string(),
   "subject": zod.string(),
   "aoi": zod.number(),

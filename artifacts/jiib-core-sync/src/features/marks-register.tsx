@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getGetDashboardSummaryQueryKey,
@@ -53,6 +53,9 @@ export function MarksRegister({ school }: { school: School }) {
   const [search, setSearch] = useState("");
   const [pendingMarks, setPendingMarks] = useState(() => getPendingMarks(school.id));
   const [error, setError] = useState("");
+  const [fieldSaveStates, setFieldSaveStates] = useState<Record<string, "saved" | "unsaved">>({});
+  const saveVersions = useRef<Record<string, number>>({});
+  const pendingSyncKeys = useRef(new Map<string, { markKey: string; hasValue: boolean }>());
   const configQuery = useGetSchoolConfig(school.id, {
     query: { queryKey: getGetSchoolConfigQueryKey(school.id) },
   });
@@ -95,6 +98,29 @@ export function MarksRegister({ school }: { school: School }) {
   }, [availableSubjects, subject]);
   useEffect(() => {
     setPendingMarks(getPendingMarks(school.id));
+    pendingSyncKeys.current.clear();
+    setFieldSaveStates({});
+  }, [school.id]);
+  useEffect(() => {
+    const reconcileSyncedMarks = () => {
+      const pending = getPendingMarks(school.id);
+      const pendingKeys = new Set(pending.map((item) =>
+        `${item.schoolId}|${item.termKey}|${item.studentId}|${item.subject}`,
+      ));
+      setPendingMarks(pending);
+      setFieldSaveStates((current) => {
+        const next = { ...current };
+        for (const [fieldKey, pendingMark] of pendingSyncKeys.current) {
+          if (!pendingKeys.has(pendingMark.markKey)) {
+            next[fieldKey] = pendingMark.hasValue ? "saved" : "unsaved";
+            pendingSyncKeys.current.delete(fieldKey);
+          }
+        }
+        return next;
+      });
+    };
+    window.addEventListener("jiib:sync", reconcileSyncedMarks);
+    return () => window.removeEventListener("jiib:sync", reconcileSyncedMarks);
   }, [school.id]);
   const settings = configData.settings && typeof configData.settings === "object"
     ? configData.settings
@@ -133,13 +159,21 @@ export function MarksRegister({ school }: { school: School }) {
   };
 
   const save = (student: Student, field: AssessmentField, rawValue: string, input: HTMLInputElement) => {
+    const fieldKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}|${field.field}`;
     const value = rawValue.trim() === "" ? null : Number(rawValue);
     if (value !== null && (!Number.isFinite(value) || value < 0 || value > field.max)) {
       window.alert(`${field.name} must be between 0 and ${field.max}.`);
       const existing = getMark(student.id);
       input.value = existing?.enteredFields?.includes(field.field) ? String(scoreFor(existing, field)) : "";
+      setFieldSaveStates((current) => ({
+        ...current,
+        [fieldKey]: existing?.enteredFields?.includes(field.field) || scoreFor(existing, field) > 0 ? "saved" : "unsaved",
+      }));
       return;
     }
+    const saveVersion = (saveVersions.current[fieldKey] ?? 0) + 1;
+    saveVersions.current[fieldKey] = saveVersion;
+    setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" }));
     const existing = getMark(student.id);
     const nextEnteredFields = new Set(existing?.enteredFields ?? []);
     if (value === null) nextEnteredFields.delete(field.field);
@@ -162,6 +196,10 @@ export function MarksRegister({ school }: { school: School }) {
     if (!navigator.onLine) {
       const next = queueMark({ schoolId: school.id, ...payload });
       setPendingMarks(next.filter((item) => item.schoolId === school.id));
+      pendingSyncKeys.current.set(fieldKey, {
+        markKey: `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}`,
+        hasValue: value !== null,
+      });
       window.dispatchEvent(new Event("jiib:sync"));
       return;
     }
@@ -169,6 +207,9 @@ export function MarksRegister({ school }: { school: School }) {
       { schoolId: school.id, data: payload },
       {
         onSuccess: async () => {
+          if (saveVersions.current[fieldKey] === saveVersion) {
+            setFieldSaveStates((current) => ({ ...current, [fieldKey]: value === null ? "unsaved" : "saved" }));
+          }
           await queryClient.invalidateQueries({
             queryKey: getListMarksQueryKey(school.id, {
               termKey: selectedTerm,
@@ -185,8 +226,15 @@ export function MarksRegister({ school }: { school: School }) {
           if (!navigator.onLine) {
             const next = queueMark({ schoolId: school.id, ...payload });
             setPendingMarks(next.filter((item) => item.schoolId === school.id));
+            pendingSyncKeys.current.set(fieldKey, {
+              markKey: `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}`,
+              hasValue: value !== null,
+            });
           } else {
             setError(cause instanceof Error ? cause.message : "This mark could not be saved.");
+          }
+          if (saveVersions.current[fieldKey] === saveVersion) {
+            setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" }));
           }
         },
       },
@@ -239,7 +287,9 @@ export function MarksRegister({ school }: { school: School }) {
           const total = fields.reduce((sum, field) => sum + scoreFor(mark, field), 0);
           return <tr key={student.id} data-testid={`row-mark-${student.id}`}><td className="px-5 py-3"><div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/10 text-[10px] font-bold text-primary">{student.name.split(/\s+/).map((word) => word[0]).slice(0, 2).join("").toUpperCase()}</span><div><p className="text-sm font-semibold uppercase">{student.name}</p><p className="text-xs text-muted-foreground">{student.className} · {selectedSubject}</p></div></div></td>{fields.map((field) => {
             const entered = mark?.enteredFields?.includes(field.field) ?? scoreFor(mark, field) > 0;
-            return <td key={field.field} className="px-3 py-3"><input disabled={locked} data-testid={`input-mark-${field.field}-${student.id}`} type="number" inputMode="decimal" min="0" max={field.max} step="any" defaultValue={entered ? scoreFor(mark, field) : ""} onBlur={(event) => save(student, field, event.currentTarget.value, event.currentTarget)} className={`h-9 w-24 rounded-md border px-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${entered ? "border-[#96cdb8] bg-[#eef8f4]" : "border-input bg-background"}`} /></td>;
+            const fieldKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}|${field.field}`;
+            const isSaved = (fieldSaveStates[fieldKey] ?? (entered ? "saved" : "unsaved")) === "saved";
+            return <td key={field.field} className="px-3 py-3"><input disabled={locked} data-testid={`input-mark-${field.field}-${student.id}`} data-save-state={isSaved ? "saved" : "unsaved"} title={isSaved ? "Saved" : "Not saved"} type="number" inputMode="decimal" min="0" max={field.max} step="any" defaultValue={entered ? scoreFor(mark, field) : ""} onChange={() => { saveVersions.current[fieldKey] = (saveVersions.current[fieldKey] ?? 0) + 1; setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" })); }} onBlur={(event) => save(student, field, event.currentTarget.value, event.currentTarget)} className={`h-9 w-24 rounded-md border px-2 text-sm outline-none transition-colors focus:ring-2 focus:ring-ring disabled:opacity-50 ${isSaved ? "border-[#96cdb8] bg-[#eef8f4]" : "border-[#e6a0a0] bg-[#fff1f1]"}`} /></td>;
           })}<td className="px-5 py-3 text-right"><span className={`font-display text-lg font-semibold ${total >= maxTotal / 2 ? "text-[#2e8c72]" : "text-foreground"}`}>{total}</span><span className="ml-1 text-xs text-muted-foreground">/ {maxTotal}</span></td></tr>;
         })}</tbody></table></div>}
     </div>

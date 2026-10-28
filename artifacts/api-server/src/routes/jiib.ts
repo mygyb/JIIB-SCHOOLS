@@ -1588,13 +1588,7 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
     const { schoolId } = UpsertMarkParams.parse(req.params);
     const body = UpsertMarkBody.parse(req.body);
     const now = new Date().toISOString();
-    const [studentRows, config, teacherRows] = await Promise.all([
-      await supabaseRequest(
-        req,
-        "students",
-        {},
-        `?id=eq.${encodeURIComponent(body.studentId)}&school_id=eq.${encodeURIComponent(schoolId)}&select=class,subjects&limit=1`,
-      ),
+    const [config, teacherRows] = await Promise.all([
       readSchoolConfig(req, schoolId),
       res.locals.jiibRole === "teacher"
         ? supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(String(req.headers["x-verified-user-email"] ?? "").toLowerCase())}&select=subjects&limit=1`)
@@ -1613,13 +1607,30 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
       res.status(423).json({ error: "Marks are locked for this term." });
       return;
     }
+    const isUuidStudentId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.studentId);
+    let normalizedStudentRows: Array<Record<string, unknown>> = [];
+    try {
+      normalizedStudentRows = asRows(await supabaseRequest(
+          req,
+          "students",
+          {},
+          `?id=eq.${encodeURIComponent(body.studentId)}&school_id=eq.${encodeURIComponent(schoolId)}&select=class,subjects&limit=1`,
+        ));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (isUuidStudentId || !/invalid input syntax for type uuid/i.test(message)) throw error;
+    }
+    const normalizedStudent = normalizedStudentRows[0];
     const legacyStudent = Array.isArray(term?.students)
       ? (term.students as Array<Record<string, unknown>>).find(
           (student) => String(student.id) === body.studentId,
         )
       : undefined;
-    const normalizedStudentRows = asRows(studentRows);
-    const studentClass = String(normalizedStudentRows[0]?.class ?? legacyStudent?.class ?? legacyStudent?.className ?? "");
+    if (!normalizedStudent && !legacyStudent) {
+      res.status(404).json({ error: "Student not found in this term." });
+      return;
+    }
+    const studentClass = String(normalizedStudent?.class ?? legacyStudent?.class ?? legacyStudent?.className ?? "");
     if (res.locals.jiibRole === "teacher") {
       const assignedSubjects = asRows(teacherRows)[0]?.subjects;
       const assignments = Array.isArray(assignedSubjects) ? assignedSubjects : [];
@@ -1645,29 +1656,39 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
     const enteredFields = Array.isArray(body.enteredFields)
       ? body.enteredFields.filter((field) => fields.some((item) => item.field === field))
       : [];
-    const rows = asRows(
-      await supabaseRequest(
-        req,
-        "marks",
-        {
-          method: "POST",
-          body: jsonBody({
-            school_id: schoolId,
-            student_id: body.studentId,
-            term_key: termKey,
-            subject: body.subject,
-            class: studentClass,
-            aoi: body.aoi ?? 0,
-            midterm: body.midterm ?? 0,
-            end: body.end ?? 0,
-            updated_at: now,
-            updated_by: req.header("x-user-email") ?? "app",
-          }),
-        },
-        "?on_conflict=school_id,term_key,student_id,subject&select=*",
-      ),
-    );
-    if (!rows[0]) throw new Error("Mark was not saved. Check the signed-in account's database access.");
+    let rows: Array<Record<string, unknown>> = [];
+    let legacyUuidColumnFallback = false;
+    if (normalizedStudent) {
+      try {
+        rows = asRows(await supabaseRequest(
+          req,
+          "marks",
+          {
+            method: "POST",
+            body: jsonBody({
+              school_id: schoolId,
+              student_id: body.studentId,
+              term_key: termKey,
+              subject: body.subject,
+              class: studentClass,
+              aoi: body.aoi ?? 0,
+              midterm: body.midterm ?? 0,
+              end: body.end ?? 0,
+              updated_at: now,
+              updated_by: req.header("x-user-email") ?? "app",
+            }),
+          },
+          "?on_conflict=school_id,term_key,student_id,subject&select=*",
+        ));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (isUuidStudentId || !/invalid input syntax for type uuid/i.test(message)) throw error;
+        legacyUuidColumnFallback = true;
+      }
+    }
+    if (normalizedStudent && !rows[0] && !legacyUuidColumnFallback) {
+      throw new Error("Mark was not saved. Check the signed-in account's database access.");
+    }
     const existingMarks = Array.isArray(term?.marks)
       ? (term.marks as Array<Record<string, unknown>>)
       : [];
@@ -1697,7 +1718,17 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
         },
       },
     });
-    res.json(mapMark({ ...rows[0], enteredFields }));
+    res.json(mapMark(rows[0] ?? {
+      id: `${body.studentId}-${termKey}-${body.subject}`,
+      school_id: schoolId,
+      student_id: body.studentId,
+      term_key: termKey,
+      subject: body.subject,
+      aoi: nextMark.aoi,
+      midterm: nextMark.midterm,
+      end: nextMark.end,
+      enteredFields,
+    }));
   } catch (error) {
     sendError(res, error);
   }

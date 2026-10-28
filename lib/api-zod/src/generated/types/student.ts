@@ -7,6 +7,7 @@
  */
 
 export interface Student {
+  /** @minLength 1 */
   id: string;
   schoolId: string;
   name: string;
