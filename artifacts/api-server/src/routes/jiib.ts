@@ -1657,36 +1657,59 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
       ? body.enteredFields.filter((field) => fields.some((item) => item.field === field))
       : [];
     let rows: Array<Record<string, unknown>> = [];
-    let legacyUuidColumnFallback = false;
+    let databaseSchemaFallback = false;
     if (normalizedStudent) {
-      try {
-        rows = asRows(await supabaseRequest(
+      const databaseMarkFields = {
+        school_id: schoolId,
+        student_id: body.studentId,
+        term_key: termKey,
+        subject: body.subject,
+        class: studentClass,
+        updated_at: now,
+        updated_by: req.header("x-user-email") ?? "app",
+      };
+      const writeMarkRow = (scores: Record<string, number>) =>
+        supabaseRequest(
           req,
           "marks",
           {
             method: "POST",
-            body: jsonBody({
-              school_id: schoolId,
-              student_id: body.studentId,
-              term_key: termKey,
-              subject: body.subject,
-              class: studentClass,
-              aoi: body.aoi ?? 0,
-              midterm: body.midterm ?? 0,
-              end: body.end ?? 0,
-              updated_at: now,
-              updated_by: req.header("x-user-email") ?? "app",
-            }),
+            body: jsonBody({ ...databaseMarkFields, ...scores }),
           },
           "?on_conflict=school_id,term_key,student_id,subject&select=*",
-        ));
+        );
+      try {
+        rows = asRows(await writeMarkRow({
+          aoi: body.aoi ?? 0,
+          midterm: body.midterm ?? 0,
+          end: body.end ?? 0,
+        }));
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
-        if (isUuidStudentId || !/invalid input syntax for type uuid/i.test(message)) throw error;
-        legacyUuidColumnFallback = true;
+        if (/Could not find the 'aoi' column of 'marks' in the schema cache/i.test(message)) {
+          try {
+            rows = asRows(await writeMarkRow({
+              c1: body.aoi ?? 0,
+              c2: body.midterm ?? 0,
+              c3: body.end ?? 0,
+            }));
+          } catch (legacyError) {
+            const legacyMessage = legacyError instanceof Error ? legacyError.message : "";
+            const missingLegacyScoreColumn =
+              /Could not find the '(c1|c2|c3)' column of 'marks' in the schema cache/i.test(legacyMessage);
+            const invalidLegacyUuid =
+              !isUuidStudentId && /invalid input syntax for type uuid/i.test(legacyMessage);
+            if (!missingLegacyScoreColumn && !invalidLegacyUuid) throw legacyError;
+            databaseSchemaFallback = true;
+          }
+        } else if (!isUuidStudentId && /invalid input syntax for type uuid/i.test(message)) {
+          databaseSchemaFallback = true;
+        } else {
+          throw error;
+        }
       }
     }
-    if (normalizedStudent && !rows[0] && !legacyUuidColumnFallback) {
+    if (normalizedStudent && !rows[0] && !databaseSchemaFallback) {
       throw new Error("Mark was not saved. Check the signed-in account's database access.");
     }
     const existingMarks = Array.isArray(term?.marks)
