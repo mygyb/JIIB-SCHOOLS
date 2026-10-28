@@ -132,6 +132,88 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/PortfolioMessage"
+  /schools/portal-access-requests:
+    get:
+      operationId: listPortalAccessRequests
+      tags: [schools]
+      summary: List pending school administrator access requests
+      responses:
+        "200":
+          description: Pending portal access requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PortalAccessRequest"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: System administrator access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /schools/portal-access-requests/{userId}:
+    patch:
+      operationId: reviewPortalAccessRequest
+      tags: [schools]
+      summary: Approve or decline a pending portal access request
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortalAccessRequestReviewInput"
+      responses:
+        "200":
+          description: Request reviewed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalAccessRequestReviewResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Sign-in required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: System administrator access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Request or school not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Request is no longer pending or school is suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Auth administration is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /schools/{schoolId}/config:
     get:
       operationId: getSchoolConfig
@@ -468,6 +550,13 @@ components:
       schema:
         type: string
         format: uuid
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     StudentId:
       name: studentId
       in: path
@@ -503,6 +592,57 @@ components:
           type: ["string", "null"]
         active:
           type: boolean
+    PortalAccessRequest:
+      type: object
+      required: [userId, email, displayName, schoolId, schoolName, schoolSlug, schoolActive, requestedRole, createdAt, emailConfirmed]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        schoolId:
+          type: ["string", "null"]
+          format: uuid
+        schoolName:
+          type: ["string", "null"]
+        schoolSlug:
+          type: string
+        schoolActive:
+          type: boolean
+        requestedRole:
+          type: string
+          enum: [admin]
+        createdAt:
+          type: string
+          format: date-time
+        emailConfirmed:
+          type: boolean
+    PortalAccessRequestReviewInput:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approve, decline]
+    PortalAccessRequestReviewResult:
+      type: object
+      required: [userId, status, email, schoolName]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [approved, declined]
+        email:
+          type: string
+          format: email
+        schoolName:
+          type: ["string", "null"]
     SchoolRegistrationInput:
       type: object
       required: [name, slug]
