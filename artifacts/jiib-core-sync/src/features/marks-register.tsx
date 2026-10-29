@@ -11,7 +11,7 @@ import {
   useUpsertMark,
 } from "@workspace/api-client-react";
 import type { Mark, School, Student } from "@workspace/api-client-react";
-import { CalendarDays, CircleAlert, ClipboardList, Loader2, LockKeyhole, RefreshCw, Search, Trash2 } from "lucide-react";
+import { CalendarDays, CircleAlert, ClipboardList, Loader2, LockKeyhole, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { configuredHouses, currentTerm, getAssessmentFields, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from "@/lib/school-data";
 import { getPendingMarks, queueMark } from "@/lib/offline-marks";
 import { jiibApi } from "@/lib/jiib-api";
@@ -61,6 +61,11 @@ export function MarksRegister({ school }: { school: School }) {
   });
   const configData = (configQuery.data?.data ?? {}) as SchoolConfig;
   const activeTerm = currentTerm(configData);
+  const deadline = String(configData.deadline ?? "").trim();
+  const deadlineNoticeId = deadline ? `${deadline}|${String(configData.deadlinePublishedAt ?? "")}` : "";
+  const teacherIdentity = localStorage.getItem("jiib.email") || localStorage.getItem("jiib.userName") || "teacher";
+  const deadlineDismissalKey = `jiib.deadline-dismissed:${school.id}:${teacherIdentity.toLowerCase()}`;
+  const [dismissedDeadline, setDismissedDeadline] = useState(() => localStorage.getItem(deadlineDismissalKey) ?? "");
   const selectedTerm = isTeacher ? activeTerm : term || activeTerm;
   const terms = getTerms(configData);
   const allStudents = useListStudents(school.id, {});
@@ -77,6 +82,18 @@ export function MarksRegister({ school }: { school: School }) {
     : classes;
   const fields = getAssessmentFields(configData);
   const maxTotal = fields.reduce((total, field) => total + field.max, 0);
+  const deadlineDate = deadline ? new Date(deadline) : null;
+  const deadlineIsPast = deadlineDate !== null && Number.isFinite(deadlineDate.getTime()) && deadlineDate.getTime() < Date.now();
+  const formattedDeadline = deadlineDate && Number.isFinite(deadlineDate.getTime())
+    ? new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(deadlineDate)
+    : deadline;
   const availableSubjects = useMemo(() => {
     const configured = subjectNames(configData, className);
     if (!isTeacher) return configured;
@@ -267,6 +284,20 @@ export function MarksRegister({ school }: { school: School }) {
       <div><p className="mb-2 text-[10px] font-bold uppercase tracking-[.22em] text-primary">Assessment desk</p><h2 className="font-display text-3xl font-semibold tracking-[-.035em] sm:text-4xl">Marks register</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Enter, review, and keep assessment records moving by class and subject.</p></div>
       <div className="flex flex-wrap items-center gap-2"><span className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">{navigator.onLine ? `${pendingForTerm.length} pending` : "Offline · queued"}</span>{locked && <span className="inline-flex items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs font-semibold text-destructive"><LockKeyhole size={14} /> Marks locked</span>}{!isTeacher && <button data-testid="button-clear-term-marks" onClick={() => void clearTerm()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted"><Trash2 size={14} /> Clear term</button>}</div>
     </div>
+
+    {isTeacher && deadline && dismissedDeadline !== deadlineNoticeId && <div data-testid="deadline-notification" role="status" className="mb-5 flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-destructive">
+      <CircleAlert size={19} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold">{deadlineIsPast ? "Marks deadline has passed" : "Marks submission deadline"}</p>
+        <p className="mt-1 text-sm leading-5">{deadlineIsPast ? `The deadline was ${formattedDeadline}.` : `Please complete your marks by ${formattedDeadline}.`}</p>
+      </div>
+      <button type="button" data-testid="button-dismiss-deadline" aria-label="Dismiss marks deadline reminder" onClick={() => {
+        localStorage.setItem(deadlineDismissalKey, deadlineNoticeId);
+        setDismissedDeadline(deadlineNoticeId);
+      }} className="shrink-0 rounded-md p-1 text-destructive/80 transition hover:bg-destructive/10 hover:text-destructive">
+        <X size={17} aria-hidden="true" />
+      </button>
+    </div>}
 
     <div className="mb-5 grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4">
       {!isTeacher ? <label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Term</span><select data-testid="select-mark-term" value={selectedTerm} onChange={(event) => setTerm(event.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm">{(terms.length ? terms : [{ key: selectedTerm, label: selectedTerm, locked: false, active: true }]).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label> : <div><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Active term</span><p className="flex h-10 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-sm font-medium"><CalendarDays size={14} className="text-primary" />{terms.find((item) => item.key === selectedTerm)?.label ?? selectedTerm}</p></div>}

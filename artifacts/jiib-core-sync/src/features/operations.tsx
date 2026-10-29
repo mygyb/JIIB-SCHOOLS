@@ -45,7 +45,7 @@ function useConfig(schoolId: string) {
   const query = useGetSchoolConfig(schoolId, { query: { queryKey: getGetSchoolConfigQueryKey(schoolId), refetchInterval: 15_000 } });
   const update = useUpdateSchoolConfig();
   const data = (query.data?.data ?? {}) as Config;
-  const save = (next: Config, onDone?: () => void) => {
+  const save = (next: Config, onDone?: () => void, onError?: (error: unknown) => void) => {
     update.mutate(
       { schoolId, data: { data: next } },
       {
@@ -53,6 +53,7 @@ function useConfig(schoolId: string) {
           queryClient.setQueryData(getGetSchoolConfigQueryKey(schoolId), result);
           onDone?.();
         },
+        onError,
       },
     );
   };
@@ -501,11 +502,104 @@ function GradingSystem({ school }: { school: School }) {
   return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Grading system" body="Define the thresholds and descriptors used in school reports." /><ShellCard><div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input data-testid="input-grade-name" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="Grade" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-grade-min" type="number" min="0" max="100" value={min} onChange={(e) => setMin(e.target.value)} placeholder="Minimum score" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-grade" onClick={add} disabled={!grade.trim() || !min || config.saving} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add</button></div><div className="mt-6 divide-y divide-border">{[...grades].sort((a, b) => Number(b.min) - Number(a.min)).map((item) => <div key={String(item.grade)} className="flex items-center gap-3 py-4"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 font-display font-semibold text-primary">{String(item.grade)}</span><div className="flex-1"><p className="text-sm font-semibold">From {String(item.min)} points</p><p className="text-xs text-muted-foreground">{String(item.descriptor ?? '')}</p></div><button aria-label={`Remove grade ${String(item.grade)}`} onClick={() => config.save({ ...config.data, grading: grades.filter((value) => value.grade !== item.grade) })} className="text-destructive"><Trash2 size={15} /></button></div>)}</div>{!grades.length && <p className="mt-4 text-sm text-muted-foreground">No grading bands are configured yet.</p>}</ShellCard></div>;
 }
 
+type TeacherAssessmentMode = 'midterm' | 'end' | 'both';
+
+function teacherAssessmentMode(settings: Record<string, unknown>): TeacherAssessmentMode {
+  const active = settings.activeMarkColumns;
+  if (!Array.isArray(active)) return 'both';
+  const columns = new Set(active.map(String));
+  const hasMidterm = columns.has('c2');
+  const hasEnd = columns.has('c3');
+  if (hasMidterm && hasEnd) return 'both';
+  if (hasMidterm) return 'midterm';
+  if (hasEnd) return 'end';
+  return 'both';
+}
+
 function PublishDeadline({ school }: { school: School }) {
   const config = useConfig(school.id);
-  const [deadline, setDeadline] = useState(String(config.data.deadline ?? ''));
-  const save = () => config.save({ ...config.data, deadline });
-  return <div className="fade-up"><SectionHeading eyebrow="Communication" title="Publish to teachers" body="Set a marks deadline and make it visible across the teaching team." /><ShellCard className="max-w-xl"><label><span className="mb-2 block text-sm font-semibold">Marks entry deadline</span><input data-testid="input-publish-deadline" type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label><div className="mt-5 flex gap-2"><button data-testid="button-save-deadline" onClick={save} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Check size={15} /> Publish deadline</button><button data-testid="button-clear-deadline" onClick={() => { setDeadline(''); config.save({ ...config.data, deadline: null }); }} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">Clear</button></div></ShellCard></div>;
+  const settings = config.data.settings && typeof config.data.settings === 'object' && !Array.isArray(config.data.settings)
+    ? config.data.settings as Record<string, unknown>
+    : {};
+  const [deadline, setDeadline] = useState('');
+  const [deadlineDirty, setDeadlineDirty] = useState(false);
+  const [assessmentMode, setAssessmentMode] = useState<TeacherAssessmentMode>('both');
+  const [assessmentDirty, setAssessmentDirty] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!config.isSuccess) return;
+    if (!deadlineDirty) setDeadline(String(config.data.deadline ?? ''));
+    if (!assessmentDirty) setAssessmentMode(teacherAssessmentMode(settings));
+  }, [assessmentDirty, config.data.deadline, config.data.settings, config.isSuccess, deadlineDirty]);
+
+  const persist = (next: Config, successMessage: string, onDone?: () => void) => {
+    setNotice('');
+    setError('');
+    config.save(next, () => {
+      onDone?.();
+      setNotice(successMessage);
+    }, (cause) => {
+      setError(cause instanceof Error ? cause.message : 'Settings could not be saved. Please try again.');
+    });
+  };
+  const publishDeadline = () => {
+    if (!deadline) return;
+    persist({ ...config.data, deadline, deadlinePublishedAt: new Date().toISOString() }, 'Deadline published to teachers.', () => setDeadlineDirty(false));
+  };
+  const clearDeadline = () => {
+    persist({ ...config.data, deadline: null, deadlinePublishedAt: null }, 'Published deadline cleared.', () => {
+      setDeadline('');
+      setDeadlineDirty(false);
+    });
+  };
+  const saveAssessmentFilter = () => {
+    const activeMarkColumns = assessmentMode === 'midterm'
+      ? ['c2']
+      : assessmentMode === 'end'
+        ? ['c3']
+        : ['c2', 'c3'];
+    persist({
+      ...config.data,
+      settings: { ...settings, activeMarkColumns },
+    }, 'Teacher assessment filter saved.', () => setAssessmentDirty(false));
+  };
+
+  const assessmentOptions: Array<{ value: TeacherAssessmentMode; title: string; description: string }> = [
+    { value: 'midterm', title: 'Midterm only', description: 'Teachers can enter midterm marks only.' },
+    { value: 'end', title: 'End of term only', description: 'Teachers can enter end-of-term marks only.' },
+    { value: 'both', title: 'Midterm and end of term', description: 'Both assessment columns appear in the register.' },
+  ];
+
+  return <div className="fade-up">
+    <SectionHeading eyebrow="Communication" title="Publish to teachers" body="Set the marks deadline and choose which assessment columns teachers can use." />
+    <div className="grid gap-5 xl:grid-cols-2">
+      <ShellCard>
+        <h3 className="font-display text-lg font-semibold">Marks entry deadline</h3>
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">Teachers see a red reminder in the marks register until they dismiss it.</p>
+        <label className="mt-5 block"><span className="mb-2 block text-sm font-semibold">Deadline date and time</span><input data-testid="input-publish-deadline" type="datetime-local" value={deadline} onChange={(event) => { setDeadline(event.target.value); setDeadlineDirty(true); setNotice(''); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button data-testid="button-save-deadline" onClick={publishDeadline} disabled={!deadline || config.saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {config.saving ? 'Publishing…' : 'Publish deadline'}</button>
+          <button data-testid="button-clear-deadline" onClick={clearDeadline} disabled={config.saving || !config.data.deadline} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">Clear deadline</button>
+        </div>
+      </ShellCard>
+      <ShellCard>
+        <h3 className="font-display text-lg font-semibold">Assessment filter</h3>
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">Choose the mark columns teachers at this school can see in the register.</p>
+        <fieldset className="mt-5 space-y-2">
+          <legend className="mb-2 text-sm font-semibold">Assessments available to teachers</legend>
+          {assessmentOptions.map((option) => <label key={option.value} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${assessmentMode === option.value ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/45'}`}>
+            <input data-testid={`radio-assessment-${option.value}`} type="radio" name="teacher-assessment-filter" value={option.value} checked={assessmentMode === option.value} onChange={() => { setAssessmentMode(option.value); setAssessmentDirty(true); setNotice(''); }} className="mt-0.5 accent-primary" />
+            <span><span className="block text-sm font-semibold">{option.title}</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{option.description}</span></span>
+          </label>)}
+        </fieldset>
+        <button data-testid="button-save-assessment-filter" onClick={saveAssessmentFilter} disabled={!assessmentDirty || config.saving} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> Save assessment filter</button>
+      </ShellCard>
+    </div>
+    {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+    {notice && <p role="status" className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
+  </div>;
 }
 
 function SchoolSettings({ school }: { school: School }) {
