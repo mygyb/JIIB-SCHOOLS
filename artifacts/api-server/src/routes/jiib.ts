@@ -194,6 +194,18 @@ const ParentChatBody = z.object({
   text: z.string().trim().min(1).max(5000),
   senderName: z.string().trim().max(120).optional(),
 });
+const TeacherSettingsBody = z.object({
+  deadline: z.string().trim().max(40).nullable().optional(),
+  deadlinePublishedAt: z.string().datetime().nullable().optional(),
+  activeMarkColumns: z.array(z.enum(["c2", "c3"]))
+    .min(1)
+    .max(2)
+    .refine((columns) => new Set(columns).size === columns.length, "Assessment columns must be unique.")
+    .optional(),
+}).strict().refine(
+  (body) => body.deadline !== undefined || body.deadlinePublishedAt !== undefined || body.activeMarkColumns !== undefined,
+  "At least one teacher setting must be provided.",
+);
 
 type SchoolConfig = Record<string, unknown>;
 
@@ -1052,6 +1064,7 @@ router.delete("/schools/:schoolId/parent-chat", requireSchoolAdmin, async (req, 
 });
 
 router.put("/schools/:schoolId/config", requireSchoolAdmin);
+router.patch("/schools/:schoolId/teacher-settings", requireSchoolAdmin);
 router.post("/schools/:schoolId/students", requireSchoolAdmin);
 router.patch("/schools/:schoolId/students/:studentId", requireSchoolAdmin);
 router.delete("/schools/:schoolId/students/:studentId", requireSchoolAdmin);
@@ -1098,6 +1111,34 @@ router.put("/schools/:schoolId/config", async (req, res) => {
       data: savedData,
       updatedAt: new Date(now),
     });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.patch("/schools/:schoolId/teacher-settings", async (req, res) => {
+  try {
+    const { schoolId } = GetSchoolConfigParams.parse(req.params);
+    const changes = TeacherSettingsBody.parse(req.body);
+    const current = await readSchoolConfig(req, schoolId);
+    const next: SchoolConfig = { ...current };
+
+    if ("deadline" in changes) next.deadline = changes.deadline;
+    if ("deadlinePublishedAt" in changes) next.deadlinePublishedAt = changes.deadlinePublishedAt;
+    if (changes.activeMarkColumns) {
+      const rawSettings = current.settings;
+      const settings = rawSettings && typeof rawSettings === "object" && !Array.isArray(rawSettings)
+        ? rawSettings as Record<string, unknown>
+        : {};
+      next.settings = { ...settings, activeMarkColumns: changes.activeMarkColumns };
+    }
+
+    const savedData = await writeSchoolConfig(req, schoolId, next);
+    res.json(GetSchoolConfigResponse.parse({
+      schoolId,
+      data: savedData,
+      updatedAt: new Date(),
+    }));
   } catch (error) {
     sendError(res, error);
   }

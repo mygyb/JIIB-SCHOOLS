@@ -518,6 +518,7 @@ function teacherAssessmentMode(settings: Record<string, unknown>): TeacherAssess
 
 function PublishDeadline({ school }: { school: School }) {
   const config = useConfig(school.id);
+  const queryClient = useQueryClient();
   const settings = config.data.settings && typeof config.data.settings === 'object' && !Array.isArray(config.data.settings)
     ? config.data.settings as Record<string, unknown>
     : {};
@@ -527,6 +528,7 @@ function PublishDeadline({ school }: { school: School }) {
   const [assessmentDirty, setAssessmentDirty] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!config.isSuccess) return;
@@ -534,36 +536,45 @@ function PublishDeadline({ school }: { school: School }) {
     if (!assessmentDirty) setAssessmentMode(teacherAssessmentMode(settings));
   }, [assessmentDirty, config.data.deadline, config.data.settings, config.isSuccess, deadlineDirty]);
 
-  const persist = (next: Config, successMessage: string, onDone?: () => void) => {
+  const persist = async (
+    changes: { deadline?: string | null; deadlinePublishedAt?: string | null; activeMarkColumns?: Array<'c2' | 'c3'> },
+    successMessage: string,
+    onDone?: () => void,
+  ) => {
     setNotice('');
     setError('');
-    config.save(next, () => {
+    setSaving(true);
+    try {
+      const result = await jiibApi<SchoolConfigResponse>(
+        `/api/schools/${encodeURIComponent(school.id)}/teacher-settings`,
+        { method: 'PATCH', body: JSON.stringify(changes) },
+      );
+      queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), result);
       onDone?.();
       setNotice(successMessage);
-    }, (cause) => {
+    } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Settings could not be saved. Please try again.');
-    });
+    } finally {
+      setSaving(false);
+    }
   };
   const publishDeadline = () => {
     if (!deadline) return;
-    persist({ ...config.data, deadline, deadlinePublishedAt: new Date().toISOString() }, 'Deadline published to teachers.', () => setDeadlineDirty(false));
+    void persist({ deadline, deadlinePublishedAt: new Date().toISOString() }, 'Deadline published to teachers.', () => setDeadlineDirty(false));
   };
   const clearDeadline = () => {
-    persist({ ...config.data, deadline: null, deadlinePublishedAt: null }, 'Published deadline cleared.', () => {
+    void persist({ deadline: null, deadlinePublishedAt: null }, 'Published deadline cleared.', () => {
       setDeadline('');
       setDeadlineDirty(false);
     });
   };
   const saveAssessmentFilter = () => {
-    const activeMarkColumns = assessmentMode === 'midterm'
+    const activeMarkColumns: Array<'c2' | 'c3'> = assessmentMode === 'midterm'
       ? ['c2']
       : assessmentMode === 'end'
         ? ['c3']
         : ['c2', 'c3'];
-    persist({
-      ...config.data,
-      settings: { ...settings, activeMarkColumns },
-    }, 'Teacher assessment filter saved.', () => setAssessmentDirty(false));
+    void persist({ activeMarkColumns }, 'Teacher assessment filter saved.', () => setAssessmentDirty(false));
   };
 
   const assessmentOptions: Array<{ value: TeacherAssessmentMode; title: string; description: string }> = [
@@ -580,8 +591,8 @@ function PublishDeadline({ school }: { school: School }) {
         <p className="mt-1 text-sm leading-5 text-muted-foreground">Teachers see a red reminder in the marks register until they dismiss it.</p>
         <label className="mt-5 block"><span className="mb-2 block text-sm font-semibold">Deadline date and time</span><input data-testid="input-publish-deadline" type="datetime-local" value={deadline} onChange={(event) => { setDeadline(event.target.value); setDeadlineDirty(true); setNotice(''); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
         <div className="mt-5 flex flex-wrap gap-2">
-          <button data-testid="button-save-deadline" onClick={publishDeadline} disabled={!deadline || config.saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {config.saving ? 'Publishing…' : 'Publish deadline'}</button>
-          <button data-testid="button-clear-deadline" onClick={clearDeadline} disabled={config.saving || !config.data.deadline} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">Clear deadline</button>
+          <button data-testid="button-save-deadline" onClick={publishDeadline} disabled={!deadline || saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {saving ? 'Publishing…' : 'Publish deadline'}</button>
+          <button data-testid="button-clear-deadline" onClick={clearDeadline} disabled={saving || !config.data.deadline} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">Clear deadline</button>
         </div>
       </ShellCard>
       <ShellCard>
@@ -594,7 +605,7 @@ function PublishDeadline({ school }: { school: School }) {
             <span><span className="block text-sm font-semibold">{option.title}</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{option.description}</span></span>
           </label>)}
         </fieldset>
-        <button data-testid="button-save-assessment-filter" onClick={saveAssessmentFilter} disabled={!assessmentDirty || config.saving} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> Save assessment filter</button>
+        <button data-testid="button-save-assessment-filter" onClick={saveAssessmentFilter} disabled={!assessmentDirty || saving} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {saving ? 'Saving…' : 'Save assessment filter'}</button>
       </ShellCard>
     </div>
     {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
