@@ -29,7 +29,8 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import { supabase } from '@/lib/supabase';
+import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
+import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
 import { configuredHouses, currentTerm, getAssessmentFields, getTerms, isTermLocked, subjectNames, type SchoolConfig } from '@/lib/school-data';
 import { flushPendingMarks, getPendingMarks, queueMark } from '@/lib/offline-marks';
@@ -70,6 +71,47 @@ const ADMIN_ONLY_HREFS = [
 
 // Nav items / routes that belong to the teacher workspace only.
 const TEACHER_ONLY_HREFS = ['/marks'];
+
+async function submitPortalRequest(values: PortalRequestValues) {
+  if (!registrationSupabase) {
+    throw new Error('Portal requests are not configured for this workspace yet.');
+  }
+
+  const school = await jiibApi<School>(
+    `/api/schools/by-slug/${encodeURIComponent(values.schoolSlug)}`,
+  );
+  if (!school.active) {
+    throw new Error('This school portal is not active. Please contact your school administrator.');
+  }
+
+  const { data, error } = await registrationSupabase.auth.signUp({
+    email: values.email,
+    password: values.password,
+    options: {
+      data: {
+        display_name: values.fullName,
+        school_id: school.id,
+        school_name: school.name,
+        school_slug: values.schoolSlug,
+        requested_role: values.requestedRole,
+        portal_request_status: 'pending',
+      },
+    },
+  });
+
+  if (error) {
+    if (/already registered|already exists/i.test(error.message)) {
+      throw new Error('An account with this email already exists. Please log in instead.');
+    }
+    throw error;
+  }
+  if (!data.user) {
+    throw new Error('We could not create your account. Please try again.');
+  }
+  if (data.user.identities?.length === 0) {
+    throw new Error('An account with this email already exists. Please log in instead.');
+  }
+}
 
 function useActiveSchool() {
   const [school] = useState<School>(() => {
@@ -151,7 +193,11 @@ function Router() {
   return (
     <ErrorBoundary resetKey={location}>
       <Switch>
-        <Route path="/" component={SignIn} />
+        <Route path="/" component={LandingPage} />
+        <Route path="/login" component={SignIn} />
+        <Route path="/signup">
+          <PortalRequestPage onSubmit={submitPortalRequest} />
+        </Route>
         <Route path="/dashboard"><AppShell><Dashboard /></AppShell></Route>
         <Route path="/students"><AppShell><Students /></AppShell></Route>
         <Route path="/marks"><AppShell><MarksPage /></AppShell></Route>
@@ -190,6 +236,10 @@ function MarksPage() {
 }
 
 function SignIn() {
+  useEffect(() => {
+    document.title = 'Log in | JIIB Core Sync';
+  }, []);
+
   const [, setLocation] = useLocation();
   const [slug, setSlug] = useState('');
   const [email, setEmail] = useState('');
@@ -377,6 +427,10 @@ function SignIn() {
                {authError && <div data-testid="error-login" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{authError}</div>}
               <button data-testid="button-open-workspace" className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90" type="submit">LOGIN <ArrowRight size={17} /></button>
             </form>
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+              <Link href="/" className="font-medium text-primary hover:underline">Back to JIIB Core Sync</Link>
+              <span>New to Core Sync? <Link href="/signup" className="font-semibold text-primary hover:underline">Sign up</Link></span>
+            </div>
             <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">© 2025 - 2026 System Developed by JIIB Technologies</p>
           </div>
         </section>

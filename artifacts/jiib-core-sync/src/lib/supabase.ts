@@ -15,6 +15,20 @@ export const supabase =
       })
     : null;
 
+// Keep account requests isolated from any staff session already open in this
+// browser. A successful request must not sign an existing user out or replace
+// their active workspace session.
+export const registrationSupabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      })
+    : null;
+
 setAuthTokenGetter(async () => {
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
