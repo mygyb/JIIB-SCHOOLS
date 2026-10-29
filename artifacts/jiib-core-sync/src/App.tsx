@@ -4,7 +4,7 @@ import { Link, Route, Switch, useLocation } from 'wouter';
 import {
   Activity, Archive, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
   ClipboardList, GraduationCap, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
-  MessageSquare, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Search, Settings, ShieldCheck,
+  MessageSquare, Moon, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Search, Settings, ShieldCheck, Sun,
   SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose,
 } from 'lucide-react';
 import {
@@ -32,6 +32,7 @@ import NotFound from '@/pages/not-found';
 import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
+import { clearAccountTheme, getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { configuredHouses, currentTerm, getAssessmentFields, getTerms, isTermLocked, subjectNames, type SchoolConfig } from '@/lib/school-data';
 import { flushPendingMarks, getPendingMarks, queueMark } from '@/lib/offline-marks';
 import { OperationsPage } from '@/features/operations';
@@ -44,6 +45,7 @@ const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/students', label: 'Students', icon: UsersRound },
   { href: '/marks', label: 'Marks register', icon: ClipboardList },
+  { href: '/account-settings', label: 'Account settings', icon: Settings },
   { href: '/messages', label: 'Messages', icon: Inbox },
   { href: '/parent-messages', label: 'Parent conversations', icon: MessageSquare },
   { href: '/overview', label: 'Directory & news', icon: House },
@@ -121,7 +123,15 @@ function useActiveSchool() {
 }
 
 function useActiveUserName() {
-  const [name] = useState<string>(() => localStorage.getItem('jiib.userName') || 'there');
+  const [name, setName] = useState<string>(() => localStorage.getItem('jiib.userName') || 'there');
+  useEffect(() => {
+    const updateName = (event: Event) => {
+      const displayName = (event as CustomEvent<{ displayName?: string }>).detail?.displayName;
+      if (displayName) setName(displayName);
+    };
+    window.addEventListener('jiib:profile-update', updateName);
+    return () => window.removeEventListener('jiib:profile-update', updateName);
+  }, []);
   return name;
 }
 
@@ -204,6 +214,7 @@ function Router() {
         <Route path="/messages"><AppShell><Messages /></AppShell></Route>
         <Route path="/support"><AppShell><SupportPage /></AppShell></Route>
         <Route path="/parent-messages"><AppShell><OperationsRoute page="parentMessages" /></AppShell></Route>
+        <Route path="/account-settings"><AppShell><OperationsRoute page="accountSettings" /></AppShell></Route>
         <Route path="/settings"><AppShell><OperationsRoute page="schoolSettings" /></AppShell></Route>
         <Route path="/overview"><AppShell><OperationsRoute page="overview" /></AppShell></Route>
         <Route path="/parents-portal"><AppShell><OperationsRoute page="parentsPortal" /></AppShell></Route>
@@ -291,11 +302,13 @@ function SignIn() {
           localStorage.setItem('jiib.school', JSON.stringify(schools.find((item) => item.active) ?? schools[0]));
           localStorage.setItem('jiib.role', 'Super administrator');
           localStorage.setItem('jiib.userName', identity.email.split('@')[0] || 'Super administrator');
+            localStorage.setItem('jiib.email', identity.email.toLowerCase());
           setLocation('/super-admin');
           return;
         } catch (error) {
           setAuthError(error instanceof Error ? error.message : 'Could not verify super administrator access.');
           await supabase.auth.signOut();
+            clearAccountTheme();
           setAccessToken('');
           return;
         }
@@ -323,6 +336,8 @@ function SignIn() {
           localStorage.setItem('jiib.role', 'Parent / guardian');
           localStorage.setItem('jiib.parentPhone', parentPhone.trim());
           localStorage.setItem('jiib.parentVerified', 'true');
+          localStorage.removeItem('jiib.email');
+          clearAccountTheme();
           setLocation('/parent');
         } catch (error) {
           setAuthError(error instanceof Error ? error.message : 'Could not verify this parent account.');
@@ -341,6 +356,7 @@ function SignIn() {
           localStorage.setItem('jiib.school', JSON.stringify(school));
           localStorage.setItem('jiib.role', 'Super administrator');
           localStorage.setItem('jiib.userName', result.email.split('@')[0] || 'Super administrator');
+          localStorage.setItem('jiib.email', result.email.toLowerCase());
           setLocation('/super-admin');
         } catch (error) {
           setAuthError(error instanceof Error ? error.message : 'Could not verify super administrator access.');
@@ -362,6 +378,7 @@ function SignIn() {
         if (actualRole !== role) {
           setAuthError(`This account is registered as a ${actualRole}. Please select "${actualRole}" above and sign in again.`);
           await supabase?.auth.signOut();
+          clearAccountTheme();
           setSubmitted(false);
           setVerifying(false);
           return;
@@ -376,6 +393,7 @@ function SignIn() {
       } catch (error) {
         setAuthError(error instanceof Error ? error.message : 'Could not verify your account. Please check your connection and try again.');
         await supabase?.auth.signOut();
+        clearAccountTheme();
         setSubmitted(false);
         setVerifying(false);
       }
@@ -444,15 +462,30 @@ function AppShell({ children }: { children: ReactNode }) {
   const school = useActiveSchool();
   const userName = useActiveUserName();
   const role = useActiveRole();
+  const accountEmail = localStorage.getItem('jiib.email') || '';
   const [open, setOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [dark, setDark] = useState(() => getAccountDarkMode(accountEmail));
   const isTeacher = role === 'Teacher';
   const isParent = role === 'Parent / guardian';
   const isSuperAdmin = role === 'Super administrator';
   const [authReady, setAuthReady] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [syncRevision, setSyncRevision] = useState(0);
+  useEffect(() => {
+    setAccountDarkMode(accountEmail, dark);
+  }, [accountEmail, dark]);
+  useEffect(() => {
+    const syncTheme = (event: Event) => {
+      const detail = (event as CustomEvent<{ email?: string; enabled?: boolean }>).detail;
+      if (detail?.email === accountEmail.toLowerCase() && typeof detail.enabled === 'boolean') {
+        setDark(detail.enabled);
+      }
+    };
+    window.addEventListener('jiib:theme-update', syncTheme);
+    return () => window.removeEventListener('jiib:theme-update', syncTheme);
+  }, [accountEmail]);
   const config = useGetSchoolConfig(school.id, {
     query: {
       enabled: !isParent,
@@ -527,7 +560,7 @@ function AppShell({ children }: { children: ReactNode }) {
     '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
     '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/grading-system': 'Grading system',
     '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',
-    '/system-settings': 'System settings',
+    '/system-settings': 'System settings', '/account-settings': 'Account settings',
   };
   const title = titleMap[location] ?? 'Portfolio';
   if (!authReady) return <main className="grid min-h-[100dvh] place-items-center bg-background text-sm text-muted-foreground">Checking account access…</main>;
@@ -543,12 +576,27 @@ function AppShell({ children }: { children: ReactNode }) {
         <nav className="mt-7 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-4">{visibleNavItems.map(({ href, label, icon: Icon }) => <Link href={href} key={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setOpen(false)} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${location === href ? 'bg-sidebar-primary font-semibold text-sidebar-primary-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}><Icon size={18} strokeWidth={location === href ? 2.4 : 1.8} />{!collapsed && <span>{label}</span>}{href === '/messages' && !collapsed && <span className="ml-auto rounded-full bg-sidebar-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-sidebar-primary">3</span>}</Link>)}
           <div className="my-5 border-t border-sidebar-border" />
         </nav>
-         {!collapsed && <div className="border-t border-sidebar-border p-4"><div className="rounded-xl bg-[#102238] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-sidebar-primary">Current term</p><p className="mt-1 text-sm font-semibold">{String((config.data?.data as SchoolConfig | undefined)?.terms?.[String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '')]?.label ?? (config.data?.data as SchoolConfig | undefined)?.activeTerm ?? 'No active term')}</p><p data-sync-revision={syncRevision} className="mt-1 text-xs text-sidebar-foreground/55">{online ? `${getPendingMarks(school.id).length} marks waiting to sync` : 'Offline · changes are queued'}</p></div><button data-testid="button-sign-out" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); setLocation('/'); }} className="mt-4 flex w-full items-center gap-2 px-1 text-xs text-sidebar-foreground/55 hover:text-sidebar-foreground"><LogOut size={14} /> Sign out</button></div>}
+          {!collapsed && <div className="border-t border-sidebar-border p-4"><div className="rounded-xl bg-[#102238] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-sidebar-primary">Current term</p><p className="mt-1 text-sm font-semibold">{String((config.data?.data as SchoolConfig | undefined)?.terms?.[String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '')]?.label ?? (config.data?.data as SchoolConfig | undefined)?.activeTerm ?? 'No active term')}</p><p data-sync-revision={syncRevision} className="mt-1 text-xs text-sidebar-foreground/55">{online ? `${getPendingMarks(school.id).length} marks waiting to sync` : 'Offline · changes are queued'}</p></div><button data-testid="button-sign-out" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); clearAccountTheme(); setLocation('/'); }} className="mt-4 flex w-full items-center gap-2 px-1 text-xs text-sidebar-foreground/55 hover:text-sidebar-foreground"><LogOut size={14} /> Sign out</button></div>}
       </aside>
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex h-[78px] items-center justify-between border-b border-border bg-background/90 px-5 backdrop-blur-md sm:px-8">
           <div className="flex items-center gap-3"><button data-testid="button-open-mobile-nav" onClick={() => setOpen(true)} className="rounded-lg p-2 hover:bg-muted lg:hidden"><Menu size={20} /></button><div><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-muted-foreground">Workspace</p><h1 data-testid="text-page-title" className="font-display text-xl font-semibold tracking-tight">{title}</h1></div></div>
-          <div className="flex items-center gap-3"><div data-sync-revision={syncRevision} className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs text-muted-foreground sm:flex"><span className={`h-2 w-2 rounded-full ${online ? 'bg-[#61b990]' : 'bg-accent'}`} />{online ? (getPendingMarks(school.id).length ? 'Sync pending' : 'Connected') : 'Offline · queued'}</div><div className="relative"><button data-testid="button-profile" aria-expanded={profileOpen} aria-label="Open user profile menu" onClick={() => setProfileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(userName)}</button>{profileOpen && <div role="menu" className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-3 shadow-xl"><div className="border-b border-border px-2 pb-3"><p className="truncate text-sm font-semibold">{userName}</p><p className="truncate text-xs text-muted-foreground">{localStorage.getItem('jiib.email') || role}</p><p className="mt-1 truncate text-xs text-muted-foreground">{school.name}</p></div><Link role="menuitem" href={isSuperAdmin || (!isTeacher && !isParent) ? '/support' : isParent ? '/parent-messages' : '/messages'} onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isSuperAdmin ? 'Support inbox' : isParent ? 'Contact the school' : isTeacher ? 'Messages to families' : 'Contact JIIB support'}</Link><p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">JIIB Core Sync · Version 8.2</p><button role="menuitem" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); setLocation('/'); }} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-destructive hover:bg-destructive/5"><LogOut size={14} /> Sign out</button></div>}</div></div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div data-sync-revision={syncRevision} className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs text-muted-foreground sm:flex"><span className={`h-2 w-2 rounded-full ${online ? 'bg-[#61b990]' : 'bg-accent'}`} />{online ? (getPendingMarks(school.id).length ? 'Sync pending' : 'Connected') : 'Offline · queued'}</div>
+            {!isParent && <button data-testid="button-toggle-theme" aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={dark} onClick={() => setDark((value) => !value)} className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-card px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              {dark ? <Sun size={16} /> : <Moon size={16} />}<span className="hidden sm:inline">{dark ? 'Light' : 'Dark'}</span>
+            </button>}
+            <div className="relative">
+              <button data-testid="button-profile" aria-expanded={profileOpen} aria-label="Open user profile menu" onClick={() => setProfileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(userName)}</button>
+              {profileOpen && <div role="menu" className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-3 shadow-xl">
+                <div className="border-b border-border px-2 pb-3"><p className="truncate text-sm font-semibold">{userName}</p><p className="truncate text-xs text-muted-foreground">{accountEmail || role}</p><p className="mt-1 truncate text-xs text-muted-foreground">{school.name}</p></div>
+                {!isSuperAdmin && !isParent && <Link role="menuitem" href="/account-settings" onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">Account settings</Link>}
+                <Link role="menuitem" href={isSuperAdmin ? '/support' : isParent ? '/parent-messages' : isTeacher ? '/messages' : '/support'} onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isSuperAdmin ? 'Support inbox' : isParent ? 'Contact the school' : isTeacher ? 'Messages to families' : 'Contact JIIB support'}</Link>
+                <p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">JIIB Core Sync · Version 8.2</p>
+                <button role="menuitem" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); clearAccountTheme(); setLocation('/'); }} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-destructive hover:bg-destructive/5"><LogOut size={14} /> Sign out</button>
+              </div>}
+            </div>
+          </div>
         </header>
         <main className="mx-auto w-full max-w-[1440px] p-5 sm:p-8">{children}</main>
       </div>

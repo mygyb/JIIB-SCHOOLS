@@ -11,7 +11,7 @@ A school operations workspace for administrators, teachers, parents, and super a
 - `PORT=23185 BASE_PATH=/ pnpm --filter @workspace/jiib-core-sync run build` — build the web app outside its managed workflow.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec.
 - API health check: `/api/healthz`.
-- Required environment: `SUPABASE_URL` and `SUPABASE_ANON_KEY`. Development values are configured from the supplied reference HTML; configure the same values separately for production before publishing.
+- Required environment: `SUPABASE_URL` and `SUPABASE_ANON_KEY`. Staff account creation/editing and profile-name updates also require the server-only `SUPABASE_SERVICE_ROLE_KEY` in Replit Secrets. Never expose that key to the browser. Development values are configured from the supplied reference HTML; configure the required values separately for production before publishing.
 
 ## Stack
 

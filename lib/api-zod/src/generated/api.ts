@@ -269,6 +269,184 @@ export const UpdateSchoolAssessmentSettingsResponse = zod.object({
 
 
 /**
+ * @summary List staff accounts for a school
+ */
+export const ListSchoolUsersParams = zod.object({
+  "schoolId": zod.coerce.string().uuid()
+})
+
+
+
+
+
+export const ListSchoolUsersResponseItem = zod.object({
+  "schoolId": zod.string(),
+  "email": zod.string().email(),
+  "displayName": zod.string().nullable(),
+  "role": zod.enum(['admin', 'teacher']),
+  "subjects": zod.array(zod.union([zod.string(),zod.object({
+  "class": zod.string().min(1),
+  "subject": zod.string().min(1)
+})])),
+  "createdAt": zod.coerce.date()
+})
+export const ListSchoolUsersResponse = zod.array(ListSchoolUsersResponseItem)
+
+
+/**
+ * @summary Create a school staff account
+ */
+export const CreateSchoolUserParams = zod.object({
+  "schoolId": zod.coerce.string().uuid()
+})
+
+export const createSchoolUserBodyDisplayNameMax = 160;
+
+export const createSchoolUserBodyInitialPasswordMin = 8;
+export const createSchoolUserBodyInitialPasswordMax = 128;
+
+
+
+
+
+export const CreateSchoolUserBody = zod.object({
+  "email": zod.string().email(),
+  "displayName": zod.string().min(1).max(createSchoolUserBodyDisplayNameMax),
+  "role": zod.enum(['admin', 'teacher']),
+  "initialPassword": zod.string().min(createSchoolUserBodyInitialPasswordMin).max(createSchoolUserBodyInitialPasswordMax),
+  "subjects": zod.array(zod.union([zod.string(),zod.object({
+  "class": zod.string().min(1),
+  "subject": zod.string().min(1)
+})])).optional()
+})
+
+
+
+
+
+export const CreateSchoolUserResponse = zod.object({
+  "schoolId": zod.string(),
+  "email": zod.string().email(),
+  "displayName": zod.string().nullable(),
+  "role": zod.enum(['admin', 'teacher']),
+  "subjects": zod.array(zod.union([zod.string(),zod.object({
+  "class": zod.string().min(1),
+  "subject": zod.string().min(1)
+})])),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get a school staff account
+ */
+export const GetSchoolUserParams = zod.object({
+  "schoolId": zod.coerce.string().uuid(),
+  "email": zod.coerce.string().email()
+})
+
+
+
+
+
+export const GetSchoolUserResponse = zod.object({
+  "schoolId": zod.string(),
+  "email": zod.string().email(),
+  "displayName": zod.string().nullable(),
+  "role": zod.enum(['admin', 'teacher']),
+  "subjects": zod.array(zod.union([zod.string(),zod.object({
+  "class": zod.string().min(1),
+  "subject": zod.string().min(1)
+})])),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update school staff details and assignments
+ */
+export const UpdateSchoolUserParams = zod.object({
+  "schoolId": zod.coerce.string().uuid(),
+  "email": zod.coerce.string().email()
+})
+
+export const updateSchoolUserBodyDisplayNameMax = 160;
+
+
+
+
+
+export const UpdateSchoolUserBody = zod.object({
+  "email": zod.string().email().optional(),
+  "displayName": zod.string().min(1).max(updateSchoolUserBodyDisplayNameMax).optional(),
+  "role": zod.enum(['admin', 'teacher']).optional(),
+  "subjects": zod.array(zod.union([zod.string(),zod.object({
+  "class": zod.string().min(1),
+  "subject": zod.string().min(1)
+})])).optional()
+})
+
+
+
+
+
+export const UpdateSchoolUserResponse = zod.object({
+  "schoolId": zod.string(),
+  "email": zod.string().email(),
+  "displayName": zod.string().nullable(),
+  "role": zod.enum(['admin', 'teacher']),
+  "subjects": zod.array(zod.union([zod.string(),zod.object({
+  "class": zod.string().min(1),
+  "subject": zod.string().min(1)
+})])),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Remove school staff access
+ */
+export const DeleteSchoolUserParams = zod.object({
+  "schoolId": zod.coerce.string().uuid(),
+  "email": zod.coerce.string().email()
+})
+
+export const DeleteSchoolUserResponse = zod.void()
+
+
+/**
+ * @summary Update the signed-in staff member's display name
+ */
+export const UpdateMySchoolProfileParams = zod.object({
+  "schoolId": zod.coerce.string().uuid()
+})
+
+export const updateMySchoolProfileBodyDisplayNameMax = 160;
+
+
+
+export const UpdateMySchoolProfileBody = zod.object({
+  "displayName": zod.string().min(1).max(updateMySchoolProfileBodyDisplayNameMax)
+})
+
+
+
+
+
+export const UpdateMySchoolProfileResponse = zod.object({
+  "schoolId": zod.string(),
+  "email": zod.string().email(),
+  "displayName": zod.string().nullable(),
+  "role": zod.enum(['admin', 'teacher']),
+  "subjects": zod.array(zod.union([zod.string(),zod.object({
+  "class": zod.string().min(1),
+  "subject": zod.string().min(1)
+})])),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Read the school overview and grouped analytics
  */
 export const GetDashboardSummaryParams = zod.object({

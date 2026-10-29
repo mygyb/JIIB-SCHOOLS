@@ -22,6 +22,84 @@ export interface School {
   active: boolean;
 }
 
+export interface SchoolSubjectAssignment {
+  /** @minLength 1 */
+  class: string;
+  /** @minLength 1 */
+  subject: string;
+}
+
+export type SchoolUserRole = typeof SchoolUserRole[keyof typeof SchoolUserRole];
+
+
+export const SchoolUserRole = {
+  admin: 'admin',
+  teacher: 'teacher',
+} as const;
+
+export interface SchoolUser {
+  schoolId: string;
+  email: string;
+  /** @nullable */
+  displayName: string | null;
+  role: SchoolUserRole;
+  subjects: (string | SchoolSubjectAssignment)[];
+  createdAt: string;
+}
+
+export type SchoolUserList = SchoolUser[];
+
+export type SchoolUserInputRole = typeof SchoolUserInputRole[keyof typeof SchoolUserInputRole];
+
+
+export const SchoolUserInputRole = {
+  admin: 'admin',
+  teacher: 'teacher',
+} as const;
+
+export interface SchoolUserInput {
+  email: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  displayName: string;
+  role: SchoolUserInputRole;
+  /**
+     * @minLength 8
+     * @maxLength 128
+     */
+  initialPassword: string;
+  subjects?: (string | SchoolSubjectAssignment)[];
+}
+
+export type SchoolUserUpdateRole = typeof SchoolUserUpdateRole[keyof typeof SchoolUserUpdateRole];
+
+
+export const SchoolUserUpdateRole = {
+  admin: 'admin',
+  teacher: 'teacher',
+} as const;
+
+export interface SchoolUserUpdate {
+  email?: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  displayName?: string;
+  role?: SchoolUserUpdateRole;
+  subjects?: (string | SchoolSubjectAssignment)[];
+}
+
+export interface SchoolProfileUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  displayName: string;
+}
+
 export type PortalAccessRequestRequestedRole = typeof PortalAccessRequestRequestedRole[keyof typeof PortalAccessRequestRequestedRole];
 
 

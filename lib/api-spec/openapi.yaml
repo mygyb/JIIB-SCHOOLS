@@ -395,6 +395,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Supabase Auth administration is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
     delete:
       operationId: deleteSchoolUser
       tags: [users]
@@ -432,6 +438,12 @@ paths:
                 $ref: "#/components/schemas/SchoolUser"
         "404":
           description: Staff account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Supabase account administration is not configured
           content:
             application/json:
               schema:
@@ -821,6 +833,7 @@ components:
     SchoolUserInput:
       type: object
       required: [email, displayName, role, initialPassword]
+      additionalProperties: false
       properties:
         email:
           type: string
@@ -846,6 +859,7 @@ components:
     SchoolUserUpdate:
       type: object
       minProperties: 1
+      additionalProperties: false
       properties:
         email:
           type: string
@@ -866,6 +880,7 @@ components:
     SchoolProfileUpdate:
       type: object
       required: [displayName]
+      additionalProperties: false
       properties:
         displayName:
           type: string

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Bar } from 'react-chartjs-2';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, CalendarDays, Check, Download, LockKeyhole, Megaphone, MessageSquare, Plus, Printer, Send, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react';
+import { Archive, CalendarDays, Check, Download, LockKeyhole, Megaphone, MessageSquare, Pencil, Plus, Printer, Send, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react';
 import {
   getGetSchoolConfigQueryKey,
   getListMarksQueryKey,
@@ -21,6 +21,8 @@ import {
 } from '@workspace/api-client-react';
 import type { School, SchoolConfig as SchoolConfigResponse, Student } from '@workspace/api-client-react';
 import { jiibApi } from '@/lib/jiib-api';
+import { supabase } from '@/lib/supabase';
+import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
 
 type Page =
@@ -28,6 +30,7 @@ type Page =
   | 'parentsPortal'
   | 'parentMessages'
   | 'userManagement'
+  | 'accountSettings'
   | 'performance'
   | 'printMarksheets'
   | 'reportStudio'
@@ -41,6 +44,13 @@ type Page =
   | 'parentView';
 
 type Config = Record<string, unknown>;
+type StaffSubject = string | { class?: string; subject?: string };
+type StaffAccount = {
+  email: string;
+  displayName?: string | null;
+  role: string;
+  subjects?: StaffSubject[];
+};
 
 function useConfig(schoolId: string) {
   const queryClient = useQueryClient();
@@ -152,19 +162,28 @@ function ParentsPortal({ school }: { school: School }) {
 
 function UserManagement({ school }: { school: School }) {
   const config = useConfig(school.id);
+  const queryClient = useQueryClient();
   const configData = config.data as SchoolConfig;
   const roster = useQuery({
     queryKey: ['allowed-users', school.id],
-    queryFn: () => jiibApi<Array<{ email: string; displayName?: string | null; role: string; subjects?: Array<string | { class?: string; subject?: string }> }>>(
+    queryFn: () => jiibApi<StaffAccount[]>(
       `/api/schools/${encodeURIComponent(school.id)}/users`,
     ),
   });
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [initialPassword, setInitialPassword] = useState('');
   const [role, setRole] = useState<'teacher' | 'admin'>('teacher');
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [editing, setEditing] = useState<StaffAccount | null>(null);
+  const [editEmail, setEditEmail] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState<'teacher' | 'admin'>('teacher');
+  const [editSubjects, setEditSubjects] = useState<string[]>([]);
+  const [editError, setEditError] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   const users = roster.data ?? [];
   const subjectOptions = configData.subjects && typeof configData.subjects === 'object' && !Array.isArray(configData.subjects)
     ? Object.keys(configData.subjects).flatMap((className) =>
@@ -172,8 +191,8 @@ function UserManagement({ school }: { school: School }) {
       )
     : [];
   const pairKey = (className: string, subject: string) => `${className}::${subject}`;
-  const ownerFor = (className: string, subject: string) => users.find((user) =>
-    user.email.toLowerCase() !== email.trim().toLowerCase() &&
+  const ownerFor = (className: string, subject: string, excludedEmails: string[] = [email.trim().toLowerCase()]) => users.find((user) =>
+    !excludedEmails.map((item) => item.toLowerCase()).includes(user.email.toLowerCase()) &&
     user.role !== 'admin' &&
     (user.subjects ?? []).some((item) => typeof item === 'object'
       ? item.class === className && item.subject === subject
@@ -183,28 +202,78 @@ function UserManagement({ school }: { school: School }) {
     if (!email.trim() || !name.trim()) return;
     setError('');
     setSuccess('');
+    if (initialPassword.length < 8) {
+      setError('Set an initial password with at least 8 characters.');
+      return;
+    }
     if (role === 'teacher' && selectedSubjects.length === 0) {
       setError('Choose at least one class and subject for this teacher.');
       return;
     }
     try {
-      const result = await jiibApi<{ invitationSent?: boolean }>(`/api/schools/${encodeURIComponent(school.id)}/users`, {
+      const result = await jiibApi<StaffAccount>(`/api/schools/${encodeURIComponent(school.id)}/users`, {
         method: 'POST',
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           displayName: name.trim(),
           role,
+          initialPassword,
           subjects: role === 'teacher' ? selectedSubjects.map((key) => {
             const [className, subject] = key.split('::', 2);
             return { class: className, subject };
           }) : [],
         }),
       });
-      setEmail(''); setName(''); setSelectedSubjects([]);
-      setSuccess(result.invitationSent ? 'Invitation email sent. The staff member can finish setting up their sign-in from that message.' : 'School access added. This email already has a sign-in account, so no invitation was needed.');
+      setEmail(''); setName(''); setInitialPassword(''); setSelectedSubjects([]);
+      setSuccess(`${result.displayName || result.email} now has school access. Share the initial password securely.`);
       await roster.refetch();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not grant school access.');
+      setError(cause instanceof Error ? cause.message : 'Could not create this staff account.');
+    }
+  };
+  const openEdit = (user: StaffAccount) => {
+    setEditing(user);
+    setEditEmail(user.email);
+    setEditName(user.displayName || '');
+    setEditRole(user.role === 'admin' ? 'admin' : 'teacher');
+    const keys = (user.subjects ?? []).flatMap((item) => {
+      if (typeof item === 'string') {
+        const match = subjectOptions.find((option) => option.subject === item);
+        return match ? [pairKey(match.className, match.subject)] : [];
+      }
+      return item.class && item.subject ? [pairKey(item.class, item.subject)] : [];
+    });
+    setEditSubjects(Array.from(new Set(keys)));
+    setEditError('');
+  };
+  const saveEdit = async () => {
+    if (!editing || !editEmail.trim() || !editName.trim()) return;
+    setEditError('');
+    if (editRole === 'teacher' && editSubjects.length === 0) {
+      setEditError('Choose at least one class and subject for this teacher.');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await jiibApi<StaffAccount>(`/api/schools/${encodeURIComponent(school.id)}/users/${encodeURIComponent(editing.email)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          email: editEmail.trim().toLowerCase(),
+          displayName: editName.trim(),
+          role: editRole,
+          subjects: editRole === 'teacher' ? editSubjects.map((key) => {
+            const [className, subject] = key.split('::', 2);
+            return { class: className, subject };
+          }) : [],
+        }),
+      });
+      setEditing(null);
+      setSuccess('Staff details and assignments updated.');
+      await queryClient.invalidateQueries({ queryKey: ['allowed-users', school.id] });
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : 'Could not update this staff account.');
+    } finally {
+      setEditSaving(false);
     }
   };
   const remove = async (userEmail: string) => {
@@ -216,7 +285,200 @@ function UserManagement({ school }: { school: School }) {
       setError(cause instanceof Error ? cause.message : 'Could not remove this staff account.');
     }
   };
-  return <div className="fade-up"><SectionHeading eyebrow="People & roles" title="User management" body="Invite staff, assign class subjects, and manage who can access the school's workspace." /><div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]"><ShellCard><h3 className="font-display text-lg font-semibold">Invite staff</h3><p className="mt-1 text-sm text-muted-foreground">A secure Supabase invitation email lets new staff finish setting up their sign-in.</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><input data-testid="input-teacher-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-teacher-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teacher@school.org" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><select aria-label="Staff role" value={role} onChange={(e) => { setRole(e.target.value as 'teacher' | 'admin'); setSelectedSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm"><option value="teacher">Teacher</option><option value="admin">School administrator</option></select></div>{role === 'teacher' && <div className="mt-4 rounded-xl border border-border p-3"><p className="mb-2 text-xs font-semibold">Assign class subjects</p>{subjectOptions.length ? <div className="grid max-h-52 gap-1 overflow-y-auto sm:grid-cols-2">{subjectOptions.map((option) => { const key = pairKey(option.className, option.subject); const owner = ownerFor(option.className, option.subject); const checked = selectedSubjects.includes(key); return <label key={key} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${owner ? 'opacity-50' : 'hover:bg-muted'}`}><input type="checkbox" checked={checked} disabled={Boolean(owner)} onChange={() => setSelectedSubjects((items) => checked ? items.filter((item) => item !== key) : [...items, key])} /><span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span></label>; })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects before inviting teachers.</p>}</div>}<button data-testid="button-add-teacher" onClick={() => void add()} disabled={!email.trim() || !name.trim() || config.saving || roster.isLoading} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Send invitation</button>{error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}{success && <p role="status" className="mt-3 text-sm text-emerald-700">{success}</p>}</ShellCard><ShellCard><h3 className="font-display text-lg font-semibold">Access rules</h3><p className="mt-1 text-sm text-muted-foreground">Teachers can enter marks only for their assigned classes and subjects. Administrators manage the school register, settings, and staff.</p><div className="mt-5 rounded-xl bg-muted/50 p-4 text-sm"><p className="font-semibold">Invitation delivery</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Supabase Auth must have email invitations enabled. A server-only service key is required; it is never sent to the browser.</p></div></ShellCard></div><ShellCard className="mt-5"><LoadingOrError loading={roster.isLoading} error={roster.isError} retry={() => void roster.refetch()} /><div className="divide-y divide-border">{users.length ? users.map((user) => { const assigned = (user.subjects ?? []).map((item) => typeof item === 'string' ? item : `${item.class ?? 'Class'}: ${item.subject ?? ''}`).join(', '); return <div key={user.email} className="flex items-center gap-3 py-4"><span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{(user.displayName || user.email).slice(0, 2).toUpperCase()}</span><div className="flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="text-xs text-muted-foreground">{user.email} · {user.role}{assigned ? ` · ${assigned}` : ''}</p></div><button aria-label={`Remove ${user.email}`} onClick={() => void remove(user.email)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div>; }) : !roster.isLoading && !roster.isError ? <p className="py-5 text-sm text-muted-foreground">No staff accounts have access yet.</p> : null}</div></ShellCard></div>;
+  return <div className="fade-up">
+    <SectionHeading eyebrow="People & roles" title="User management" body="Create staff accounts, assign class subjects, and edit school access." />
+    <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
+      <ShellCard>
+        <h3 className="font-display text-lg font-semibold">Add staff account</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Set the staff member’s sign-in email and initial password. Share the password securely.</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <input data-testid="input-teacher-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+          <input data-testid="input-teacher-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="teacher@school.org" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+          <select aria-label="Staff role" value={role} onChange={(event) => { setRole(event.target.value as 'teacher' | 'admin'); setSelectedSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
+            <option value="teacher">Teacher</option><option value="admin">School administrator</option>
+          </select>
+          <input data-testid="input-teacher-initial-password" type="password" autoComplete="new-password" minLength={8} value={initialPassword} onChange={(event) => setInitialPassword(event.target.value)} placeholder="Initial password (8+ characters)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+        </div>
+        {role === 'teacher' && <div className="mt-4 rounded-xl border border-border p-3">
+          <p className="mb-2 text-xs font-semibold">Assign class subjects</p>
+          {subjectOptions.length ? <div className="grid max-h-52 gap-1 overflow-y-auto sm:grid-cols-2">{subjectOptions.map((option) => {
+            const key = pairKey(option.className, option.subject);
+            const owner = ownerFor(option.className, option.subject);
+            const checked = selectedSubjects.includes(key);
+            return <label key={key} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${owner ? 'opacity-50' : 'hover:bg-muted'}`}>
+              <input type="checkbox" checked={checked} disabled={Boolean(owner)} onChange={() => setSelectedSubjects((items) => checked ? items.filter((item) => item !== key) : [...items, key])} />
+              <span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span>
+            </label>;
+          })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects before creating teachers.</p>}
+        </div>}
+        <button data-testid="button-add-teacher" onClick={() => void add()} disabled={!email.trim() || !name.trim() || initialPassword.length < 8 || config.saving || roster.isLoading} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Create account</button>
+        {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
+        {success && <p role="status" className="mt-3 text-sm text-emerald-700">{success}</p>}
+      </ShellCard>
+      <ShellCard>
+        <h3 className="font-display text-lg font-semibold">Access rules</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Teachers can enter marks only for their assigned classes and subjects. Administrators manage the school register, settings, and staff.</p>
+        <div className="mt-5 rounded-xl bg-muted/50 p-4 text-sm">
+          <p className="font-semibold">Account security</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Account provisioning uses a server-only Supabase key. The initial password is sent only to Supabase Auth and is never saved in the school roster.</p>
+        </div>
+      </ShellCard>
+    </div>
+    <ShellCard className="mt-5">
+      <LoadingOrError loading={roster.isLoading} error={roster.isError} retry={() => void roster.refetch()} />
+      <div className="divide-y divide-border">{users.length ? users.map((user) => {
+        const assigned = (user.subjects ?? []).map((item) => typeof item === 'string' ? item : `${item.class ?? 'Class'}: ${item.subject ?? ''}`).join(', ');
+        return <div key={user.email} className="flex items-center gap-3 py-4">
+          <span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{(user.displayName || user.email).slice(0, 2).toUpperCase()}</span>
+          <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="truncate text-xs text-muted-foreground">{user.email} · {user.role}{assigned ? ` · ${assigned}` : ''}</p></div>
+          <button aria-label={`Edit ${user.email}`} data-testid={`button-edit-user-${user.email}`} onClick={() => openEdit(user)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil size={15} /></button>
+          <button aria-label={`Remove ${user.email}`} onClick={() => void remove(user.email)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button>
+        </div>;
+      }) : !roster.isLoading && !roster.isError ? <p className="py-5 text-sm text-muted-foreground">No staff accounts have access yet.</p> : null}</div>
+    </ShellCard>
+    {editing && <div role="dialog" aria-modal="true" aria-labelledby="edit-staff-title" className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-2xl sm:p-6">
+        <div className="flex items-start justify-between gap-4"><div><h3 id="edit-staff-title" className="font-display text-xl font-semibold">Edit staff account</h3><p className="mt-1 text-sm text-muted-foreground">Update this person’s name, email, role, or class subjects.</p></div><button aria-label="Close edit staff form" onClick={() => setEditing(null)} className="rounded-lg p-2 hover:bg-muted"><X size={18} /></button></div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <input aria-label="Staff name" value={editName} onChange={(event) => setEditName(event.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+          <input aria-label="Staff email" type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} placeholder="Email" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+          <select aria-label="Edit staff role" value={editRole} onChange={(event) => { setEditRole(event.target.value as 'teacher' | 'admin'); setEditSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
+            <option value="teacher">Teacher</option><option value="admin">School administrator</option>
+          </select>
+        </div>
+        {editRole === 'teacher' && <div className="mt-4 rounded-xl border border-border p-3">
+          <p className="mb-2 text-xs font-semibold">Assigned class subjects</p>
+          {subjectOptions.length ? <div className="grid max-h-56 gap-1 overflow-y-auto sm:grid-cols-2">{subjectOptions.map((option) => {
+            const key = pairKey(option.className, option.subject);
+            const owner = ownerFor(option.className, option.subject, [editing.email, editEmail]);
+            const checked = editSubjects.includes(key);
+            return <label key={key} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${owner ? 'opacity-50' : 'hover:bg-muted'}`}>
+              <input type="checkbox" checked={checked} disabled={Boolean(owner)} onChange={() => setEditSubjects((items) => checked ? items.filter((item) => item !== key) : [...items, key])} />
+              <span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span>
+            </label>;
+          })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects first.</p>}
+        </div>}
+        {editError && <p role="alert" className="mt-3 text-sm text-destructive">{editError}</p>}
+        <div className="mt-5 flex justify-end gap-2"><button onClick={() => setEditing(null)} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">Cancel</button><button data-testid="button-save-user" onClick={() => void saveEdit()} disabled={!editEmail.trim() || !editName.trim() || editSaving} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button></div>
+      </div>
+    </div>}
+  </div>;
+}
+
+function AccountSettings({ school }: { school: School }) {
+  const [displayName, setDisplayName] = useState(() => localStorage.getItem('jiib.userName') || '');
+  const [nameError, setNameError] = useState('');
+  const [nameNotice, setNameNotice] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordNotice, setPasswordNotice] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const email = localStorage.getItem('jiib.email') || '';
+  const [dark, setDark] = useState(() => getAccountDarkMode(email));
+
+  const saveName = async (event: FormEvent) => {
+    event.preventDefault();
+    setNameError('');
+    setNameNotice('');
+    const trimmedName = displayName.trim();
+    if (!trimmedName) {
+      setNameError('Enter your name.');
+      return;
+    }
+    setSavingName(true);
+    try {
+      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/profile`, {
+        method: 'PATCH',
+        body: JSON.stringify({ displayName: trimmedName }),
+      });
+      localStorage.setItem('jiib.userName', trimmedName);
+      window.dispatchEvent(new CustomEvent('jiib:profile-update', { detail: { displayName: trimmedName } }));
+      setDisplayName(trimmedName);
+      setNameNotice('Your name has been updated.');
+    } catch (cause) {
+      setNameError(cause instanceof Error ? cause.message : 'Could not update your name.');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const savePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    setPasswordError('');
+    setPasswordNotice('');
+    if (newPassword.length < 8) {
+      setPasswordError('Use at least 8 characters for your new password.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('The passwords do not match.');
+      return;
+    }
+    if (!supabase) {
+      setPasswordError('Password updates are not configured for this workspace.');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) {
+        setPasswordError(updateError.message);
+        return;
+      }
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordNotice('Your password has been updated.');
+    } catch (cause) {
+      setPasswordError(cause instanceof Error ? cause.message : 'Could not update your password.');
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    setAccountDarkMode(email, next);
+  };
+
+  return <div className="fade-up">
+    <SectionHeading eyebrow="Your account" title="Account settings" body="Update your own profile, sign-in password, and personal display preference." />
+    <div className="grid gap-5 lg:grid-cols-2">
+      <ShellCard>
+        <h3 className="font-display text-lg font-semibold">Your details</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Your name is shown in the school workspace.</p>
+        <form onSubmit={(event) => void saveName(event)} className="mt-5 space-y-3">
+          <label className="block"><span className="mb-2 block text-xs font-semibold text-muted-foreground">Full name</span><input data-testid="input-account-name" autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
+          <label className="block"><span className="mb-2 block text-xs font-semibold text-muted-foreground">Sign-in email</span><input value={email} readOnly className="h-11 w-full rounded-lg border border-input bg-muted px-3 text-sm text-muted-foreground" /></label>
+          <button data-testid="button-save-account-name" type="submit" disabled={savingName || !displayName.trim()} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{savingName ? 'Saving…' : 'Save name'}</button>
+          {nameError && <p role="alert" className="text-sm text-destructive">{nameError}</p>}
+          {nameNotice && <p role="status" className="text-sm text-emerald-700">{nameNotice}</p>}
+        </form>
+      </ShellCard>
+      <ShellCard>
+        <h3 className="font-display text-lg font-semibold">Change password</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Choose a password with at least 8 characters.</p>
+        <form onSubmit={(event) => void savePassword(event)} className="mt-5 space-y-3">
+          <label className="block"><span className="mb-2 block text-xs font-semibold text-muted-foreground">New password</span><input data-testid="input-account-new-password" type="password" autoComplete="new-password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
+          <label className="block"><span className="mb-2 block text-xs font-semibold text-muted-foreground">Confirm new password</span><input data-testid="input-account-confirm-password" type="password" autoComplete="new-password" minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
+          <button data-testid="button-save-account-password" type="submit" disabled={savingPassword || newPassword.length < 8 || !confirmPassword} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{savingPassword ? 'Saving…' : 'Update password'}</button>
+          {passwordError && <p role="alert" className="text-sm text-destructive">{passwordError}</p>}
+          {passwordNotice && <p role="status" className="text-sm text-emerald-700">{passwordNotice}</p>}
+        </form>
+      </ShellCard>
+      <ShellCard className="lg:col-span-2">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div><h3 className="font-display text-lg font-semibold">Your display preference</h3><p className="mt-1 text-sm text-muted-foreground">This setting is saved separately for your account in this browser.</p></div>
+          <button data-testid="button-account-toggle-dark-mode" aria-pressed={dark} onClick={toggleTheme} className="inline-flex items-center justify-between gap-5 rounded-xl border border-border px-4 py-3 text-left hover:bg-muted">
+            <span className="text-sm font-semibold">Dark mode · {dark ? 'On' : 'Off'}</span>
+            <span className={`h-6 w-11 rounded-full p-1 transition ${dark ? 'bg-primary' : 'bg-muted'}`}><span className={`block h-4 w-4 rounded-full bg-white transition ${dark ? 'translate-x-5' : ''}`} /></span>
+          </button>
+        </div>
+      </ShellCard>
+    </div>
+  </div>;
 }
 
 function ParentMessages({ school }: { school: School }) {
@@ -742,8 +1004,9 @@ function SchoolSettings({ school }: { school: School }) {
 
 function SystemSettings({ school }: { school: School }) {
   const config = useConfig(school.id);
-  const [dark, setDark] = useState(document.documentElement.classList.contains('dark'));
-  const toggleDark = () => { const next = !dark; setDark(next); document.documentElement.classList.toggle('dark', next); localStorage.setItem('jiib.darkMode', String(next)); };
+  const email = localStorage.getItem('jiib.email') || '';
+  const [dark, setDark] = useState(() => getAccountDarkMode(email));
+  const toggleDark = () => { const next = !dark; setDark(next); setAccountDarkMode(email, next); };
   const exportBackup = () => { const blob = new Blob([JSON.stringify({ school, config: config.data, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${school.slug}-backup.json`; anchor.click(); URL.revokeObjectURL(url); };
   return <div className="fade-up"><SectionHeading eyebrow="Settings" title="System settings" body="Control local preferences, configuration backups, and account security." /><div className="grid gap-5 lg:grid-cols-2"><ShellCard><div className="flex items-center gap-3"><ShieldCheck className="text-primary" size={20} /><div><h3 className="font-display text-lg font-semibold">Workspace preferences</h3><p className="mt-1 text-sm text-muted-foreground">These preferences apply to this browser.</p></div></div><button data-testid="button-toggle-dark-mode" onClick={toggleDark} className="mt-6 flex w-full items-center justify-between rounded-xl border border-border p-4 text-left hover:bg-muted"><span><span className="block text-sm font-semibold">Dark mode</span><span className="mt-1 block text-xs text-muted-foreground">{dark ? 'On' : 'Off'}</span></span><span className={`h-6 w-11 rounded-full p-1 transition ${dark ? 'bg-primary' : 'bg-muted'}`}><span className={`block h-4 w-4 rounded-full bg-white transition ${dark ? 'translate-x-5' : ''}`} /></span></button><button data-testid="button-export-backup" onClick={exportBackup} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"><Download size={15} /> Export configuration backup</button></ShellCard><ShellCard><div className="flex items-center gap-3"><LockKeyhole className="text-primary" size={20} /><div><h3 className="font-display text-lg font-semibold">Account security</h3><p className="mt-1 text-sm text-muted-foreground">Staff access requires a verified Supabase account and an assigned school role. Parent portal access is verified against a student's family phone number.</p></div></div></ShellCard></div></div>;
 }
@@ -754,6 +1017,7 @@ export function OperationsPage({ page, school }: { page: Page; school: School })
     case 'parentsPortal': return <ParentsPortal school={school} />;
     case 'parentMessages': return <ParentMessages school={school} />;
     case 'userManagement': return <UserManagement school={school} />;
+    case 'accountSettings': return <AccountSettings school={school} />;
     case 'performance': return <Performance school={school} />;
     case 'printMarksheets': return <PrintMarksheets school={school} />;
     case 'reportStudio': return <PrintMarksheets school={school} report />;

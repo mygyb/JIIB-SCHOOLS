@@ -35,11 +35,17 @@ import {
 } from "@workspace/api-zod";
 import {
   asRows,
+  createSupabaseAuthUser,
+  deleteSupabaseAuthUser,
+  findSupabaseAuthUserByEmail,
   getSupabaseUser,
   inviteSupabaseUser,
   isSupabaseInviteConfigured,
+  isSupabaseAdminConfigured,
   jsonBody,
+  supabaseAdminRequest,
   supabaseRequest,
+  updateSupabaseAuthUser,
   valueOf,
 } from "../lib/supabase";
 
@@ -180,11 +186,21 @@ const SubjectAssignmentBody = z.object({
   subject: z.string().trim().min(1),
 });
 const AllowedUserBody = z.object({
-  email: z.string().email(),
-  displayName: z.string().optional(),
+  email: z.string().trim().email(),
+  displayName: z.string().trim().min(1).max(160),
+  role: z.enum(["admin", "teacher"]),
+  initialPassword: z.string().min(8).max(128),
+  subjects: z.array(z.union([z.string(), SubjectAssignmentBody])).optional(),
+}).strict();
+const AllowedUserUpdateBody = z.object({
+  email: z.string().trim().email().optional(),
+  displayName: z.string().trim().min(1).max(160).optional(),
   role: z.enum(["admin", "teacher"]).optional(),
   subjects: z.array(z.union([z.string(), SubjectAssignmentBody])).optional(),
-});
+}).strict();
+const SchoolProfileBody = z.object({
+  displayName: z.string().trim().min(1).max(160),
+}).strict();
 const GradeBody = z.object({ grade: z.string().min(1), min: z.number(), descriptor: z.string().optional() });
 const PromoteBody = z.object({
   fromClass: z.string().min(1),
@@ -2024,64 +2040,254 @@ router.get("/schools/:schoolId/users/:email", async (req, res) => {
   }
 });
 
+function sendStaffManagementError(res: Response, error: unknown) {
+  const message = error instanceof Error ? error.message : "Could not update staff access.";
+  if (/service_role_key|not configured/i.test(message)) {
+    res.status(503).json({ error: "Staff account management is not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
+    return;
+  }
+  if (/already registered|already exists|already been registered|email.*(taken|in use)/i.test(message)) {
+    res.status(409).json({ error: "A Supabase sign-in account already uses that email address." });
+    return;
+  }
+  if (/not found/i.test(message)) {
+    res.status(404).json({ error: message });
+    return;
+  }
+  res.status(400).json({ error: message });
+}
+
+function teacherAssignmentConflict(
+  subjects: Array<string | { class: string; subject: string }>,
+  roster: Record<string, unknown>[],
+  excludedEmails: string[],
+) {
+  const excluded = new Set(excludedEmails.map((email) => email.toLowerCase()));
+  const assignments = subjects.filter(
+    (item): item is { class: string; subject: string } => typeof item === "object" && item !== null,
+  );
+  for (const assignment of assignments) {
+    const owner = roster.find((user) => {
+      if (excluded.has(String(user.email ?? "").toLowerCase()) || user.role === "admin") return false;
+      return Array.isArray(user.subjects) && user.subjects.some((owned) => {
+        if (owned && typeof owned === "object") {
+          const record = owned as Record<string, unknown>;
+          return String(record.class ?? "") === assignment.class &&
+            String(record.subject ?? "") === assignment.subject;
+        }
+        return String(owned ?? "") === assignment.subject;
+      });
+    });
+    if (owner) {
+      return `${assignment.class} · ${assignment.subject} is already assigned to ${String(owner.display_name || owner.email)}.`;
+    }
+  }
+  return null;
+}
+
 router.post("/schools/:schoolId/users", async (req, res) => {
+  let authUserId: string | undefined;
   try {
+    if (!isSupabaseAdminConfigured()) {
+      res.status(503).json({ error: "Staff account creation is not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
+      return;
+    }
     const schoolId = String(req.params.schoolId);
     const body = AllowedUserBody.parse(req.body);
     const email = body.email.toLowerCase();
-    const role = body.role ?? "teacher";
-    const subjects = role === "teacher" ? body.subjects ?? [] : [];
-    const newAssignments = subjects.filter((item): item is { class: string; subject: string } =>
-      typeof item === "object" && item !== null,
-    );
-    if (role === "teacher" && !subjects.length) {
+    const subjects = body.role === "teacher" ? body.subjects ?? [] : [];
+    if (body.role === "teacher" && !subjects.length) {
       res.status(400).json({ error: "Assign at least one class subject to this teacher." });
       return;
     }
-    const roster = asRows(
-      await supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=email,display_name,role,subjects`),
-    );
-    const conflict = newAssignments.flatMap((assignment) => {
-      const owner = roster.find((user) => {
-        if (String(user.email ?? "").toLowerCase() === email || user.role === "admin") return false;
-        return Array.isArray(user.subjects) && user.subjects.some((owned) =>
-          Boolean(owned && typeof owned === "object" &&
-            String((owned as Record<string, unknown>).class ?? "") === assignment.class &&
-            String((owned as Record<string, unknown>).subject ?? "") === assignment.subject),
-        );
-      });
-      return owner ? [`${assignment.class} · ${assignment.subject} is already assigned to ${String(owner.display_name || owner.email)}.`] : [];
-    })[0];
+
+    const roster = asRows(await supabaseAdminRequest(
+      `/rest/v1/allowed_users?school_id=eq.${encodeURIComponent(schoolId)}&select=email,display_name,role,subjects`,
+    ));
+    if (roster.some((user) => String(user.email ?? "").toLowerCase() === email)) {
+      res.status(409).json({ error: "This email already has access to the school." });
+      return;
+    }
+    const conflict = teacherAssignmentConflict(subjects, roster, []);
     if (conflict) {
       res.status(409).json({ error: conflict });
       return;
     }
-    if (!isSupabaseInviteConfigured()) {
-      res.status(503).json({ error: "Staff invitations are not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
+
+    const authUser = await createSupabaseAuthUser(email, body.initialPassword, body.displayName);
+    authUserId = authUser.id;
+    const rows = asRows(await supabaseAdminRequest(
+      "/rest/v1/allowed_users?select=*",
+      {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: jsonBody({
+          school_id: schoolId,
+          email,
+          display_name: body.displayName,
+          role: body.role,
+          subjects,
+        }),
+      },
+    ));
+    if (!rows[0]) throw new Error("The account was created but school access was not saved.");
+    res.status(201).json(mapAllowedUser(rows[0]));
+  } catch (error) {
+    if (authUserId) {
+      try {
+        await deleteSupabaseAuthUser(authUserId);
+      } catch {
+        // The original failure is more useful; the account can be cleaned up in Supabase if needed.
+      }
+    }
+    sendStaffManagementError(res, error);
+  }
+});
+
+router.patch("/schools/:schoolId/users/:email", async (req, res) => {
+  let authUser: Awaited<ReturnType<typeof findSupabaseAuthUserByEmail>> = null;
+  let oldEmail = "";
+  let authEmailChanged = false;
+  try {
+    if (!isSupabaseAdminConfigured()) {
+      res.status(503).json({ error: "Staff account editing is not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
       return;
     }
-    const invitation = await inviteSupabaseUser(email, body.displayName ?? "");
-    const rows = asRows(
-      await supabaseRequest(
-        req,
-        "allowed_users",
+    const schoolId = String(req.params.schoolId);
+    oldEmail = decodeURIComponent(String(req.params.email)).trim().toLowerCase();
+    const body = AllowedUserUpdateBody.parse(req.body);
+    if (!Object.keys(body).length) {
+      res.status(400).json({ error: "Provide at least one staff detail to update." });
+      return;
+    }
+
+    const currentRows = asRows(await supabaseAdminRequest(
+      `/rest/v1/allowed_users?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(oldEmail)}&select=*&limit=1`,
+    ));
+    const current = currentRows[0];
+    if (!current) {
+      res.status(404).json({ error: "Staff account not found." });
+      return;
+    }
+
+    const nextEmail = (body.email ?? oldEmail).toLowerCase();
+    const nextRole = body.role ?? (current.role === "admin" ? "admin" : "teacher");
+    const currentSubjects = Array.isArray(current.subjects)
+      ? current.subjects as Array<string | { class: string; subject: string }>
+      : [];
+    const nextSubjects = nextRole === "teacher"
+      ? body.subjects ?? currentSubjects
+      : [];
+    if (nextRole === "teacher" && !nextSubjects.length) {
+      res.status(400).json({ error: "Assign at least one class subject to this teacher." });
+      return;
+    }
+
+    const roster = asRows(await supabaseAdminRequest(
+      `/rest/v1/allowed_users?school_id=eq.${encodeURIComponent(schoolId)}&select=email,display_name,role,subjects`,
+    ));
+    if (nextEmail !== oldEmail && roster.some((user) => String(user.email ?? "").toLowerCase() === nextEmail)) {
+      res.status(409).json({ error: "This email already has access to the school." });
+      return;
+    }
+    const conflict = teacherAssignmentConflict(nextSubjects, roster, [oldEmail, nextEmail]);
+    if (conflict) {
+      res.status(409).json({ error: conflict });
+      return;
+    }
+
+    if (nextEmail !== oldEmail) {
+      authUser = await findSupabaseAuthUserByEmail(oldEmail);
+      if (!authUser) {
+        res.status(409).json({ error: "This staff member has no Supabase sign-in yet, so their email cannot be changed." });
+        return;
+      }
+      const existingAuthUser = await findSupabaseAuthUserByEmail(nextEmail);
+      if (existingAuthUser && existingAuthUser.id !== authUser.id) {
+        res.status(409).json({ error: "A Supabase sign-in account already uses the new email address." });
+        return;
+      }
+      await updateSupabaseAuthUser(authUser.id, {
+        email: nextEmail,
+        email_confirm: true,
+        user_metadata: {
+          ...(authUser.user_metadata ?? {}),
+          ...(body.displayName ? { display_name: body.displayName } : {}),
+        },
+      });
+      authEmailChanged = true;
+    }
+
+    try {
+      const rows = asRows(await supabaseAdminRequest(
+        `/rest/v1/allowed_users?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(oldEmail)}&select=*`,
         {
-          method: "POST",
+          method: "PATCH",
+          headers: { Prefer: "return=representation" },
           body: jsonBody({
-            school_id: schoolId,
-            email,
-            display_name: body.displayName ?? null,
-            role,
-            subjects,
+            email: nextEmail,
+            display_name: body.displayName ?? current.display_name ?? null,
+            role: nextRole,
+            subjects: nextSubjects,
           }),
         },
-        "?on_conflict=school_id,email&select=*",
-      ),
-    );
-    if (!rows[0]) throw new Error("The staff account was not added. Check database access and the email address.");
-    res.status(201).json({ ...mapAllowedUser(rows[0]), invitationSent: invitation.invitationSent });
+      ));
+      if (!rows[0]) throw new Error("Staff account not found.");
+      res.json(mapAllowedUser(rows[0]));
+    } catch (error) {
+      if (authEmailChanged && authUser) {
+        try {
+          await updateSupabaseAuthUser(authUser.id, {
+            email: oldEmail,
+            email_confirm: true,
+            user_metadata: authUser.user_metadata ?? {},
+          });
+        } catch {
+          // Preserve the database error and avoid hiding a failed rollback.
+        }
+      }
+      throw error;
+    }
   } catch (error) {
-    sendError(res, error);
+    sendStaffManagementError(res, error);
+  }
+});
+
+router.patch("/schools/:schoolId/profile", async (req, res) => {
+  try {
+    if (res.locals.jiibRole === "super_admin") {
+      res.status(403).json({ error: "Choose a school staff account to update this profile." });
+      return;
+    }
+    if (!isSupabaseAdminConfigured()) {
+      res.status(503).json({ error: "Profile updates are not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
+      return;
+    }
+    const schoolId = String(req.params.schoolId);
+    const email = String(req.headers["x-verified-user-email"] ?? "").toLowerCase();
+    const { displayName } = SchoolProfileBody.parse(req.body);
+    const rows = asRows(await supabaseAdminRequest(
+      `/rest/v1/allowed_users?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(email)}&select=*&limit=1`,
+    ));
+    if (!rows[0]) {
+      res.status(404).json({ error: "Staff account not found." });
+      return;
+    }
+    const updated = asRows(await supabaseAdminRequest(
+      `/rest/v1/allowed_users?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(email)}&select=*`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: jsonBody({ display_name: displayName }),
+      },
+    ));
+    if (!updated[0]) {
+      res.status(404).json({ error: "Staff account not found." });
+      return;
+    }
+    res.json(mapAllowedUser(updated[0]));
+  } catch (error) {
+    sendStaffManagementError(res, error);
   }
 });
 

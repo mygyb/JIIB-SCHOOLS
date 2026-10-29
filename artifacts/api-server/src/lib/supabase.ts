@@ -88,6 +88,103 @@ export function isSupabaseInviteConfigured() {
   return Boolean(supabaseServiceRoleKey);
 }
 
+export function isSupabaseAdminConfigured() {
+  return Boolean(supabaseServiceRoleKey);
+}
+
+export type SupabaseAuthAdminUser = {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, unknown>;
+};
+
+export async function supabaseAdminRequest<T = unknown>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  if (!supabaseServiceRoleKey) {
+    throw new Error("Staff account management is not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets.");
+  }
+  const response = await fetch(`${supabaseUrl!.replace(/\/+$/, "")}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: supabaseServiceRoleKey,
+      Authorization: `Bearer ${supabaseServiceRoleKey}`,
+      ...(init.headers as Record<string, string> | undefined),
+    },
+  });
+  const raw = await response.text();
+  let data: unknown = null;
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = raw;
+    }
+  }
+  if (!response.ok) {
+    const message =
+      typeof data === "object" && data !== null
+        ? String(
+            (data as Record<string, unknown>).msg ??
+              (data as Record<string, unknown>).message ??
+              (data as Record<string, unknown>).error_description ??
+              `Supabase admin request failed with ${response.status}`,
+          )
+        : `Supabase admin request failed with ${response.status}`;
+    throw new Error(message);
+  }
+  return data as T;
+}
+
+export async function createSupabaseAuthUser(
+  email: string,
+  password: string,
+  displayName: string,
+) {
+  return supabaseAdminRequest<SupabaseAuthAdminUser>("/auth/v1/admin/users", {
+    method: "POST",
+    body: jsonBody({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { display_name: displayName },
+    }),
+  });
+}
+
+export async function findSupabaseAuthUserByEmail(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  for (let page = 1; page <= 200; page += 1) {
+    const result = await supabaseAdminRequest<{ users?: SupabaseAuthAdminUser[] }>(
+      `/auth/v1/admin/users?page=${page}&per_page=100`,
+    );
+    const users = Array.isArray(result.users) ? result.users : [];
+    const match = users.find((user) => user.email?.toLowerCase() === normalizedEmail);
+    if (match) return match;
+    if (users.length < 100) return null;
+  }
+  throw new Error("Could not find the account in Supabase Auth. Try again or contact support.");
+}
+
+export async function updateSupabaseAuthUser(
+  userId: string,
+  changes: Record<string, unknown>,
+) {
+  return supabaseAdminRequest<SupabaseAuthAdminUser>(
+    `/auth/v1/admin/users/${encodeURIComponent(userId)}`,
+    { method: "PUT", body: jsonBody(changes) },
+  );
+}
+
+export async function deleteSupabaseAuthUser(userId: string) {
+  await supabaseAdminRequest(
+    `/auth/v1/admin/users/${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function inviteSupabaseUser(email: string, displayName: string) {
   if (!supabaseServiceRoleKey) {
     throw new Error("Staff invitations are not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets.");
