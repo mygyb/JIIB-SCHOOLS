@@ -45,6 +45,8 @@ export const createSchoolBodySlugMax = 40;
 
 
 export const createSchoolBodySlugRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)*$');
+export const createSchoolBodyAssessmentFieldsItemNameMax = 60;
+
 
 
 export const CreateSchoolBody = zod.object({
@@ -55,7 +57,7 @@ export const CreateSchoolBody = zod.object({
   "initialAdminName": zod.string().nullish(),
   "address": zod.string().optional(),
   "assessmentFields": zod.array(zod.object({
-  "name": zod.string(),
+  "name": zod.string().min(1).max(createSchoolBodyAssessmentFieldsItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
   "max": zod.number()
 })).optional()
@@ -144,6 +146,43 @@ export const GetSchoolPortfolioMessagesResponse = zod.array(GetSchoolPortfolioMe
 
 
 /**
+ * @summary List pending school administrator access requests
+ */
+export const ListPortalAccessRequestsResponseItem = zod.object({
+  "userId": zod.string().uuid(),
+  "email": zod.string().email(),
+  "displayName": zod.string(),
+  "schoolId": zod.string().uuid().nullable(),
+  "schoolName": zod.string().nullable(),
+  "schoolSlug": zod.string(),
+  "schoolActive": zod.boolean(),
+  "requestedRole": zod.enum(['admin']),
+  "createdAt": zod.coerce.date(),
+  "emailConfirmed": zod.boolean()
+})
+export const ListPortalAccessRequestsResponse = zod.array(ListPortalAccessRequestsResponseItem)
+
+
+/**
+ * @summary Approve or decline a pending portal access request
+ */
+export const ReviewPortalAccessRequestParams = zod.object({
+  "userId": zod.coerce.string().uuid()
+})
+
+export const ReviewPortalAccessRequestBody = zod.object({
+  "decision": zod.enum(['approve', 'decline'])
+})
+
+export const ReviewPortalAccessRequestResponse = zod.object({
+  "userId": zod.string().uuid(),
+  "status": zod.enum(['approved', 'declined']),
+  "email": zod.string().email(),
+  "schoolName": zod.string().nullable()
+})
+
+
+/**
  * @summary Read the school data configuration
  */
 export const GetSchoolConfigParams = zod.object({
@@ -176,11 +215,69 @@ export const UpdateSchoolConfigResponse = zod.object({
 
 
 /**
+ * @summary Update the school's teacher deadline and available assessment fields
+ */
+export const UpdateTeacherSettingsParams = zod.object({
+  "schoolId": zod.coerce.string().uuid()
+})
+
+export const updateTeacherSettingsBodyDeadlineMax = 40;
+
+export const updateTeacherSettingsBodyActiveMarkColumnsMax = 3;
+
+
+
+export const UpdateTeacherSettingsBody = zod.object({
+  "deadline": zod.string().max(updateTeacherSettingsBodyDeadlineMax).nullish(),
+  "deadlinePublishedAt": zod.coerce.date().nullish(),
+  "activeMarkColumns": zod.array(zod.enum(['c1', 'c2', 'c3'])).min(1).max(updateTeacherSettingsBodyActiveMarkColumnsMax).optional()
+})
+
+export const UpdateTeacherSettingsResponse = zod.object({
+  "schoolId": zod.string().uuid(),
+  "data": zod.record(zod.string(), zod.unknown()),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update the school's assessment structure
+ */
+export const UpdateSchoolAssessmentSettingsParams = zod.object({
+  "schoolId": zod.coerce.string().uuid()
+})
+
+export const updateSchoolAssessmentSettingsBodyMarksSchemaItemNameMax = 60;
+
+export const updateSchoolAssessmentSettingsBodyMarksSchemaMax = 3;
+
+
+
+export const UpdateSchoolAssessmentSettingsBody = zod.object({
+  "marksSchema": zod.array(zod.object({
+  "name": zod.string().min(1).max(updateSchoolAssessmentSettingsBodyMarksSchemaItemNameMax),
+  "field": zod.enum(['c1', 'c2', 'c3']),
+  "max": zod.number()
+})).min(1).max(updateSchoolAssessmentSettingsBodyMarksSchemaMax)
+})
+
+export const UpdateSchoolAssessmentSettingsResponse = zod.object({
+  "schoolId": zod.string().uuid(),
+  "data": zod.record(zod.string(), zod.unknown()),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Read the school overview and grouped analytics
  */
 export const GetDashboardSummaryParams = zod.object({
   "schoolId": zod.coerce.string().uuid()
 })
+
+export const getDashboardSummaryResponseAssessmentFieldsItemNameMax = 60;
+
+
 
 export const GetDashboardSummaryResponse = zod.object({
   "studentCount": zod.number().int(),
@@ -200,7 +297,7 @@ export const GetDashboardSummaryResponse = zod.object({
   "configuredHouseCount": zod.number().int(),
   "activeTerm": zod.string(),
   "assessmentFields": zod.array(zod.object({
-  "name": zod.string(),
+  "name": zod.string().min(1).max(getDashboardSummaryResponseAssessmentFieldsItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
   "max": zod.number()
 })),

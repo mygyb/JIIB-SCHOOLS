@@ -8,6 +8,10 @@
 import type { AssessmentFieldField } from './assessmentFieldField';
 
 export interface AssessmentField {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
   name: string;
   field: AssessmentFieldField;
   max: number;

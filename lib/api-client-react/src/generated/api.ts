@@ -29,10 +29,14 @@ import type {
   MarkInput,
   Message,
   MessageInput,
+  PortalAccessRequest,
+  PortalAccessRequestReviewInput,
+  PortalAccessRequestReviewResult,
   PortfolioAnalytics,
   PortfolioMessage,
   PortfolioUser,
   School,
+  SchoolAssessmentSettingsInput,
   SchoolConfig,
   SchoolConfigInput,
   SchoolRegistrationInput,
@@ -42,7 +46,8 @@ import type {
   SchoolTermUpdate,
   Student,
   StudentInput,
-  StudentUpdate
+  StudentUpdate,
+  TeacherSettingsInput
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -601,6 +606,155 @@ export function useGetSchoolPortfolioMessages<TData = Awaited<ReturnType<typeof 
 
 
 
+export const getListPortalAccessRequestsUrl = () => {
+
+
+
+
+  return `/api/schools/portal-access-requests`
+}
+
+/**
+ * @summary List pending school administrator access requests
+ */
+export const listPortalAccessRequests = async ( options?: Parameters<typeof customFetch>[1]): Promise<PortalAccessRequest[]> => {
+
+  return customFetch<PortalAccessRequest[]>(getListPortalAccessRequestsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPortalAccessRequestsQueryKey = () => {
+    return [
+    `/api/schools/portal-access-requests`
+    ] as const;
+    }
+
+
+export const getListPortalAccessRequestsQueryOptions = <TData = Awaited<ReturnType<typeof listPortalAccessRequests>>, TError = ErrorType<ErrorResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPortalAccessRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPortalAccessRequestsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPortalAccessRequests>>> = ({ signal }) => listPortalAccessRequests({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPortalAccessRequests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPortalAccessRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof listPortalAccessRequests>>>
+export type ListPortalAccessRequestsQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary List pending school administrator access requests
+ */
+
+export function useListPortalAccessRequests<TData = Awaited<ReturnType<typeof listPortalAccessRequests>>, TError = ErrorType<ErrorResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPortalAccessRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPortalAccessRequestsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReviewPortalAccessRequestUrl = (userId: string,) => {
+
+
+
+
+  return `/api/schools/portal-access-requests/${userId}`
+}
+
+/**
+ * @summary Approve or decline a pending portal access request
+ */
+export const reviewPortalAccessRequest = async (userId: string,
+    portalAccessRequestReviewInput: PortalAccessRequestReviewInput, options?: Parameters<typeof customFetch>[1]): Promise<PortalAccessRequestReviewResult> => {
+
+  return customFetch<PortalAccessRequestReviewResult>(getReviewPortalAccessRequestUrl(userId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(portalAccessRequestReviewInput)
+  }
+);}
+
+
+
+
+
+export const getReviewPortalAccessRequestMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewPortalAccessRequest>>, TError,{userId: string;data: BodyType<PortalAccessRequestReviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewPortalAccessRequest>>, TError,{userId: string;data: BodyType<PortalAccessRequestReviewInput>}, TContext> => {
+
+const mutationKey = ['reviewPortalAccessRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewPortalAccessRequest>>, {userId: string;data: BodyType<PortalAccessRequestReviewInput>}> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  reviewPortalAccessRequest(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewPortalAccessRequestMutationResult = NonNullable<Awaited<ReturnType<typeof reviewPortalAccessRequest>>>
+    export type ReviewPortalAccessRequestMutationBody = BodyType<PortalAccessRequestReviewInput>
+    export type ReviewPortalAccessRequestMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Approve or decline a pending portal access request
+ */
+export const useReviewPortalAccessRequest = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewPortalAccessRequest>>, TError,{userId: string;data: BodyType<PortalAccessRequestReviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewPortalAccessRequest>>,
+        TError,
+        {userId: string;data: BodyType<PortalAccessRequestReviewInput>},
+        TContext
+      > => {
+      return useMutation(getReviewPortalAccessRequestMutationOptions(options));
+    }
+
 export const getGetSchoolConfigUrl = (schoolId: string,) => {
 
 
@@ -748,6 +902,150 @@ export const useUpdateSchoolConfig = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateSchoolConfigMutationOptions(options));
+    }
+
+export const getUpdateTeacherSettingsUrl = (schoolId: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/teacher-settings`
+}
+
+/**
+ * @summary Update the school's teacher deadline and available assessment fields
+ */
+export const updateTeacherSettings = async (schoolId: string,
+    teacherSettingsInput: TeacherSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<SchoolConfig> => {
+
+  return customFetch<SchoolConfig>(getUpdateTeacherSettingsUrl(schoolId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(teacherSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateTeacherSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTeacherSettings>>, TError,{schoolId: string;data: BodyType<TeacherSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateTeacherSettings>>, TError,{schoolId: string;data: BodyType<TeacherSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateTeacherSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTeacherSettings>>, {schoolId: string;data: BodyType<TeacherSettingsInput>}> = (props) => {
+          const {schoolId,data} = props ?? {};
+
+          return  updateTeacherSettings(schoolId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateTeacherSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateTeacherSettings>>>
+    export type UpdateTeacherSettingsMutationBody = BodyType<TeacherSettingsInput>
+    export type UpdateTeacherSettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update the school's teacher deadline and available assessment fields
+ */
+export const useUpdateTeacherSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTeacherSettings>>, TError,{schoolId: string;data: BodyType<TeacherSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateTeacherSettings>>,
+        TError,
+        {schoolId: string;data: BodyType<TeacherSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateTeacherSettingsMutationOptions(options));
+    }
+
+export const getUpdateSchoolAssessmentSettingsUrl = (schoolId: string,) => {
+
+
+
+
+  return `/api/schools/${schoolId}/assessment-settings`
+}
+
+/**
+ * @summary Update the school's assessment structure
+ */
+export const updateSchoolAssessmentSettings = async (schoolId: string,
+    schoolAssessmentSettingsInput: SchoolAssessmentSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<SchoolConfig> => {
+
+  return customFetch<SchoolConfig>(getUpdateSchoolAssessmentSettingsUrl(schoolId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(schoolAssessmentSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateSchoolAssessmentSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSchoolAssessmentSettings>>, TError,{schoolId: string;data: BodyType<SchoolAssessmentSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSchoolAssessmentSettings>>, TError,{schoolId: string;data: BodyType<SchoolAssessmentSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateSchoolAssessmentSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSchoolAssessmentSettings>>, {schoolId: string;data: BodyType<SchoolAssessmentSettingsInput>}> = (props) => {
+          const {schoolId,data} = props ?? {};
+
+          return  updateSchoolAssessmentSettings(schoolId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSchoolAssessmentSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateSchoolAssessmentSettings>>>
+    export type UpdateSchoolAssessmentSettingsMutationBody = BodyType<SchoolAssessmentSettingsInput>
+    export type UpdateSchoolAssessmentSettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update the school's assessment structure
+ */
+export const useUpdateSchoolAssessmentSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSchoolAssessmentSettings>>, TError,{schoolId: string;data: BodyType<SchoolAssessmentSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSchoolAssessmentSettings>>,
+        TError,
+        {schoolId: string;data: BodyType<SchoolAssessmentSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateSchoolAssessmentSettingsMutationOptions(options));
     }
 
 export const getGetDashboardSummaryUrl = (schoolId: string,) => {

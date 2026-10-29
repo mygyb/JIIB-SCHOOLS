@@ -22,6 +22,56 @@ export interface School {
   active: boolean;
 }
 
+export type PortalAccessRequestRequestedRole = typeof PortalAccessRequestRequestedRole[keyof typeof PortalAccessRequestRequestedRole];
+
+
+export const PortalAccessRequestRequestedRole = {
+  admin: 'admin',
+} as const;
+
+export interface PortalAccessRequest {
+  userId: string;
+  email: string;
+  displayName: string;
+  /** @nullable */
+  schoolId: string | null;
+  /** @nullable */
+  schoolName: string | null;
+  schoolSlug: string;
+  schoolActive: boolean;
+  requestedRole: PortalAccessRequestRequestedRole;
+  createdAt: string;
+  emailConfirmed: boolean;
+}
+
+export type PortalAccessRequestReviewInputDecision = typeof PortalAccessRequestReviewInputDecision[keyof typeof PortalAccessRequestReviewInputDecision];
+
+
+export const PortalAccessRequestReviewInputDecision = {
+  approve: 'approve',
+  decline: 'decline',
+} as const;
+
+export interface PortalAccessRequestReviewInput {
+  decision: PortalAccessRequestReviewInputDecision;
+}
+
+export type PortalAccessRequestReviewResultStatus = typeof PortalAccessRequestReviewResultStatus[keyof typeof PortalAccessRequestReviewResultStatus];
+
+
+export const PortalAccessRequestReviewResultStatus = {
+  approved: 'approved',
+  declined: 'declined',
+} as const;
+
+export interface PortalAccessRequestReviewResult {
+  userId: string;
+  status: PortalAccessRequestReviewResultStatus;
+  email: string;
+  /** @nullable */
+  schoolName: string | null;
+}
+
 export type AssessmentFieldField = typeof AssessmentFieldField[keyof typeof AssessmentFieldField];
 
 
@@ -32,6 +82,10 @@ export const AssessmentFieldField = {
 } as const;
 
 export interface AssessmentField {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
   name: string;
   field: AssessmentFieldField;
   max: number;
@@ -72,6 +126,38 @@ export type SchoolConfigInputData = { [key: string]: unknown };
 
 export interface SchoolConfigInput {
   data: SchoolConfigInputData;
+}
+
+export type TeacherSettingsInputActiveMarkColumnsItem = typeof TeacherSettingsInputActiveMarkColumnsItem[keyof typeof TeacherSettingsInputActiveMarkColumnsItem];
+
+
+export const TeacherSettingsInputActiveMarkColumnsItem = {
+  c1: 'c1',
+  c2: 'c2',
+  c3: 'c3',
+} as const;
+
+export interface TeacherSettingsInput {
+  /**
+     * @maxLength 40
+     * @nullable
+     */
+  deadline?: string | null;
+  /** @nullable */
+  deadlinePublishedAt?: string | null;
+  /**
+     * @minItems 1
+     * @maxItems 3
+     */
+  activeMarkColumns?: TeacherSettingsInputActiveMarkColumnsItem[];
+}
+
+export interface SchoolAssessmentSettingsInput {
+  /**
+     * @minItems 1
+     * @maxItems 3
+     */
+  marksSchema: AssessmentField[];
 }
 
 export type SchoolTermStatus = typeof SchoolTermStatus[keyof typeof SchoolTermStatus];

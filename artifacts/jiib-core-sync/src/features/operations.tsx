@@ -14,12 +14,14 @@ import {
   useListMarks,
   useListStudents,
   useUpdateSchoolTerm,
+  useUpdateSchoolAssessmentSettings,
   useUpdateSchoolConfig,
+  useUpdateTeacherSettings,
   useUpdateStudent,
 } from '@workspace/api-client-react';
 import type { School, SchoolConfig as SchoolConfigResponse, Student } from '@workspace/api-client-react';
 import { jiibApi } from '@/lib/jiib-api';
-import { currentTerm, getAssessmentFields, getTerms, normalizePhone, subjectNames, subjectRecords, type SchoolConfig } from '@/lib/school-data';
+import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
 
 type Page =
   | 'overview'
@@ -502,29 +504,18 @@ function GradingSystem({ school }: { school: School }) {
   return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Grading system" body="Define the thresholds and descriptors used in school reports." /><ShellCard><div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input data-testid="input-grade-name" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="Grade" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-grade-min" type="number" min="0" max="100" value={min} onChange={(e) => setMin(e.target.value)} placeholder="Minimum score" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-grade" onClick={add} disabled={!grade.trim() || !min || config.saving} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add</button></div><div className="mt-6 divide-y divide-border">{[...grades].sort((a, b) => Number(b.min) - Number(a.min)).map((item) => <div key={String(item.grade)} className="flex items-center gap-3 py-4"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 font-display font-semibold text-primary">{String(item.grade)}</span><div className="flex-1"><p className="text-sm font-semibold">From {String(item.min)} points</p><p className="text-xs text-muted-foreground">{String(item.descriptor ?? '')}</p></div><button aria-label={`Remove grade ${String(item.grade)}`} onClick={() => config.save({ ...config.data, grading: grades.filter((value) => value.grade !== item.grade) })} className="text-destructive"><Trash2 size={15} /></button></div>)}</div>{!grades.length && <p className="mt-4 text-sm text-muted-foreground">No grading bands are configured yet.</p>}</ShellCard></div>;
 }
 
-type TeacherAssessmentMode = 'midterm' | 'end' | 'both';
-
-function teacherAssessmentMode(settings: Record<string, unknown>): TeacherAssessmentMode {
-  const active = settings.activeMarkColumns;
-  if (!Array.isArray(active)) return 'both';
-  const columns = new Set(active.map(String));
-  const hasMidterm = columns.has('c2');
-  const hasEnd = columns.has('c3');
-  if (hasMidterm && hasEnd) return 'both';
-  if (hasMidterm) return 'midterm';
-  if (hasEnd) return 'end';
-  return 'both';
-}
-
 function PublishDeadline({ school }: { school: School }) {
   const config = useConfig(school.id);
   const queryClient = useQueryClient();
+  const updateTeacherSettings = useUpdateTeacherSettings();
   const settings = config.data.settings && typeof config.data.settings === 'object' && !Array.isArray(config.data.settings)
     ? config.data.settings as Record<string, unknown>
     : {};
+  const assessmentStructure = getAssessmentStructure(config.data as SchoolConfig);
+  const assessmentStructureKey = assessmentStructure.map((field) => `${field.field}:${field.name}:${field.max}`).join('|');
   const [deadline, setDeadline] = useState('');
   const [deadlineDirty, setDeadlineDirty] = useState(false);
-  const [assessmentMode, setAssessmentMode] = useState<TeacherAssessmentMode>('both');
+  const [activeMarkColumns, setActiveMarkColumns] = useState<AssessmentFieldId[]>([]);
   const [assessmentDirty, setAssessmentDirty] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -533,11 +524,16 @@ function PublishDeadline({ school }: { school: School }) {
   useEffect(() => {
     if (!config.isSuccess) return;
     if (!deadlineDirty) setDeadline(String(config.data.deadline ?? ''));
-    if (!assessmentDirty) setAssessmentMode(teacherAssessmentMode(settings));
-  }, [assessmentDirty, config.data.deadline, config.data.settings, config.isSuccess, deadlineDirty]);
+    if (!assessmentDirty) {
+      const active = settings.activeMarkColumns;
+      setActiveMarkColumns(Array.isArray(active)
+        ? assessmentStructure.filter((field) => active.map(String).includes(field.field)).map((field) => field.field)
+        : assessmentStructure.map((field) => field.field));
+    }
+  }, [assessmentDirty, assessmentStructureKey, config.data.deadline, config.data.settings, config.isSuccess, deadlineDirty]);
 
   const persist = async (
-    changes: { deadline?: string | null; deadlinePublishedAt?: string | null; activeMarkColumns?: Array<'c2' | 'c3'> },
+    changes: { deadline?: string | null; deadlinePublishedAt?: string | null; activeMarkColumns?: AssessmentFieldId[] },
     successMessage: string,
     onDone?: () => void,
   ) => {
@@ -545,10 +541,7 @@ function PublishDeadline({ school }: { school: School }) {
     setError('');
     setSaving(true);
     try {
-      const result = await jiibApi<SchoolConfigResponse>(
-        `/api/schools/${encodeURIComponent(school.id)}/teacher-settings`,
-        { method: 'PATCH', body: JSON.stringify(changes) },
-      );
+      const result = await updateTeacherSettings.mutateAsync({ schoolId: school.id, data: changes });
       queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), result);
       onDone?.();
       setNotice(successMessage);
@@ -569,19 +562,8 @@ function PublishDeadline({ school }: { school: School }) {
     });
   };
   const saveAssessmentFilter = () => {
-    const activeMarkColumns: Array<'c2' | 'c3'> = assessmentMode === 'midterm'
-      ? ['c2']
-      : assessmentMode === 'end'
-        ? ['c3']
-        : ['c2', 'c3'];
     void persist({ activeMarkColumns }, 'Teacher assessment filter saved.', () => setAssessmentDirty(false));
   };
-
-  const assessmentOptions: Array<{ value: TeacherAssessmentMode; title: string; description: string }> = [
-    { value: 'midterm', title: 'Midterm only', description: 'Teachers can enter midterm marks only.' },
-    { value: 'end', title: 'End of term only', description: 'Teachers can enter end-of-term marks only.' },
-    { value: 'both', title: 'Midterm and end of term', description: 'Both assessment columns appear in the register.' },
-  ];
 
   return <div className="fade-up">
     <SectionHeading eyebrow="Communication" title="Publish to teachers" body="Set the marks deadline and choose which assessment columns teachers can use." />
@@ -597,15 +579,29 @@ function PublishDeadline({ school }: { school: School }) {
       </ShellCard>
       <ShellCard>
         <h3 className="font-display text-lg font-semibold">Assessment filter</h3>
-        <p className="mt-1 text-sm leading-5 text-muted-foreground">Choose the mark columns teachers at this school can see in the register.</p>
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">Choose which of this school's configured assessments teachers can enter.</p>
         <fieldset className="mt-5 space-y-2">
           <legend className="mb-2 text-sm font-semibold">Assessments available to teachers</legend>
-          {assessmentOptions.map((option) => <label key={option.value} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${assessmentMode === option.value ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/45'}`}>
-            <input data-testid={`radio-assessment-${option.value}`} type="radio" name="teacher-assessment-filter" value={option.value} checked={assessmentMode === option.value} onChange={() => { setAssessmentMode(option.value); setAssessmentDirty(true); setNotice(''); }} className="mt-0.5 accent-primary" />
-            <span><span className="block text-sm font-semibold">{option.title}</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{option.description}</span></span>
+          {assessmentStructure.map((field) => <label key={field.field} data-testid={`row-assessment-filter-${field.field}`} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${activeMarkColumns.includes(field.field) ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/45'}`}>
+            <input
+              data-testid={`checkbox-assessment-filter-${field.field}`}
+              type="checkbox"
+              checked={activeMarkColumns.includes(field.field)}
+              onChange={(event) => {
+                setActiveMarkColumns((current) => event.target.checked
+                  ? [...current, field.field]
+                  : current.filter((item) => item !== field.field));
+                setAssessmentDirty(true);
+                setNotice('');
+              }}
+              className="mt-0.5 accent-primary"
+            />
+            <span><span className="block text-sm font-semibold">{field.name}</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">Maximum score: {field.max}</span></span>
           </label>)}
+          {!assessmentStructure.length && <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Set up the school's assessment structure in School settings first.</p>}
         </fieldset>
-        <button data-testid="button-save-assessment-filter" onClick={saveAssessmentFilter} disabled={!assessmentDirty || saving} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {saving ? 'Saving…' : 'Save assessment filter'}</button>
+        {!activeMarkColumns.length && <p className="mt-3 text-xs text-destructive">Select at least one assessment for teachers.</p>}
+        <button data-testid="button-save-assessment-filter" onClick={saveAssessmentFilter} disabled={!assessmentDirty || saving || !activeMarkColumns.length} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {saving ? 'Saving…' : 'Save assessment filter'}</button>
       </ShellCard>
     </div>
     {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
@@ -615,16 +611,133 @@ function PublishDeadline({ school }: { school: School }) {
 
 function SchoolSettings({ school }: { school: School }) {
   const config = useConfig(school.id);
+  const queryClient = useQueryClient();
+  const updateAssessmentSettings = useUpdateSchoolAssessmentSettings();
   const settings = config.data.settings && typeof config.data.settings === 'object'
     ? config.data.settings as Record<string, unknown>
     : {};
+  const structure = getAssessmentStructure(config.data as SchoolConfig);
   const [address, setAddress] = useState(String(settings.address ?? ''));
   const [phone, setPhone] = useState(String(settings.phone ?? ''));
+  const [assessmentDraft, setAssessmentDraft] = useState(structure);
+  const [enabledAssessmentFields, setEnabledAssessmentFields] = useState<AssessmentFieldId[]>(structure.map((field) => field.field));
+  const [assessmentDirty, setAssessmentDirty] = useState(false);
+  const [assessmentSaving, setAssessmentSaving] = useState(false);
+  const [assessmentNotice, setAssessmentNotice] = useState('');
+  const [assessmentError, setAssessmentError] = useState('');
   useEffect(() => {
     setAddress(String(settings.address ?? ''));
     setPhone(String(settings.phone ?? ''));
   }, [settings.address, settings.phone]);
-  return <div className="fade-up"><SectionHeading eyebrow="Settings" title="School settings" body="Keep the school's public identity and communication details current." /><ShellCard className="max-w-2xl"><div className="grid gap-4 sm:grid-cols-2"><label><span className="mb-2 block text-xs font-semibold text-muted-foreground">School name</span><input value={school.name} readOnly className="h-11 w-full rounded-lg border border-input bg-muted px-3 text-sm" /></label><label><span className="mb-2 block text-xs font-semibold text-muted-foreground">Workspace slug</span><input value={school.slug} readOnly className="h-11 w-full rounded-lg border border-input bg-muted px-3 text-sm" /></label><label><span className="mb-2 block text-xs font-semibold text-muted-foreground">Address</span><input data-testid="input-school-address" value={address} onChange={(e) => setAddress(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label><label><span className="mb-2 block text-xs font-semibold text-muted-foreground">Office phone</span><input data-testid="input-school-phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label></div><button data-testid="button-save-school-profile" onClick={() => config.save({ ...config.data, settings: { ...settings, address, phone } })} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Check size={15} /> Save school profile</button></ShellCard></div>;
+  useEffect(() => {
+    if (assessmentDirty) return;
+    const fields = getAssessmentStructure(config.data as SchoolConfig);
+    setAssessmentDraft(fields);
+    setEnabledAssessmentFields(fields.map((field) => field.field));
+  }, [assessmentDirty, config.data.settings]);
+
+  const selectedFields = enabledAssessmentFields
+    .map((field) => assessmentDraft.find((item) => item.field === field))
+    .filter((field): field is (typeof assessmentDraft)[number] => Boolean(field));
+  const totalMarks = selectedFields.reduce((sum, field) => sum + field.max, 0);
+  const maximumScoresAreValid = selectedFields.every((field) => Number.isFinite(field.max) && field.max > 0 && field.max <= 100);
+  const namesAreValid = selectedFields.every((field) => field.name.trim())
+    && new Set(selectedFields.map((field) => field.name.trim().toLocaleLowerCase())).size === selectedFields.length;
+  const assessmentStructureValid = selectedFields.length > 0 && namesAreValid && maximumScoresAreValid && Math.abs(totalMarks - 100) < 0.001;
+
+  const toggleAssessment = (fieldId: AssessmentFieldId, enabled: boolean) => {
+    setEnabledAssessmentFields((current) => enabled
+      ? current.includes(fieldId) ? current : [...current, fieldId].sort((a, b) => a.localeCompare(b))
+      : current.filter((field) => field !== fieldId));
+    if (enabled && !assessmentDraft.some((field) => field.field === fieldId)) {
+      const defaults = DEFAULT_ASSESSMENT_FIELDS.find((field) => field.field === fieldId);
+      if (defaults) setAssessmentDraft((current) => [...current, { ...defaults }].sort((a, b) => a.field.localeCompare(b.field)));
+    }
+    setAssessmentDirty(true);
+    setAssessmentNotice('');
+    setAssessmentError('');
+  };
+  const updateAssessmentField = (fieldId: AssessmentFieldId, changes: Partial<{ name: string; max: number }>) => {
+    setAssessmentDraft((current) => current.map((field) => field.field === fieldId ? { ...field, ...changes } : field));
+    setAssessmentDirty(true);
+    setAssessmentNotice('');
+    setAssessmentError('');
+  };
+  const saveAssessmentStructure = async () => {
+    if (!assessmentStructureValid) return;
+    setAssessmentSaving(true);
+    setAssessmentNotice('');
+    setAssessmentError('');
+    try {
+      const result = await updateAssessmentSettings.mutateAsync({
+        schoolId: school.id,
+        data: { marksSchema: selectedFields },
+      });
+      queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), result);
+      setAssessmentDraft(selectedFields);
+      setEnabledAssessmentFields(selectedFields.map((field) => field.field));
+      setAssessmentDirty(false);
+      setAssessmentNotice('Assessment structure saved for everyone at this school.');
+    } catch (cause) {
+      setAssessmentError(cause instanceof Error ? cause.message : 'Assessment structure could not be saved. Please try again.');
+    } finally {
+      setAssessmentSaving(false);
+    }
+  };
+
+  return <div className="fade-up">
+    <SectionHeading eyebrow="Settings" title="School settings" body="Manage the school's identity and the assessment structure shared by its staff." />
+    <div className="grid gap-5">
+      <ShellCard className="max-w-2xl">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label><span className="mb-2 block text-xs font-semibold text-muted-foreground">School name</span><input value={school.name} readOnly className="h-11 w-full rounded-lg border border-input bg-muted px-3 text-sm" /></label>
+          <label><span className="mb-2 block text-xs font-semibold text-muted-foreground">Workspace slug</span><input value={school.slug} readOnly className="h-11 w-full rounded-lg border border-input bg-muted px-3 text-sm" /></label>
+          <label><span className="mb-2 block text-xs font-semibold text-muted-foreground">Address</span><input data-testid="input-school-address" value={address} onChange={(e) => setAddress(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
+          <label><span className="mb-2 block text-xs font-semibold text-muted-foreground">Office phone</span><input data-testid="input-school-phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
+        </div>
+        <button data-testid="button-save-school-profile" onClick={() => config.save({ ...config.data, settings: { ...settings, address, phone } })} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Check size={15} /> Save school profile</button>
+      </ShellCard>
+      <ShellCard>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h3 className="font-display text-lg font-semibold">Assessment structure</h3><p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">Choose the assessments this school uses, and set the name and maximum score for each. These settings are shared with all school accounts.</p></div>
+          <span data-testid="text-assessment-total" className={`rounded-full px-3 py-1.5 text-xs font-semibold ${Math.abs(totalMarks - 100) < 0.001 ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>Total: {totalMarks} / 100</span>
+        </div>
+        <div className="mt-5 grid gap-3 lg:grid-cols-3">
+          {DEFAULT_ASSESSMENT_FIELDS.map((defaultField) => {
+            const field = assessmentDraft.find((item) => item.field === defaultField.field) ?? defaultField;
+            const enabled = enabledAssessmentFields.includes(defaultField.field);
+            return <section key={field.field} className={`rounded-xl border p-4 ${enabled ? 'border-primary/30 bg-primary/[.025]' : 'border-border'}`}>
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  data-testid={`checkbox-assessment-structure-${field.field}`}
+                  type="checkbox"
+                  checked={enabled}
+                  disabled={!config.isSuccess || assessmentSaving}
+                  onChange={(event) => toggleAssessment(field.field, event.target.checked)}
+                  className="accent-primary"
+                />
+                <span className="text-sm font-semibold">{field.name}</span>
+              </label>
+              {enabled && <div className="mt-4 grid gap-3">
+                <label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Assessment name</span><input data-testid={`input-assessment-name-${field.field}`} value={field.name} maxLength={60} disabled={!config.isSuccess || assessmentSaving} onChange={(event) => updateAssessmentField(field.field, { name: event.target.value })} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-60" /></label>
+                <label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Maximum score</span><input data-testid={`input-assessment-max-${field.field}`} type="number" min="0.5" max="100" step="0.5" value={field.max} disabled={!config.isSuccess || assessmentSaving} onChange={(event) => updateAssessmentField(field.field, { max: Number(event.target.value) })} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-60" /></label>
+              </div>}
+            </section>;
+          })}
+        </div>
+        {!config.isSuccess && <p role="status" className="mt-4 text-sm text-muted-foreground">Loading school assessment settings…</p>}
+        {enabledAssessmentFields.length > 0 && !namesAreValid && <p role="alert" className="mt-4 text-sm text-destructive">Assessment names must be filled in and unique.</p>}
+        {enabledAssessmentFields.length > 0 && !maximumScoresAreValid && <p role="alert" className="mt-4 text-sm text-destructive">Each maximum score must be greater than 0 and no more than 100.</p>}
+        {enabledAssessmentFields.length > 0 && Math.abs(totalMarks - 100) >= 0.001 && <p role="alert" className="mt-4 text-sm text-destructive">Adjust the maximum scores so the enabled assessments total 100.</p>}
+        {!enabledAssessmentFields.length && <p role="alert" className="mt-4 text-sm text-destructive">Enable at least one assessment.</p>}
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <button data-testid="button-save-assessment-structure" onClick={() => void saveAssessmentStructure()} disabled={!config.isSuccess || !assessmentDirty || !assessmentStructureValid || assessmentSaving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {assessmentSaving ? 'Saving…' : 'Save assessment structure'}</button>
+          {assessmentNotice && <p role="status" className="text-sm text-emerald-800">{assessmentNotice}</p>}
+          {assessmentError && <p role="alert" className="text-sm text-destructive">{assessmentError}</p>}
+        </div>
+      </ShellCard>
+    </div>
+  </div>;
 }
 
 function SystemSettings({ school }: { school: School }) {

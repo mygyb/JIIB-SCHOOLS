@@ -247,6 +247,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SchoolConfig"
+  /schools/{schoolId}/teacher-settings:
+    patch:
+      operationId: updateTeacherSettings
+      tags: [schools]
+      summary: Update the school's teacher deadline and available assessment fields
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeacherSettingsInput"
+      responses:
+        "200":
+          description: Updated school settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolConfig"
+  /schools/{schoolId}/assessment-settings:
+    patch:
+      operationId: updateSchoolAssessmentSettings
+      tags: [schools]
+      summary: Update the school's assessment structure
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchoolAssessmentSettingsInput"
+      responses:
+        "200":
+          description: Updated school assessment settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolConfig"
   /schools/{schoolId}/dashboard:
     get:
       operationId: getDashboardSummary
@@ -694,6 +734,36 @@ components:
         data:
           type: object
           additionalProperties: true
+    TeacherSettingsInput:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        deadline:
+          type: ["string", "null"]
+          maxLength: 40
+        deadlinePublishedAt:
+          type: ["string", "null"]
+          format: date-time
+        activeMarkColumns:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            enum: [c1, c2, c3]
+    SchoolAssessmentSettingsInput:
+      type: object
+      required: [marksSchema]
+      additionalProperties: false
+      properties:
+        marksSchema:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/AssessmentField"
     SchoolTerm:
       type: object
       required: [key, label, status, active]
@@ -766,6 +836,8 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          maxLength: 60
         field:
           type: string
           enum: [c1, c2, c3]

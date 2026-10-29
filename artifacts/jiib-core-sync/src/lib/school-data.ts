@@ -8,9 +8,16 @@ export type SchoolConfig = Record<string, unknown> & {
   grading?: Array<Record<string, unknown>>;
 };
 
-export type AssessmentField = { name: string; max: number; field: "c1" | "c2" | "c3" };
+export type AssessmentFieldId = "c1" | "c2" | "c3";
+export type AssessmentField = { name: string; max: number; field: AssessmentFieldId };
 
-export function getAssessmentFields(config: SchoolConfig | null | undefined): AssessmentField[] {
+export const DEFAULT_ASSESSMENT_FIELDS: AssessmentField[] = [
+  { name: "AOI", max: 10, field: "c1" },
+  { name: "Midterm", max: 10, field: "c2" },
+  { name: "End of Term", max: 80, field: "c3" },
+];
+
+export function getAssessmentStructure(config: SchoolConfig | null | undefined): AssessmentField[] {
   const settings = config?.settings && typeof config.settings === "object" ? config.settings : {};
   const raw = Array.isArray(settings.marksSchema) ? settings.marksSchema : [];
   const schema = raw.flatMap((entry): AssessmentField[] => {
@@ -23,11 +30,12 @@ export function getAssessmentFields(config: SchoolConfig | null | undefined): As
       ? [{ name, max, field: field as AssessmentField["field"] }]
       : [];
   });
-  const chosen = schema.length ? schema : [
-    { name: "AOI", max: 10, field: "c1" as const },
-    { name: "Midterm", max: 10, field: "c2" as const },
-    { name: "End of Term", max: 80, field: "c3" as const },
-  ];
+  return schema.length ? schema : DEFAULT_ASSESSMENT_FIELDS.map((field) => ({ ...field }));
+}
+
+export function getAssessmentFields(config: SchoolConfig | null | undefined): AssessmentField[] {
+  const settings = config?.settings && typeof config.settings === "object" ? config.settings : {};
+  const chosen = getAssessmentStructure(config);
   const active = settings.activeMarkColumns;
   return Array.isArray(active)
     ? chosen.filter((field) => active.map(String).includes(field.field))

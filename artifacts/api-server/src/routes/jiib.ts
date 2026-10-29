@@ -22,10 +22,12 @@ import {
   ListStudentsParams,
   ListStudentsQueryParams,
   MarkInput,
+  UpdateSchoolAssessmentSettingsBody,
   UpdateSchoolConfigBody,
   UpdateSchoolConfigParams,
   UpdateSchoolTermBody,
   UpdateSchoolTermParams,
+  UpdateTeacherSettingsBody,
   UpdateStudentBody,
   UpdateStudentParams,
   UpsertMarkBody,
@@ -194,19 +196,6 @@ const ParentChatBody = z.object({
   text: z.string().trim().min(1).max(5000),
   senderName: z.string().trim().max(120).optional(),
 });
-const TeacherSettingsBody = z.object({
-  deadline: z.string().trim().max(40).nullable().optional(),
-  deadlinePublishedAt: z.string().datetime().nullable().optional(),
-  activeMarkColumns: z.array(z.enum(["c2", "c3"]))
-    .min(1)
-    .max(2)
-    .refine((columns) => new Set(columns).size === columns.length, "Assessment columns must be unique.")
-    .optional(),
-}).strict().refine(
-  (body) => body.deadline !== undefined || body.deadlinePublishedAt !== undefined || body.activeMarkColumns !== undefined,
-  "At least one teacher setting must be provided.",
-);
-
 type SchoolConfig = Record<string, unknown>;
 
 async function readSchoolConfig(req: Request, schoolId: string): Promise<SchoolConfig> {
@@ -378,7 +367,7 @@ function requireSchoolAdmin(req: Request, res: Response, next: () => void) {
 
 type AssessmentField = { name: string; max: number; field: "c1" | "c2" | "c3" };
 
-function activeAssessmentFields(config: Record<string, unknown>): AssessmentField[] {
+function configuredAssessmentFields(config: Record<string, unknown>): AssessmentField[] {
   const settings = config.settings && typeof config.settings === "object" && !Array.isArray(config.settings)
     ? config.settings as Record<string, unknown>
     : {};
@@ -399,7 +388,14 @@ function activeAssessmentFields(config: Record<string, unknown>): AssessmentFiel
     { name: "Midterm", max: 10, field: "c2" },
     { name: "End of Term", max: 80, field: "c3" },
   ];
-  const chosen = schema.length ? schema : defaultSchema;
+  return schema.length ? schema : defaultSchema;
+}
+
+function activeAssessmentFields(config: Record<string, unknown>): AssessmentField[] {
+  const settings = config.settings && typeof config.settings === "object" && !Array.isArray(config.settings)
+    ? config.settings as Record<string, unknown>
+    : {};
+  const chosen = configuredAssessmentFields(config);
   const active = settings.activeMarkColumns;
   if (!Array.isArray(active)) return chosen;
   const selected = new Set(active.map(String));
@@ -1065,6 +1061,7 @@ router.delete("/schools/:schoolId/parent-chat", requireSchoolAdmin, async (req, 
 
 router.put("/schools/:schoolId/config", requireSchoolAdmin);
 router.patch("/schools/:schoolId/teacher-settings", requireSchoolAdmin);
+router.patch("/schools/:schoolId/assessment-settings", requireSchoolAdmin);
 router.post("/schools/:schoolId/students", requireSchoolAdmin);
 router.patch("/schools/:schoolId/students/:studentId", requireSchoolAdmin);
 router.delete("/schools/:schoolId/students/:studentId", requireSchoolAdmin);
@@ -1119,13 +1116,26 @@ router.put("/schools/:schoolId/config", async (req, res) => {
 router.patch("/schools/:schoolId/teacher-settings", async (req, res) => {
   try {
     const { schoolId } = GetSchoolConfigParams.parse(req.params);
-    const changes = TeacherSettingsBody.parse(req.body);
+    const changes = UpdateTeacherSettingsBody.strict().parse(req.body);
+    if (Object.keys(changes).length === 0) {
+      res.status(400).json({ error: "At least one teacher setting must be provided." });
+      return;
+    }
     const current = await readSchoolConfig(req, schoolId);
     const next: SchoolConfig = { ...current };
 
     if ("deadline" in changes) next.deadline = changes.deadline;
     if ("deadlinePublishedAt" in changes) next.deadlinePublishedAt = changes.deadlinePublishedAt;
-    if (changes.activeMarkColumns) {
+    if (changes.activeMarkColumns !== undefined) {
+      if (new Set(changes.activeMarkColumns).size !== changes.activeMarkColumns.length) {
+        res.status(400).json({ error: "Assessment fields must be unique." });
+        return;
+      }
+      const availableColumns = new Set(configuredAssessmentFields(current).map((field) => field.field));
+      if (changes.activeMarkColumns.some((field) => !availableColumns.has(field))) {
+        res.status(400).json({ error: "Teacher assessment fields must be part of the school's assessment structure." });
+        return;
+      }
       const rawSettings = current.settings;
       const settings = rawSettings && typeof rawSettings === "object" && !Array.isArray(rawSettings)
         ? rawSettings as Record<string, unknown>
@@ -1133,6 +1143,54 @@ router.patch("/schools/:schoolId/teacher-settings", async (req, res) => {
       next.settings = { ...settings, activeMarkColumns: changes.activeMarkColumns };
     }
 
+    const savedData = await writeSchoolConfig(req, schoolId, next);
+    res.json(GetSchoolConfigResponse.parse({
+      schoolId,
+      data: savedData,
+      updatedAt: new Date(),
+    }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.patch("/schools/:schoolId/assessment-settings", async (req, res) => {
+  try {
+    const { schoolId } = GetSchoolConfigParams.parse(req.params);
+    const { marksSchema } = UpdateSchoolAssessmentSettingsBody.strict().parse(req.body);
+    const fields = marksSchema as AssessmentField[];
+    if (fields.some((field) => !field.name.trim() || field.name.trim().length > 60 || !Number.isFinite(field.max) || field.max <= 0 || field.max > 100)) {
+      res.status(400).json({ error: "Each assessment needs a name and a maximum score between 0 and 100." });
+      return;
+    }
+    if (new Set(fields.map((field) => field.field)).size !== fields.length) {
+      res.status(400).json({ error: "Each assessment must use a different mark field." });
+      return;
+    }
+    const names = fields.map((field) => field.name.trim().toLocaleLowerCase());
+    if (new Set(names).size !== names.length) {
+      res.status(400).json({ error: "Assessment names must be unique." });
+      return;
+    }
+    const totalMarks = fields.reduce((sum, field) => sum + field.max, 0);
+    if (Math.abs(totalMarks - 100) > 0.001) {
+      res.status(400).json({ error: "Assessment maximums must add up to 100." });
+      return;
+    }
+
+    const current = await readSchoolConfig(req, schoolId);
+    const rawSettings = current.settings;
+    const settings = rawSettings && typeof rawSettings === "object" && !Array.isArray(rawSettings)
+      ? rawSettings as Record<string, unknown>
+      : {};
+    const next: SchoolConfig = {
+      ...current,
+      settings: {
+        ...settings,
+        marksSchema: fields,
+        activeMarkColumns: fields.map((field) => field.field),
+      },
+    };
     const savedData = await writeSchoolConfig(req, schoolId, next);
     res.json(GetSchoolConfigResponse.parse({
       schoolId,
