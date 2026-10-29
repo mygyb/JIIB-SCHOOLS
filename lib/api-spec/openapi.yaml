@@ -287,6 +287,155 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SchoolConfig"
+  /schools/{schoolId}/users:
+    get:
+      operationId: listSchoolUsers
+      tags: [users]
+      summary: List staff accounts for a school
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      responses:
+        "200":
+          description: School staff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolUserList"
+    post:
+      operationId: createSchoolUser
+      tags: [users]
+      summary: Create a school staff account
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchoolUserInput"
+      responses:
+        "201":
+          description: Created staff account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolUser"
+        "409":
+          description: Account or assignment conflicts with existing data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Supabase Auth administration is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /schools/{schoolId}/users/{email}:
+    get:
+      operationId: getSchoolUser
+      tags: [users]
+      summary: Get a school staff account
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+            format: email
+      responses:
+        "200":
+          description: School staff account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolUser"
+        "404":
+          description: Staff account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateSchoolUser
+      tags: [users]
+      summary: Update school staff details and assignments
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+            format: email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchoolUserUpdate"
+      responses:
+        "200":
+          description: Updated staff account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolUser"
+        "404":
+          description: Staff account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Account or assignment conflicts with existing data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteSchoolUser
+      tags: [users]
+      summary: Remove school staff access
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+            format: email
+      responses:
+        "204":
+          description: Staff access removed
+  /schools/{schoolId}/profile:
+    patch:
+      operationId: updateMySchoolProfile
+      tags: [users]
+      summary: Update the signed-in staff member's display name
+      parameters:
+        - $ref: "#/components/parameters/SchoolId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchoolProfileUpdate"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchoolUser"
+        "404":
+          description: Staff account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /schools/{schoolId}/dashboard:
     get:
       operationId: getDashboardSummary
@@ -632,6 +781,96 @@ components:
           type: ["string", "null"]
         active:
           type: boolean
+    SchoolSubjectAssignment:
+      type: object
+      required: [class, subject]
+      properties:
+        class:
+          type: string
+          minLength: 1
+        subject:
+          type: string
+          minLength: 1
+    SchoolUser:
+      type: object
+      required: [schoolId, email, displayName, role, subjects, createdAt]
+      properties:
+        schoolId:
+          type: string
+        email:
+          type: string
+          format: email
+        displayName:
+          type: ["string", "null"]
+        role:
+          type: string
+          enum: [admin, teacher]
+        subjects:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - $ref: "#/components/schemas/SchoolSubjectAssignment"
+        createdAt:
+          type: string
+          format: date-time
+    SchoolUserList:
+      type: array
+      items:
+        $ref: "#/components/schemas/SchoolUser"
+    SchoolUserInput:
+      type: object
+      required: [email, displayName, role, initialPassword]
+      properties:
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+        role:
+          type: string
+          enum: [admin, teacher]
+        initialPassword:
+          type: string
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
+        subjects:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - $ref: "#/components/schemas/SchoolSubjectAssignment"
+    SchoolUserUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+        role:
+          type: string
+          enum: [admin, teacher]
+        subjects:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - $ref: "#/components/schemas/SchoolSubjectAssignment"
+    SchoolProfileUpdate:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
     PortalAccessRequest:
       type: object
       required: [userId, email, displayName, schoolId, schoolName, schoolSlug, schoolActive, requestedRole, createdAt, emailConfirmed]
