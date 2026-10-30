@@ -36,8 +36,7 @@ minimumReleaseAgeExclude:
   - '@replit/*'
   - stripe-replit-sync
 
-onlyBuiltDependencies:
- allowBuilds:
+allowBuilds:
   '@swc/core': true
   esbuild: true
   msw: true
