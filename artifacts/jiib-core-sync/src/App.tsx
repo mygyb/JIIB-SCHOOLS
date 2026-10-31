@@ -264,6 +264,8 @@ function SignIn() {
   const schoolQuery = useGetSchoolBySlug(slug.trim().toLowerCase(), {
     query: { enabled: submitted && Boolean(slug.trim()), queryKey: getGetSchoolBySlugQueryKey(slug.trim().toLowerCase()) },
   });
+  // Only a 404 means the slug is wrong; anything else (500, network error) is a server or connection problem.
+  const schoolNotFound = (schoolQuery.error as { status?: number } | null)?.status === 404;
   const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey() } });
 
   const resolve = async (event: FormEvent) => {
@@ -441,7 +443,7 @@ function SignIn() {
               <label className="block"><span className="mb-2 block text-sm font-semibold">Continue as</span><select data-testid="select-role" value={role} onChange={(e) => setRole(e.target.value)} className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option>School administrator</option><option>Teacher</option><option>Parent / guardian</option><option>Super administrator</option></select></label>
               {submitted && schoolQuery.isPending && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Looking up your school…</div>}
               {submitted && schoolQuery.isSuccess && verifying && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Verifying your account…</div>}
-              {submitted && schoolQuery.isError && <div data-testid="error-school-resolution" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">We couldn’t find that school. Check the slug and try again.</div>}
+              {submitted && schoolQuery.isError && <div data-testid="error-school-resolution" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{schoolNotFound ? 'We couldn’t find that school. Check the slug and try again.' : 'We couldn’t reach the server to look up your school. Please try again in a moment.'}</div>}
                {authError && <div data-testid="error-login" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{authError}</div>}
               <button data-testid="button-open-workspace" className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90" type="submit">LOGIN <ArrowRight size={17} /></button>
             </form>
