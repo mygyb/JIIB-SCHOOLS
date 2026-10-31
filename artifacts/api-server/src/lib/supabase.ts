@@ -13,7 +13,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 function getHeaders(req: Request, extra: Record<string, string> = {}) {
   const authorization = req.header("authorization");
   return {
-    apikey: supabaseAnonKey,
+    apikey: supabaseAnonKey!,
     Authorization: authorization ?? `Bearer ${supabaseAnonKey}`,
     "Content-Type": "application/json",
     ...extra,
@@ -31,15 +31,15 @@ export async function supabaseRequest<T>(
   query = "",
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
+  const headers = new Headers(getHeaders(req));
+  if (method === "POST") {
+    headers.set("Prefer", "resolution=merge-duplicates,return=representation");
+  }
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+
   const response = await fetch(getEndpoint(table, query), {
     ...init,
-    headers: {
-      ...getHeaders(req),
-      ...(method === "POST"
-        ? { Prefer: "resolution=merge-duplicates,return=representation" }
-        : {}),
-      ...(init.headers as Record<string, string> | undefined),
-    },
+    headers,
   });
 
   const raw = await response.text();
@@ -74,10 +74,10 @@ export async function getSupabaseUser(req: Request): Promise<SupabaseUser | null
   if (!authorization?.startsWith("Bearer ")) return null;
 
   const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: supabaseAnonKey,
+    headers: new Headers({
+      apikey: supabaseAnonKey!,
       Authorization: authorization,
-    },
+    }),
   });
   if (!response.ok) return null;
   const user = (await response.json()) as SupabaseUser;
