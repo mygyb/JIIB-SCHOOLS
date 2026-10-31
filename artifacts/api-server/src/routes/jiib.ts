@@ -160,7 +160,8 @@ function mapGrade(row: Record<string, unknown>) {
   };
 }
 
-const EventBody = z.object({ title: z.string().min(1), eventDate: z.string().min(1) });
+// An event may be saved without a date; it is then shown as "Date to be announced".
+const EventBody = z.object({ title: z.string().trim().min(1), eventDate: z.string().default("") });
 const AssessmentFieldBody = z.object({
   name: z.string().trim().min(1),
   field: z.enum(["c1", "c2", "c3"]),
@@ -1987,11 +1988,14 @@ router.delete("/schools/:schoolId/events/:eventId", async (req, res) => {
     const events = Array.isArray(config.events) ? config.events : [];
     await writeSchoolConfig(req, schoolId, {
       ...config,
-      events: events.filter((item) =>
-        typeof item === "object" && item !== null
-          ? String((item as Record<string, unknown>).id ?? "") !== eventId
-          : String(item) !== eventId,
-      ),
+      // The page identifies an event by its id. Older events without one are identified by
+      // their position (event-N for objects, legacy-N for plain strings), as the page lists them.
+      events: events.filter((item, index) => {
+        if (typeof item === "object" && item !== null) {
+          return String((item as Record<string, unknown>).id ?? `event-${index}`) !== eventId;
+        }
+        return `legacy-${index}` !== eventId && String(item) !== eventId;
+      }),
     });
     res.status(204).send();
   } catch (error) {

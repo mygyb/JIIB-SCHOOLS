@@ -145,10 +145,11 @@ function SchoolEvents({ school }: { school: School }) {
   const [eventTitle, setEventTitle] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [error, setError] = useState('');
-  // Saving writes the whole school config back, so wait until it has loaded or a click could overwrite it with an empty copy.
+  const [busy, setBusy] = useState(false);
   const ready = config.isSuccess;
   const events = Array.isArray(config.data.events) ? config.data.events : [];
-  // Each view keeps its position in the saved list so removal still targets the right event after sorting.
+  // Older events may have no id, so a fallback id is built from the position in the saved list.
+  // The server builds the same fallback ids, so removal still targets the right event.
   const eventViews = events.map((event, index) => {
     const item = (typeof event === 'object' && event !== null ? event : {}) as Record<string, unknown>;
     return typeof event === 'string'
@@ -163,30 +164,43 @@ function SchoolEvents({ school }: { school: School }) {
   const formatDate = (date: string) => date
     ? new Intl.DateTimeFormat('en', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${date.slice(0, 10)}T00:00:00`))
     : 'Date to be announced';
+  // Events are added and removed with small requests of their own, which the server merges into the saved
+  // settings. Re-sending the whole settings record here could be too large for the server to accept.
+  const changeEvents = async (request: () => Promise<unknown>, onDone: () => void, failure: string) => {
+    setBusy(true);
+    setError('');
+    try {
+      await request();
+      await config.refetch();
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error && err.message ? `${failure} ${err.message}` : failure);
+    } finally {
+      setBusy(false);
+    }
+  };
   const addEvent = (event: FormEvent) => {
     event.preventDefault();
-    if (!ready || !eventTitle.trim()) return;
-    setError('');
-    config.save(
-      { ...config.data, events: [...events, { id: crypto.randomUUID(), title: eventTitle.trim(), date: eventDate, createdAt: new Date().toISOString() }] },
+    if (!ready || busy || !eventTitle.trim()) return;
+    void changeEvents(
+      () => jiibApi(`/api/schools/${encodeURIComponent(school.id)}/events`, { method: 'POST', body: JSON.stringify({ title: eventTitle.trim(), eventDate }) }),
       () => { setEventTitle(''); setEventDate(''); },
-      () => setError('The event could not be saved. Please try again.'),
+      'The event could not be saved.',
     );
   };
-  const removeEvent = (index: number) => {
-    if (!ready) return;
-    setError('');
-    config.save(
-      { ...config.data, events: events.filter((_, eventIndex) => eventIndex !== index) },
-      undefined,
-      () => setError('The event could not be removed. Please try again.'),
+  const removeEvent = (eventId: string) => {
+    if (!ready || busy) return;
+    void changeEvents(
+      () => jiibApi(`/api/schools/${encodeURIComponent(school.id)}/events/${encodeURIComponent(eventId)}`, { method: 'DELETE' }),
+      () => undefined,
+      'The event could not be removed.',
     );
   };
   const renderEvent = (item: (typeof eventViews)[number], muted = false) => (
     <div key={item.id} data-testid={`school-event-${item.id}`} className={`flex items-center gap-3 rounded-xl bg-muted/50 p-3 ${muted ? 'opacity-70' : ''}`}>
       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><CalendarDays size={16} /></span>
       <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.title}</p><p className="mt-0.5 text-xs text-muted-foreground">{formatDate(item.date)}</p></div>
-      <button aria-label={`Remove ${item.title}`} onClick={() => removeEvent(item.index)} disabled={config.saving} className="text-muted-foreground hover:text-destructive disabled:opacity-50"><X size={14} /></button>
+      <button aria-label={`Remove ${item.title}`} onClick={() => removeEvent(item.id)} disabled={busy} className="text-muted-foreground hover:text-destructive disabled:opacity-50"><X size={14} /></button>
     </div>
   );
   return <div className="fade-up">
@@ -198,7 +212,7 @@ function SchoolEvents({ school }: { school: School }) {
         <form onSubmit={addEvent} className="mt-5 grid gap-3">
           <input data-testid="input-school-event" value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="Event title" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" />
           <input data-testid="input-school-event-date" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="h-10 rounded-lg border border-input bg-background px-3 text-sm" />
-          <button data-testid="button-add-school-event" type="submit" disabled={!eventTitle.trim() || config.saving} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"><Plus size={15} /> Add event</button>
+          <button data-testid="button-add-school-event" type="submit" disabled={!eventTitle.trim() || busy} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"><Plus size={15} /> {busy ? 'Saving…' : 'Add event'}</button>
         </form>
         {error && <p data-testid="error-school-event" className="mt-3 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
       </ShellCard>
