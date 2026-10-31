@@ -47,7 +47,7 @@ import {
   supabaseRequest,
   updateSupabaseAuthUser,
   valueOf,
-} from "../lib/supabase";
+} from "../lib/supabase.js";
 
 const router: IRouter = Router();
 
