@@ -10,12 +10,16 @@ globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
+// `node build.mjs --vercel` bundles the serverless entry (src/vercel.ts, which
+// exports the Express app) instead of the long-running server (src/index.ts).
+const isVercel = process.argv.includes("--vercel");
+
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    entryPoints: [path.resolve(artifactDir, isVercel ? "src/vercel.ts" : "src/index.ts")],
     platform: "node",
     bundle: true,
     format: "esm",
