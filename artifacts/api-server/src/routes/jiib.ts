@@ -1088,6 +1088,8 @@ router.delete("/schools/:schoolId/marks", requireSchoolAdmin);
 router.post("/schools/:schoolId/help-messages", requireSchoolAdmin);
 router.get("/schools/:schoolId/help-messages", requireSchoolAdmin);
 router.delete("/schools/:schoolId/terms/:termKey", requireSchoolAdmin);
+router.post("/schools/:schoolId/events", requireSchoolAdmin);
+router.delete("/schools/:schoolId/events/:eventId", requireSchoolAdmin);
 
 router.get("/schools/:schoolId/config", async (req, res) => {
   try {

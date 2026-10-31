@@ -140,6 +140,77 @@ function Overview({ school }: { school: School }) {
   </div>;
 }
 
+function SchoolEvents({ school }: { school: School }) {
+  const config = useConfig(school.id);
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [error, setError] = useState('');
+  // Saving writes the whole school config back, so wait until it has loaded or a click could overwrite it with an empty copy.
+  const ready = config.isSuccess;
+  const events = Array.isArray(config.data.events) ? config.data.events : [];
+  // Each view keeps its position in the saved list so removal still targets the right event after sorting.
+  const eventViews = events.map((event, index) => {
+    const item = (typeof event === 'object' && event !== null ? event : {}) as Record<string, unknown>;
+    return typeof event === 'string'
+      ? { id: `legacy-${index}`, title: event, date: '', index }
+      : { id: String(item.id ?? `event-${index}`), title: String(item.title ?? ''), date: String(item.date ?? item.eventDate ?? ''), index };
+  }).filter((item) => item.title);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const isPast = (date: string) => Boolean(date) && new Date(`${date.slice(0, 10)}T00:00:00`).getTime() < startOfToday.getTime();
+  const upcoming = eventViews.filter((item) => !isPast(item.date)).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+  const past = eventViews.filter((item) => isPast(item.date)).sort((a, b) => b.date.localeCompare(a.date));
+  const formatDate = (date: string) => date
+    ? new Intl.DateTimeFormat('en', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${date.slice(0, 10)}T00:00:00`))
+    : 'Date to be announced';
+  const addEvent = (event: FormEvent) => {
+    event.preventDefault();
+    if (!ready || !eventTitle.trim()) return;
+    setError('');
+    config.save(
+      { ...config.data, events: [...events, { id: crypto.randomUUID(), title: eventTitle.trim(), date: eventDate, createdAt: new Date().toISOString() }] },
+      () => { setEventTitle(''); setEventDate(''); },
+      () => setError('The event could not be saved. Please try again.'),
+    );
+  };
+  const removeEvent = (index: number) => {
+    if (!ready) return;
+    setError('');
+    config.save(
+      { ...config.data, events: events.filter((_, eventIndex) => eventIndex !== index) },
+      undefined,
+      () => setError('The event could not be removed. Please try again.'),
+    );
+  };
+  const renderEvent = (item: (typeof eventViews)[number], muted = false) => (
+    <div key={item.id} data-testid={`school-event-${item.id}`} className={`flex items-center gap-3 rounded-xl bg-muted/50 p-3 ${muted ? 'opacity-70' : ''}`}>
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><CalendarDays size={16} /></span>
+      <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.title}</p><p className="mt-0.5 text-xs text-muted-foreground">{formatDate(item.date)}</p></div>
+      <button aria-label={`Remove ${item.title}`} onClick={() => removeEvent(item.index)} disabled={config.saving} className="text-muted-foreground hover:text-destructive disabled:opacity-50"><X size={14} /></button>
+    </div>
+  );
+  return <div className="fade-up">
+    <SectionHeading eyebrow="School events" title="Dates everyone can see." body={`Events added here show on the dashboard of every administrator and teacher at ${school.name}, and in the parents portal.`} />
+    <LoadingOrError loading={config.isLoading} error={config.isError} retry={() => config.refetch()} />
+    {ready && <div className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
+      <ShellCard>
+        <div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Add an event</h3><p className="mt-1 text-sm text-muted-foreground">It appears for everyone at the school.</p></div><CalendarDays size={18} className="text-primary" /></div>
+        <form onSubmit={addEvent} className="mt-5 grid gap-3">
+          <input data-testid="input-school-event" value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="Event title" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" />
+          <input data-testid="input-school-event-date" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="h-10 rounded-lg border border-input bg-background px-3 text-sm" />
+          <button data-testid="button-add-school-event" type="submit" disabled={!eventTitle.trim() || config.saving} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"><Plus size={15} /> Add event</button>
+        </form>
+        {error && <p data-testid="error-school-event" className="mt-3 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+      </ShellCard>
+      <ShellCard>
+        <div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Upcoming events</h3><p className="mt-1 text-sm text-muted-foreground">What staff and families see.</p></div><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{upcoming.length}</span></div>
+        <div className="mt-5 space-y-2">{upcoming.length ? upcoming.map((item) => renderEvent(item)) : <p className="text-sm text-muted-foreground">No upcoming events yet.</p>}</div>
+        {past.length > 0 && <><h4 className="mb-2 mt-6 text-xs font-bold uppercase tracking-[.16em] text-muted-foreground">Past events</h4><div className="space-y-2">{past.map((item) => renderEvent(item, true))}</div></>}
+      </ShellCard>
+    </div>}
+  </div>;
+}
+
 function ParentsPortal({ school }: { school: School }) {
   const config = useConfig(school.id);
   const students = useListStudents(school.id, {});
@@ -1025,7 +1096,7 @@ export function OperationsPage({ page, school }: { page: Page; school: School })
     case 'manageSubjects': return <ManageSubjects school={school} />;
     case 'gradingSystem': return <GradingSystem school={school} />;
     case 'publishDeadline': return <PublishDeadline school={school} />;
-    case 'schoolEvents': return <Overview school={school} />;
+    case 'schoolEvents': return <SchoolEvents school={school} />;
     case 'schoolSettings': return <SchoolSettings school={school} />;
     case 'systemSettings': return <SystemSettings school={school} />;
     case 'parentView': return <PrintMarksheets school={school} report />;
