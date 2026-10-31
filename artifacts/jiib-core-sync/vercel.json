@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://jiib-schools-api-jiib-schools.vercel.app/api/:path*"
+    }
+  ]
+}
