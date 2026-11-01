@@ -12,16 +12,17 @@ import {
   clientIp,
   currentSuperAdmin,
   describeDevice,
+  codeService,
   forgetBlockState,
   isSuperAdminEmail,
+  proofConfigured,
+  signProof,
   SUPER_ADMIN_EMAIL,
+  superAdminPasswordLogin,
   tooManyAttempts,
 } from "../lib/hq.js";
 
 const router: IRouter = Router();
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
 function fail(res: Response, error: unknown) {
   res.status(400).json({ error: error instanceof Error ? error.message : "Unexpected error" });
@@ -29,32 +30,58 @@ function fail(res: Response, error: unknown) {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// ---- Sign-in code ----------------------------------------------------------------------------------
-// Always answers the same way, so nobody can tell whether an address is the administrator's.
-router.post("/hq/request-code", async (req, res) => {
+// ---- Sign-in: password, then a code emailed by the existing verification service ----------------------------
+// Every failure looks identical ("incorrect"), so nobody can tell whether an address is the administrator's.
+const LoginBody = z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200), code: z.string().max(12).optional() });
+
+async function slowFail(res: Response, started: number) {
+  const remaining = 900 - (Date.now() - started);
+  if (remaining > 0) await wait(remaining);
+  res.status(401).json({ error: "Email or password is incorrect." });
+}
+
+router.post("/hq/login-start", async (req, res) => {
   const started = Date.now();
-  const reply = async (status: number, body: Record<string, unknown>) => {
-    const remaining = 900 - (Date.now() - started);
-    if (remaining > 0) await wait(remaining); // same response time whatever the address
-    res.status(status).json(body);
-  };
   try {
-    const email = z.object({ email: z.string().email().max(200) }).parse(req.body).email.trim().toLowerCase();
-    if (tooManyAttempts(`ip:${clientIp(req)}`, 6, 15 * 60_000) || tooManyAttempts(`mail:${email}`, 4, 10 * 60_000)) {
-      await reply(429, { error: "Too many attempts. Please wait a few minutes and try again." });
+    const body = LoginBody.parse(req.body);
+    const email = body.email.trim().toLowerCase();
+    if (tooManyAttempts(`ip:${clientIp(req)}`, 10, 15 * 60_000) || tooManyAttempts(`mail:${email}`, 8, 15 * 60_000)) {
+      res.status(429).json({ error: "Too many attempts. Please wait a few minutes and try again." });
       return;
     }
-    if (isSuperAdminEmail(email) && supabaseUrl && supabaseAnonKey) {
-      const response = await fetch(`${supabaseUrl}/auth/v1/otp`, {
-        method: "POST",
-        headers: { apikey: supabaseAnonKey, "Content-Type": "application/json" },
-        body: JSON.stringify({ email, create_user: false }),
-      });
-      if (!response.ok) req.log?.warn({ status: response.status }, "hq code email was not sent");
-    }
-    await reply(200, { ok: true });
+    const session = await superAdminPasswordLogin(email, body.password);
+    if (!session) { await slowFail(res, started); return; }
+    if (!proofConfigured()) { res.status(503).json({ error: "Sign-in is not configured on the server." }); return; }
+    const sent = await codeService("send", email);
+    if (!sent.ok) { res.status(502).json({ error: `Could not send the code${sent.error ? `: ${sent.error}` : ""}.` }); return; }
+    res.json({ ok: true });
   } catch {
-    await reply(200, { ok: true });
+    await slowFail(res, started);
+  }
+});
+
+router.post("/hq/login-verify", async (req, res) => {
+  const started = Date.now();
+  try {
+    const body = LoginBody.parse(req.body);
+    const email = body.email.trim().toLowerCase();
+    if (tooManyAttempts(`verify:${email}`, 6, 10 * 60_000) || tooManyAttempts(`vip:${clientIp(req)}`, 12, 10 * 60_000)) {
+      res.status(429).json({ error: "Too many attempts. Please wait a few minutes and try again." });
+      return;
+    }
+    const session = await superAdminPasswordLogin(email, body.password);
+    const checked = session && body.code ? await codeService("verify", email, body.code.trim()) : null;
+    if (!session || !checked?.valid) {
+      const remaining = 700 - (Date.now() - started);
+      if (remaining > 0) await wait(remaining);
+      res.status(401).json({ error: "That code did not work." });
+      return;
+    }
+    const proof = signProof(session.user.id);
+    if (!proof) { res.status(503).json({ error: "Sign-in is not configured on the server." }); return; }
+    res.json({ session, proof, email: session.user.email ?? email });
+  } catch {
+    res.status(401).json({ error: "That code did not work." });
   }
 });
 

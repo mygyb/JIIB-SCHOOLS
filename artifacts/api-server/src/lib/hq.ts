@@ -1,4 +1,5 @@
 // System administration helpers: the single super-administrator identity, device parsing, throttling and block checks.
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
 import { asRows, getSupabaseUser, supabaseRequest, type SupabaseUser } from "./supabase.js";
 
@@ -9,9 +10,49 @@ export function isSuperAdminEmail(email: string | undefined | null) {
   return String(email ?? "").trim().toLowerCase() === SUPER_ADMIN_EMAIL;
 }
 
-/** True only for the one allowed address that also holds the super_admin role in the database. */
+// ---- Second-factor proof ------------------------------------------------------------------------------
+// After the emailed code is accepted the server hands back a signed proof. Every administration request must carry it,
+// so a stolen password alone is not enough to use the administration API.
+
+const PROOF_HOURS = 8;
+
+function proofSecret(): string | null {
+  const base = process.env.HQ_2FA_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  return base ? createHmac("sha256", "jiib-hq-proof-v1").update(base).digest("hex") : null;
+}
+
+export function proofConfigured() {
+  return proofSecret() !== null;
+}
+
+export function signProof(userId: string): string | null {
+  const secret = proofSecret();
+  if (!secret) return null;
+  const payload = Buffer.from(JSON.stringify({ uid: userId, exp: Date.now() + PROOF_HOURS * 3_600_000 })).toString("base64url");
+  return `${payload}.${createHmac("sha256", secret).update(payload).digest("base64url")}`;
+}
+
+function proofIsValid(req: Request, userId: string): boolean {
+  const secret = proofSecret();
+  const header = String(req.header("x-hq-proof") ?? "");
+  const [payload, signature] = header.split(".");
+  if (!secret || !payload || !signature) return false;
+  const expected = createHmac("sha256", secret).update(payload).digest("base64url");
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  try {
+    const body = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { uid?: string; exp?: number };
+    return body.uid === userId && typeof body.exp === "number" && body.exp > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+/** True only for the one allowed address that holds the super_admin role AND passed the emailed-code step. */
 export async function verifySuperAdmin(req: Request, user: SupabaseUser): Promise<boolean> {
   if (!isSuperAdminEmail(user.email)) return false;
+  if (!proofIsValid(req, user.id)) return false;
   const roles = asRows(await supabaseRequest(
     req,
     "user_roles",
@@ -19,6 +60,47 @@ export async function verifySuperAdmin(req: Request, user: SupabaseUser): Promis
     `?user_id=eq.${encodeURIComponent(user.id)}&role=eq.super_admin&select=role&limit=1`,
   ));
   return Boolean(roles[0]);
+}
+
+export type PasswordSession = { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; user: { id: string; email?: string } };
+
+/** Checks an email and password with Supabase and confirms the account holds the super_admin role. */
+export async function superAdminPasswordLogin(email: string, password: string): Promise<PasswordSession | null> {
+  const url = process.env.SUPABASE_URL;
+  const anon = process.env.SUPABASE_ANON_KEY;
+  if (!url || !anon || !isSuperAdminEmail(email) || !password) return null;
+  const response = await fetch(`${url}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { apikey: anon, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) return null;
+  const session = (await response.json()) as PasswordSession;
+  const roleResponse = await fetch(
+    `${url}/rest/v1/user_roles?user_id=eq.${encodeURIComponent(session.user.id)}&role=eq.super_admin&select=role&limit=1`,
+    { headers: { apikey: anon, Authorization: `Bearer ${session.access_token}` } },
+  );
+  const roles = roleResponse.ok ? ((await roleResponse.json()) as unknown[]) : [];
+  return roles.length ? session : null;
+}
+
+/** The emailed-code service that already runs on your Supabase project (the old system's `send-verification-email`). */
+export async function codeService(action: "send" | "verify", email: string, code?: string): Promise<{ ok: boolean; valid?: boolean; error?: string }> {
+  const url = process.env.SUPABASE_URL;
+  const anon = process.env.SUPABASE_ANON_KEY;
+  if (!url || !anon) return { ok: false, error: "not configured" };
+  try {
+    const response = await fetch(`${url}/functions/v1/send-verification-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: anon },
+      body: JSON.stringify(action === "send" ? { action, email } : { action, email, code }),
+    });
+    const body = (await response.json().catch(() => ({}))) as { error?: string; valid?: boolean };
+    if (action === "verify") return { ok: response.ok, valid: body.valid === true, error: body.error };
+    return { ok: response.ok && !body.error, error: body.error };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "request failed" };
+  }
 }
 
 export async function currentSuperAdmin(req: Request): Promise<SupabaseUser | null> {

@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { Building2, Inbox, LayoutDashboard, LogOut, RefreshCw, Settings2, Smartphone, UsersRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { jiibApi } from '@/lib/jiib-api';
+import { HQ_PROOF_KEY, jiibApi } from '@/lib/jiib-api';
 import { DevicesSection, InboxSection, Overview, SchoolsSection, SystemSection, UsersSection } from './sections';
 import { useHq } from './shared';
 
@@ -23,6 +23,7 @@ async function leave(setLocation: (path: string) => void) {
   try { await supabase?.auth.signOut(); } catch { /* already signed out */ }
   ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email'].forEach((key) => localStorage.removeItem(key));
   sessionStorage.removeItem('jiib.launched');
+  sessionStorage.removeItem(HQ_PROOF_KEY);
   setLocation('/');
 }
 

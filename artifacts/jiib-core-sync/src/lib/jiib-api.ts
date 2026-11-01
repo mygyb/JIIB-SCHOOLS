@@ -1,6 +1,8 @@
 import { supabase } from "@/lib/supabase";
 import { forceSignOut } from "@/lib/device";
 
+export const HQ_PROOF_KEY = "jiib.hq-proof";
+
 export async function jiibApi<T>(
   path: string,
   init: RequestInit = {},
@@ -10,6 +12,10 @@ export async function jiibApi<T>(
   if (data.session?.access_token) {
     headers.set("Authorization", `Bearer ${data.session.access_token}`);
   }
+  try {
+    const proof = sessionStorage.getItem(HQ_PROOF_KEY);
+    if (proof) headers.set("x-hq-proof", proof);
+  } catch { /* storage unavailable */ }
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
