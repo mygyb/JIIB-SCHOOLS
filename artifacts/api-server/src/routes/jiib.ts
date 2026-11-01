@@ -646,7 +646,7 @@ router.get("/schools/portfolio/analytics", async (req, res) => {
     const [schoolRows, studentRows, markRows, configRows, userRows] = await Promise.all([
       supabaseRequest(req, "schools", {}, "?select=*&order=name.asc"),
       supabaseRequest(req, "students", {}, "?select=school_id,id,name,class,house,term_key"),
-      supabaseRequest(req, "marks", {}, "?select=school_id,student_id,term_key,subject,aoi,midterm,end"),
+      supabaseRequest(req, "marks", {}, "?select=*&limit=50000"),
       supabaseRequest(req, "school_data", {}, "?select=school_id,data"),
       supabaseRequest(req, "allowed_users", {}, "?select=school_id,email"),
     ]);
