@@ -175,6 +175,19 @@ export function MarksRegister({ school }: { school: School }) {
     return queued ?? marks.find((mark) => mark.studentId === studentId && mark.subject === selectedSubject);
   };
 
+  // Enter / "Next" on the phone keypad jumps to the next mark box (down the list, box by box).
+  const focusNextMark = (current: HTMLInputElement) => {
+    const boxes = Array.from(document.querySelectorAll<HTMLInputElement>("input[data-mark-input]:not(:disabled)"));
+    const next = boxes[boxes.indexOf(current) + 1];
+    if (next) {
+      next.focus();
+      next.select();
+      next.scrollIntoView({ block: "center", behavior: "smooth" });
+    } else {
+      current.blur();
+    }
+  };
+
   const save = (student: Student, field: AssessmentField, rawValue: string, input: HTMLInputElement) => {
     const fieldKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}|${field.field}`;
     const value = rawValue.trim() === "" ? null : Number(rawValue);
@@ -299,11 +312,11 @@ export function MarksRegister({ school }: { school: School }) {
       </button>
     </div>}
 
-    <div className="mb-5 grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-2 xl:grid-cols-4">
-      {!isTeacher ? <label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Term</span><select data-testid="select-mark-term" value={selectedTerm} onChange={(event) => setTerm(event.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm">{(terms.length ? terms : [{ key: selectedTerm, label: selectedTerm, locked: false, active: true }]).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label> : <div><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Active term</span><p className="flex h-10 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-sm font-medium"><CalendarDays size={14} className="text-primary" />{terms.find((item) => item.key === selectedTerm)?.label ?? selectedTerm}</p></div>}
+    <div className="mb-4 grid grid-cols-2 gap-3 rounded-2xl border border-border bg-card p-3 sm:p-4 xl:grid-cols-4">
+      {!isTeacher ? <label className="col-span-2 xl:col-span-1"><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Term</span><select data-testid="select-mark-term" value={selectedTerm} onChange={(event) => setTerm(event.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm">{(terms.length ? terms : [{ key: selectedTerm, label: selectedTerm, locked: false, active: true }]).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label> : <div className="col-span-2 xl:col-span-1"><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Active term</span><p className="flex h-10 items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 text-sm font-medium"><CalendarDays size={14} className="text-primary" />{terms.find((item) => item.key === selectedTerm)?.label ?? selectedTerm}</p></div>}
       <label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Class</span><select data-testid="select-mark-class" value={className} onChange={(event) => setClassName(event.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm" disabled={isTeacher && availableClasses.length === 0}><option value="">All classes</option>{availableClasses.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Subject</span><select data-testid="select-mark-subject" value={selectedSubject} onChange={(event) => setSubject(event.target.value)} className="h-10 w-full rounded-lg border border-input bg-background px-2 text-sm" disabled={!availableSubjects.length}><option value="">Select a subject</option>{availableSubjects.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-      <label><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Find student</span><div className="relative"><Search size={15} className="absolute left-3 top-3 text-muted-foreground" /><input data-testid="input-mark-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name or student ID" className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm" /></div></label>
+      <label className="col-span-2 xl:col-span-1"><span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Find student</span><div className="relative"><Search size={15} className="absolute left-3 top-3 text-muted-foreground" /><input data-testid="input-mark-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name or student ID" className="h-10 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm" /></div></label>
     </div>
 
     {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
@@ -313,16 +326,33 @@ export function MarksRegister({ school }: { school: School }) {
         : !availableSubjects.length ? <div className="p-10 text-center"><ClipboardList className="mx-auto text-muted-foreground" size={25} /><p className="mt-3 font-semibold">No subjects assigned</p><p className="mt-1 text-sm text-muted-foreground">{isTeacher ? "Ask your school administrator to assign a class and subject to your account." : "Add subjects under Manage subjects before entering marks."}</p></div>
         : !fields.length ? <div className="p-10 text-center text-sm text-muted-foreground">No assessment components are active for this school.</div>
         : !students.length ? <div className="p-10 text-center"><p className="font-semibold">No students match</p><p className="mt-1 text-sm text-muted-foreground">Choose another class or clear the student search.</p></div>
-        : <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-5 py-4 font-bold">Student</th>{fields.map((field) => <th key={field.field} className="px-3 py-4 font-bold">{field.name} <span className="font-normal normal-case tracking-normal">({field.max})</span></th>)}<th className="px-5 py-4 text-right font-bold">Total</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => {
-          const mark = getMark(student.id);
-          const total = fields.reduce((sum, field) => sum + scoreFor(mark, field), 0);
-          return <tr key={student.id} data-testid={`row-mark-${student.id}`}><td className="px-5 py-3"><div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/10 text-[10px] font-bold text-primary">{student.name.split(/\s+/).map((word) => word[0]).slice(0, 2).join("").toUpperCase()}</span><div><p className="text-sm font-semibold uppercase">{student.name}</p><p className="text-xs text-muted-foreground">{student.className} · {selectedSubject}</p></div></div></td>{fields.map((field) => {
-            const entered = mark?.enteredFields?.includes(field.field) ?? scoreFor(mark, field) > 0;
-            const fieldKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}|${field.field}`;
-            const isSaved = (fieldSaveStates[fieldKey] ?? (entered ? "saved" : "unsaved")) === "saved";
-            return <td key={field.field} className="px-3 py-3"><input disabled={locked} data-testid={`input-mark-${field.field}-${student.id}`} data-save-state={isSaved ? "saved" : "unsaved"} title={isSaved ? "Saved" : "Not saved"} type="number" inputMode="decimal" min="0" max={field.max} step="any" defaultValue={entered ? scoreFor(mark, field) : ""} onChange={() => { saveVersions.current[fieldKey] = (saveVersions.current[fieldKey] ?? 0) + 1; setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" })); }} onBlur={(event) => save(student, field, event.currentTarget.value, event.currentTarget)} className={`h-9 w-24 rounded-md border px-2 text-sm outline-none transition-colors focus:ring-2 focus:ring-ring disabled:opacity-50 ${isSaved ? "border-[#96cdb8] bg-[#eef8f4]" : "border-[#e6a0a0] bg-[#fff1f1]"}`} /></td>;
-          })}<td className="px-5 py-3 text-right"><span className={`font-display text-lg font-semibold ${total >= maxTotal / 2 ? "text-[#2e8c72]" : "text-foreground"}`}>{total}</span><span className="ml-1 text-xs text-muted-foreground">/ {maxTotal}</span></td></tr>;
-        })}</tbody></table></div>}
+        : <div className="xl:overflow-x-auto"><table className="block w-full text-left xl:table xl:min-w-[700px]">
+          <thead className="hidden border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground xl:table-header-group"><tr><th className="px-5 py-4 font-bold">Student</th>{fields.map((field) => <th key={field.field} className="px-3 py-4 font-bold">{field.name} <span className="font-normal normal-case tracking-normal">({field.max})</span></th>)}<th className="px-5 py-4 text-right font-bold">Total</th></tr></thead>
+          {/* Phones and tablets: one card per student with the mark boxes right under the name, so nothing scrolls sideways. Wide screens (xl): the usual table. */}
+          <tbody className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:table-row-group xl:divide-y xl:divide-border xl:p-0">{students.map((student) => {
+            const mark = getMark(student.id);
+            const total = fields.reduce((sum, field) => sum + scoreFor(mark, field), 0);
+            const totalColor = total >= maxTotal / 2 ? "text-[#2e8c72]" : "text-foreground";
+            return <tr key={student.id} data-testid={`row-mark-${student.id}`} style={{ gridTemplateColumns: `repeat(${fields.length}, minmax(0, 1fr))` }} className="grid content-start gap-x-2 gap-y-3 rounded-xl border border-border bg-background p-3 xl:table-row xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0">
+              <td className="col-span-full min-w-0 xl:table-cell xl:px-5 xl:py-3">
+                <div className="flex items-center gap-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/10 text-[10px] font-bold text-primary">{student.name.split(/\s+/).map((word) => word[0]).slice(0, 2).join("").toUpperCase()}</span>
+                  <div className="min-w-0 flex-1"><p className="text-sm font-semibold uppercase">{student.name}</p><p className="text-xs text-muted-foreground">{student.className} · {selectedSubject}</p></div>
+                  <p className="shrink-0 text-right xl:hidden"><span className={`font-display text-lg font-semibold ${totalColor}`}>{total}</span><span className="ml-1 text-xs text-muted-foreground">/ {maxTotal}</span></p>
+                </div>
+              </td>
+              {fields.map((field) => {
+                const entered = mark?.enteredFields?.includes(field.field) ?? scoreFor(mark, field) > 0;
+                const fieldKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}|${field.field}`;
+                const isSaved = (fieldSaveStates[fieldKey] ?? (entered ? "saved" : "unsaved")) === "saved";
+                return <td key={field.field} className="flex min-w-0 flex-col justify-end gap-1 xl:table-cell xl:px-3 xl:py-3">
+                  <span className="text-[10px] font-bold uppercase leading-tight tracking-[.08em] text-muted-foreground xl:hidden">{field.name} <span className="font-normal normal-case tracking-normal">({field.max})</span></span>
+                  <input disabled={locked} data-mark-input data-testid={`input-mark-${field.field}-${student.id}`} data-save-state={isSaved ? "saved" : "unsaved"} aria-label={`${field.name} (out of ${field.max}) for ${student.name}`} title={isSaved ? "Saved" : "Not saved"} type="number" inputMode="decimal" enterKeyHint="next" min="0" max={field.max} step="any" defaultValue={entered ? scoreFor(mark, field) : ""} onChange={() => { saveVersions.current[fieldKey] = (saveVersions.current[fieldKey] ?? 0) + 1; setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" })); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); focusNextMark(event.currentTarget); } }} onBlur={(event) => save(student, field, event.currentTarget.value, event.currentTarget)} className={`h-12 w-full rounded-md border px-2 text-center text-base outline-none transition-colors focus:ring-2 focus:ring-ring disabled:opacity-50 xl:h-9 xl:w-24 xl:text-left xl:text-sm ${isSaved ? "border-[#96cdb8] bg-[#eef8f4]" : "border-[#e6a0a0] bg-[#fff1f1]"}`} />
+                </td>;
+              })}
+              <td className="hidden xl:table-cell xl:px-5 xl:py-3 xl:text-right"><span className={`font-display text-lg font-semibold ${totalColor}`}>{total}</span><span className="ml-1 text-xs text-muted-foreground">/ {maxTotal}</span></td>
+            </tr>;
+          })}</tbody></table></div>}
     </div>
   </div>;
 }
