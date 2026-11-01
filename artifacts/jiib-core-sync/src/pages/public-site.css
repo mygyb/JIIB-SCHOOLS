@@ -357,3 +357,16 @@
 @media (prefers-reduced-motion: reduce) {
   .jiib-public *, .jiib-public *::before, .jiib-public *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* Install-app buttons (header and footer) */
+.install-chip { display: inline-flex; align-items: center; gap: 7px; border: 1.5px solid currentColor; background: transparent; border-radius: 999px; padding: 8px 14px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background .2s ease, color .2s ease; }
+.install-chip--header { margin-left: auto; margin-right: 18px; color: var(--ink); }
+.install-chip--header:hover { background: var(--ink); color: #fff; }
+.install-chip--footer { color: #f6f2e8; margin-left: auto; }
+.install-chip--footer:hover { background: #f6f2e8; color: #203b35; }
+.footer-main .install-chip--footer + .footer-links { margin-left: 0; }
+@media (max-width: 700px) {
+  .install-chip--header { margin-right: 4px; padding: 7px 11px; font-size: 11px; }
+  .footer-main:has(.install-chip--footer) { flex-wrap: wrap; }
+  .install-chip--footer { margin-left: 0; }
+}
