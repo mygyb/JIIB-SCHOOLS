@@ -21,6 +21,7 @@ import {
 } from '@workspace/api-client-react';
 import type { School, SchoolConfig as SchoolConfigResponse, Student } from '@workspace/api-client-react';
 import { jiibApi } from '@/lib/jiib-api';
+import { ReportStudio } from '@/features/report-studio/report-studio';
 import { supabase } from '@/lib/supabase';
 import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
@@ -1105,7 +1106,7 @@ export function OperationsPage({ page, school }: { page: Page; school: School })
     case 'accountSettings': return <AccountSettings school={school} />;
     case 'performance': return <Performance school={school} />;
     case 'printMarksheets': return <PrintMarksheets school={school} />;
-    case 'reportStudio': return <PrintMarksheets school={school} report />;
+    case 'reportStudio': return <ReportStudio school={school} />;
     case 'termManagement': return <TermManagement school={school} />;
     case 'manageSubjects': return <ManageSubjects school={school} />;
     case 'gradingSystem': return <GradingSystem school={school} />;
