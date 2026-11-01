@@ -48,6 +48,7 @@ import {
   updateSupabaseAuthUser,
   valueOf,
 } from "../lib/supabase.js";
+import { accountIsBlocked, verifySuperAdmin } from "../lib/hq.js";
 
 const router: IRouter = Router();
 
@@ -432,13 +433,7 @@ async function authorizeSuperAdmin(req: Request, res: Response) {
     res.status(401).json({ error: "Sign in to use system administration." });
     return null;
   }
-  const roles = asRows(await supabaseRequest(
-    req,
-    "user_roles",
-    {},
-    `?user_id=eq.${encodeURIComponent(user.id)}&role=eq.super_admin&select=role&limit=1`,
-  ));
-  if (!roles[0]) {
+  if (!await verifySuperAdmin(req, user)) {
     res.status(403).json({ error: "This account is not a system administrator." });
     return null;
   }
@@ -468,15 +463,7 @@ router.get("/auth/super-admin", async (req, res) => {
       res.status(401).json({ error: "Sign in to verify super administrator access." });
       return;
     }
-    const rows = asRows(
-      await supabaseRequest(
-        req,
-        "user_roles",
-        {},
-        `?user_id=eq.${encodeURIComponent(user.id)}&role=eq.super_admin&select=role&limit=1`,
-      ),
-    );
-    if (!rows[0]) {
+    if (!await verifySuperAdmin(req, user)) {
       res.status(403).json({ error: "This account is not a super administrator." });
       return;
     }
@@ -493,15 +480,7 @@ router.get("/schools/portfolio", async (req, res) => {
       res.status(401).json({ error: "Sign in to view the school portfolio." });
       return;
     }
-    const roles = asRows(
-      await supabaseRequest(
-        req,
-        "user_roles",
-        {},
-        `?user_id=eq.${encodeURIComponent(user.id)}&role=eq.super_admin&select=role&limit=1`,
-      ),
-    );
-    if (!roles[0]) {
+    if (!await verifySuperAdmin(req, user)) {
       res.status(403).json({ error: "This account is not a super administrator." });
       return;
     }
@@ -975,6 +954,10 @@ router.use("/schools/:schoolId", async (req, res, next) => {
       res.status(401).json({ error: "Sign in with an authorized school account." });
       return;
     }
+    if (await accountIsBlocked(req, user)) {
+      res.status(403).json({ code: "account_blocked", error: "This account has been blocked. Please contact your school administrator." });
+      return;
+    }
     const schoolId = String(req.params.schoolId);
     const email = String(user.email ?? "").toLowerCase();
     const allowed = email
@@ -990,15 +973,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
     if (allowed) {
       res.locals.jiibRole = allowed.role === "admin" ? "admin" : "teacher";
     } else {
-      const globalRoles = asRows(
-        await supabaseRequest(
-          req,
-          "user_roles",
-          {},
-          `?user_id=eq.${encodeURIComponent(user.id)}&role=eq.super_admin&select=role&limit=1`,
-        ),
-      );
-      if (!globalRoles[0]) {
+      if (!await verifySuperAdmin(req, user)) {
         res.status(403).json({ error: "This account is not registered for this school." });
         return;
       }

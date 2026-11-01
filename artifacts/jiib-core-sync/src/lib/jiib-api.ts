@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { forceSignOut } from "@/lib/device";
 
 export async function jiibApi<T>(
   path: string,
@@ -16,7 +17,8 @@ export async function jiibApi<T>(
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {
-      const body = await response.json() as { error?: string; message?: string };
+      const body = await response.json() as { error?: string; message?: string; code?: string };
+      if (body.code === "account_blocked") void forceSignOut("blocked");
       message = body.error || body.message || message;
     } catch {
       // Keep the HTTP error if the server did not return JSON.

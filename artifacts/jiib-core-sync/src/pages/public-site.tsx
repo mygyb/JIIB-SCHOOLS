@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { InstallButton } from '@/components/pwa-ui';
+import { useSecretTaps } from '@/lib/secret-taps';
 import './public-site.css';
 
 export type PortalRequestValues = {
@@ -71,6 +72,7 @@ function SiteHeader() {
 }
 
 function Footer() {
+  const secretTap = useSecretTaps();
   return (
     <footer className="site-footer">
       <div className="footer-main">
@@ -83,7 +85,7 @@ function Footer() {
           <Link href="/signup" data-testid="link-footer-signup">Sign up</Link>
         </div>
       </div>
-      <div className="footer-bottom"><span>JIIB Core Sync</span><span>Built for the everyday work of schools in Uganda.</span></div>
+      <div className="footer-bottom"><span onClick={secretTap}>JIIB Core Sync</span><span>Built for the everyday work of schools in Uganda.</span></div>
     </footer>
   );
 }
