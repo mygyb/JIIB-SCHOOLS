@@ -202,21 +202,30 @@ function SyncManager() {
   return null;
 }
 
-/** Installed app: skip the public website. Opens on the login page, or straight to the dashboard when already signed in. */
+/** Installed app: never show the public website. Opens on the login page, or straight to the dashboard when already signed in;
+ *  signing out (or any other trip to the website's home page) lands on the login page. */
 function usePwaLaunch() {
   const [location, setLocation] = useLocation();
   useEffect(() => {
-    if (!isStandalone() || (location !== '/' && location !== '/login')) return;
-    if (sessionStorage.getItem('jiib.launched')) return;
-    sessionStorage.setItem('jiib.launched', '1');
-    const role = localStorage.getItem('jiib.role');
-    if (!localStorage.getItem('jiib.school') && role !== 'Super administrator') { if (location === '/') setLocation('/login'); return; }
-    if (role === 'Parent / guardian') setLocation('/parent');
-    else if (role === 'Super administrator') setLocation('/super-admin');
-    else if (role) setLocation('/dashboard');
-    else if (location === '/') setLocation('/login');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!isStandalone()) return;
+    if (location === '/') {
+      if (!sessionStorage.getItem('jiib.launched')) {
+        sessionStorage.setItem('jiib.launched', '1');
+        const role = localStorage.getItem('jiib.role');
+        const signedIn = Boolean(localStorage.getItem('jiib.school')) || role === 'Super administrator';
+        if (signedIn && role === 'Parent / guardian') { setLocation('/parent', { replace: true }); return; }
+        if (signedIn && role === 'Super administrator') { setLocation('/super-admin', { replace: true }); return; }
+        if (signedIn && role) { setLocation('/dashboard', { replace: true }); return; }
+      }
+      setLocation('/login', { replace: true });
+      return;
+    }
+    if (location === '/login' && !sessionStorage.getItem('jiib.launched')) {
+      sessionStorage.setItem('jiib.launched', '1');
+      const role = localStorage.getItem('jiib.role');
+      if (localStorage.getItem('jiib.school') && role) setLocation(role === 'Parent / guardian' ? '/parent' : role === 'Super administrator' ? '/super-admin' : '/dashboard', { replace: true });
+    }
+  }, [location, setLocation]);
 }
 
 function Router() {
