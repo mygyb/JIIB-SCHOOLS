@@ -92,7 +92,7 @@ function slipMarkup(report: StudentReport, ctx: ReportContext, qr: string) {
         ${ctx.address ? `<div style="font-size:6.5pt;color:#333;">${esc(ctx.address)}</div>` : ""}
         ${ctx.motto ? `<div style="font-size:7pt;font-weight:800;color:#c0392b;">${esc(ctx.motto.toUpperCase())}</div>` : ""}
       </div>
-      ${qr ? `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;"><img src="${qr}" style="width:48px;height:48px;"><span style="font-size:5pt;color:#1a3a6b;font-weight:700;">SCAN</span></div>` : ""}
+      ${qr ? `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;"><img src="${qr}" style="width:60px;height:60px;image-rendering:pixelated;"><span style="font-size:5pt;color:#1a3a6b;font-weight:700;">SCAN</span></div>` : ""}
     </div>
     <div style="background:#c0392b;color:white;text-align:center;font-size:7.5pt;font-weight:800;padding:3px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px;">MID-TERM RESULT SLIP — TERM ${esc(termNumber(ctx.termLabel))} — ${esc(ctx.year)}</div>
     <div style="display:flex;gap:4px;margin-bottom:5px;font-size:7pt;">
@@ -187,7 +187,7 @@ export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: 
         <div class="rc-info-row"><div class="rc-info-cell" style="flex:2.2;">${info("NEXT TERM BEGINS ON:", ctx.nextTermDate)}</div><div class="rc-info-cell">${info("NO. IN CLASS:", String(report.classSize))}</div></div>
       </div>
       <div style="width:90px;flex-shrink:0;border-left:1.5px solid #1a3a6b;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:4px;">
-        ${qr ? `<img src="${qr}" style="width:72px;height:72px;" alt="QR"><span style="font-size:5pt;font-weight:800;color:#1a3a6b;letter-spacing:.5px;">SCAN FOR INFO</span>` : `<span style="font-size:6pt;color:#bbb;">QR</span>`}
+        ${qr ? `<img src="${qr}" style="width:80px;height:80px;image-rendering:pixelated;" alt="QR"><span style="font-size:5pt;font-weight:800;color:#1a3a6b;letter-spacing:.5px;">SCAN FOR INFO</span>` : `<span style="font-size:6pt;color:#bbb;">QR</span>`}
       </div>
     </div>
 

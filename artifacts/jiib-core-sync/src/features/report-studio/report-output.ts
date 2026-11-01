@@ -7,17 +7,10 @@ export const PAGE_HEIGHT = 1122; // A4 at 96 dpi
 
 export async function qrFor(report: StudentReport, ctx: ReportContext): Promise<string> {
   const { default: QRCode } = await import("qrcode");
-  const text = [
-    `NAME: ${report.student.name.toUpperCase()}`,
-    `CLASS: ${report.student.className}`,
-    `HOUSE: ${report.student.house || ""}`,
-    `TERM: ${ctx.termLabel}`,
-    `YEAR: ${ctx.year}`,
-    `SCHOOL: ${ctx.schoolName}`,
-    `TYPE: ${report.type.toUpperCase()}`,
-  ].join("\n");
+  // One short plain-text line: fewer, larger squares so phone cameras read it quickly, even from a small printed slip.
+  const text = [report.student.name.toUpperCase(), report.student.className, ctx.termLabel, ctx.schoolName].filter(Boolean).join(" | ");
   try {
-    return await QRCode.toDataURL(text, { margin: 0, width: 240, color: { dark: "#1a3a6b", light: "#ffffff" }, errorCorrectionLevel: "M" });
+    return await QRCode.toDataURL(text, { margin: 4, width: 480, color: { dark: "#000000", light: "#ffffff" }, errorCorrectionLevel: "L" });
   } catch {
     return "";
   }
@@ -72,7 +65,7 @@ export async function downloadPdf(pages: string[], filename: string, onProgress?
       const pageW = 210;
       const pageH = 297;
       const imgH = (canvas.height / canvas.width) * pageW;
-      const image = canvas.toDataURL("image/jpeg", 0.85);
+      const image = canvas.toDataURL("image/jpeg", 0.93);
       if (imgH <= pageH) pdf.addImage(image, "JPEG", 0, 0, pageW, imgH);
       else {
         const scaledW = (pageW / imgH) * pageH;
