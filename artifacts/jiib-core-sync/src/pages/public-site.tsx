@@ -16,6 +16,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-react';
+import { InstallButton } from '@/components/pwa-ui';
 import './public-site.css';
 
 export type PortalRequestValues = {
@@ -46,6 +47,7 @@ function SiteHeader() {
     <header className="site-header">
       <div className="site-header-inner">
         <Link href="/" className="brand-link" aria-label="JIIB Core Sync home" data-testid="link-brand-home"><Brand /></Link>
+        <InstallButton className="install-chip--header" testId="button-install-top" />
         <button
           className="mobile-menu-toggle"
           type="button"
@@ -74,6 +76,7 @@ function Footer() {
       <div className="footer-main">
         <Link href="/" className="brand-link" aria-label="JIIB Core Sync home" data-testid="link-footer-brand"><Brand light /></Link>
         <p>More time for the work that matters at school.</p>
+        <InstallButton className="install-chip--footer" testId="button-install-bottom" />
         <div className="footer-links">
           <a href="#how-it-works">How it works</a>
           <Link href="/login" data-testid="link-footer-login">Log in</Link>

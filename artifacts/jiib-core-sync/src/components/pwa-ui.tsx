@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, RefreshCw, X } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { applyUpdate, installApp, shouldOfferInstall, snoozeInstall, usePwa } from '@/lib/pwa';
+import { applyUpdate, installApp, isStandalone, shouldOfferInstall, snoozeInstall, usePwa } from '@/lib/pwa';
 
 /** Install sheet (offered when someone taps Log in on the website), "update ready" bar, and launch-screen fade-out. */
 export function PwaUi() {
@@ -60,6 +60,36 @@ export function PwaUi() {
           <p className="min-w-0 flex-1 text-sm"><span className="font-semibold">Update available.</span> A newer version of J-SCHOOLS is ready.</p>
           <button type="button" data-testid="button-update-now" onClick={applyUpdate} className="h-9 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground">Update</button>
           <button type="button" aria-label="Later" onClick={() => setUpdateDismissed(true)} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X size={16} /></button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** "Install app" button for the public website (header and footer). Hidden once the app is installed or when running as the app. */
+export function InstallButton({ className = '', testId }: { className?: string; testId: string }) {
+  const pwa = usePwa();
+  const [help, setHelp] = useState(false);
+  if (pwa.installed || isStandalone()) return null;
+  return (
+    <>
+      <button type="button" data-testid={testId} onClick={() => (pwa.canInstall ? void installApp() : setHelp(true))} className={`install-chip ${className}`}>
+        <Download size={14} aria-hidden="true" /> Install app
+      </button>
+      {help && (
+        <div className="fixed inset-0 z-[9000] flex items-end justify-center bg-black/50 p-3 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="install-help-title" onClick={() => setHelp(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 text-slate-900 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center gap-4">
+              <img src="/icons/icon-192.png" alt="" width={56} height={56} className="h-14 w-14 rounded-2xl" />
+              <h2 id="install-help-title" className="text-lg font-semibold">Install J-SCHOOLS</h2>
+            </div>
+            <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+              <li>Open this site in <strong>Chrome</strong> on your phone.</li>
+              <li>Tap the <strong>⋮ menu</strong> at the top right.</li>
+              <li>Choose <strong>Install app</strong> (or <strong>Add to Home screen</strong>).</li>
+            </ol>
+            <button type="button" onClick={() => setHelp(false)} className="mt-5 h-11 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white">Got it</button>
+          </div>
         </div>
       )}
     </>
