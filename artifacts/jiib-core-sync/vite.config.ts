@@ -1,7 +1,8 @@
 import path from 'path';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vite';
+import fs from 'node:fs';
+import { defineConfig, type Plugin } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
@@ -15,6 +16,19 @@ if (Number.isNaN(port) || port <= 0) {
 
 const basePath = process.env.BASE_PATH ?? '/';
 
+// Stamps the service worker with a per-build id so every release produces a new worker (this is what triggers "Update available").
+function swBuildId(): Plugin {
+  const buildId = (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 10) || String(Date.now());
+  return {
+    name: 'jiib-sw-build-id',
+    apply: 'build',
+    closeBundle() {
+      const file = path.resolve(import.meta.dirname, 'dist/public/sw.js');
+      if (fs.existsSync(file)) fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/__BUILD_ID__/g, buildId));
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath,
   define: {
@@ -24,6 +38,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    swBuildId(),
     runtimeErrorOverlay(),
     ...(process.env.NODE_ENV !== 'production' &&
     process.env.REPL_ID !== undefined

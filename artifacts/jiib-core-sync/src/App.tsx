@@ -29,6 +29,8 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
+import { PwaUi } from '@/components/pwa-ui';
+import { enableNotifications, isStandalone, notificationPermission, notificationsSupported, remindAboutDeadline, usePwa } from '@/lib/pwa';
 import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
@@ -162,6 +164,7 @@ function App() {
       <TooltipProvider>
         <SyncManager />
         <Router />
+        <PwaUi />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
@@ -199,8 +202,26 @@ function SyncManager() {
   return null;
 }
 
+/** Installed app: skip the public website. Opens on the login page, or straight to the dashboard when already signed in. */
+function usePwaLaunch() {
+  const [location, setLocation] = useLocation();
+  useEffect(() => {
+    if (!isStandalone() || (location !== '/' && location !== '/login')) return;
+    if (sessionStorage.getItem('jiib.launched')) return;
+    sessionStorage.setItem('jiib.launched', '1');
+    const role = localStorage.getItem('jiib.role');
+    if (!localStorage.getItem('jiib.school') && role !== 'Super administrator') { if (location === '/') setLocation('/login'); return; }
+    if (role === 'Parent / guardian') setLocation('/parent');
+    else if (role === 'Super administrator') setLocation('/super-admin');
+    else if (role) setLocation('/dashboard');
+    else if (location === '/') setLocation('/login');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 function Router() {
   const [location] = useLocation();
+  usePwaLaunch();
   return (
     <ErrorBoundary resetKey={location}>
       <Switch>
@@ -497,6 +518,16 @@ function AppShell({ children }: { children: ReactNode }) {
     },
   });
   const activeTerm = String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '');
+  usePwa();
+  const reminderData = config.data?.data as { deadline?: unknown; deadlinePublishedAt?: unknown } | undefined;
+  const reminderDeadline = String(reminderData?.deadline ?? '').trim();
+  const reminderNoticeId = reminderDeadline ? `${reminderDeadline}|${String(reminderData?.deadlinePublishedAt ?? '')}` : '';
+  useEffect(() => {
+    if (!isTeacher || !reminderDeadline) return;
+    const date = new Date(reminderDeadline);
+    const label = Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(date) : reminderDeadline;
+    void remindAboutDeadline(reminderDeadline, reminderNoticeId, label);
+  }, [isTeacher, reminderDeadline, reminderNoticeId]);
   const previousActiveTerm = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousActiveTerm.current;
@@ -593,6 +624,7 @@ function AppShell({ children }: { children: ReactNode }) {
               <button data-testid="button-profile" aria-expanded={profileOpen} aria-label="Open user profile menu" onClick={() => setProfileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(userName)}</button>
               {profileOpen && <div role="menu" className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-3 shadow-xl">
                 <div className="border-b border-border px-2 pb-3"><p className="truncate text-sm font-semibold">{userName}</p><p className="truncate text-xs text-muted-foreground">{accountEmail || role}</p><p className="mt-1 truncate text-xs text-muted-foreground">{school.name}</p></div>
+                {isTeacher && notificationsSupported() && notificationPermission() === 'default' && <button role="menuitem" type="button" data-testid="button-enable-reminders" onClick={async () => { await enableNotifications(); setProfileOpen(false); }} className="mt-2 flex w-full rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-muted">Turn on marks reminders</button>}
                 {!isSuperAdmin && !isParent && <Link role="menuitem" href="/account-settings" onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">Account settings</Link>}
                 {!isTeacher && <Link role="menuitem" href={isSuperAdmin ? '/support' : isParent ? '/parent-messages' : '/support'} onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isSuperAdmin ? 'Support inbox' : isParent ? 'Contact the school' : 'Contact JIIB support'}</Link>}
                 <p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">JIIB Core Sync · Version 8.2</p>
