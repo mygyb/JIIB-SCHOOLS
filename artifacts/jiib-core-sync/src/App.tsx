@@ -30,6 +30,11 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { PwaUi } from '@/components/pwa-ui';
+import { SuperAdminPortal } from '@/features/super-admin/portal';
+import { HqLogin } from '@/pages/hq-login';
+import { HQ_PATH } from '@/lib/hq-path';
+import { takeSignOutNotice, useDeviceHeartbeat } from '@/lib/device';
+import { useSecretTaps } from '@/lib/secret-taps';
 import { enableNotifications, isStandalone, notificationPermission, notificationsSupported, remindAboutDeadline, usePwa } from '@/lib/pwa';
 import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
 import { registrationSupabase, supabase } from '@/lib/supabase';
@@ -262,7 +267,9 @@ function Router() {
         <Route path="/system-settings"><AppShell><OperationsRoute page="systemSettings" /></AppShell></Route>
         <Route path="/parent"><AppShell><Parent /></AppShell></Route>
         <Route path="/parent-view"><AppShell><OperationsRoute page="parentView" /></AppShell></Route>
-        <Route path="/super-admin"><AppShell><SuperAdmin /></AppShell></Route>
+        <Route path={HQ_PATH} component={HqLogin} />
+        <Route path="/super-admin" component={SuperAdminPortal} />
+        <Route path="/super-admin/:section" component={SuperAdminPortal} />
         <Route component={NotFound} />
       </Switch>
     </ErrorBoundary>
@@ -278,6 +285,7 @@ function MarksPage() {
 }
 
 function SignIn() {
+  const secretTap = useSecretTaps();
   useEffect(() => {
     document.title = 'Log in | JIIB Core Sync';
   }, []);
@@ -290,7 +298,7 @@ function SignIn() {
   const [role, setRole] = useState('School administrator');
   const [submitted, setSubmitted] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [authError, setAuthError] = useState('');
+  const [authError, setAuthError] = useState(() => takeSignOutNotice());
   const [accessToken, setAccessToken] = useState('');
   const schoolQuery = useGetSchoolBySlug(slug.trim().toLowerCase(), {
     query: { enabled: submitted && Boolean(slug.trim()), queryKey: getGetSchoolBySlugQueryKey(slug.trim().toLowerCase()) },
@@ -464,14 +472,14 @@ function SignIn() {
             </div>
             <div className="mb-9">
               <p className="mb-3 text-xs font-semibold uppercase tracking-[.2em] text-primary">Welcome back</p>
-              <h2 className="font-display text-4xl font-semibold tracking-[-.04em]">Open your school Portal.</h2>
+              <h2 onClick={secretTap} className="font-display text-4xl font-semibold tracking-[-.04em]">Open your school Portal.</h2>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">Resolve your school first, then continue to the right view for your role.</p>
             </div>
               <form onSubmit={resolve} className="space-y-6">
                {role !== 'Parent / guardian' && <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-sm font-semibold">Staff email</span><input data-testid="input-login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jii@school.com" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label><label className="block"><span className="mb-2 block text-sm font-semibold">Password</span><input data-testid="input-login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label></div>}
               <label className="block"><span className="mb-2 block text-sm font-semibold">School slug</span><div className="flex items-center rounded-xl border border-input bg-card px-3 shadow-sm focus-within:ring-2 focus-within:ring-ring"><span className="text-sm text-muted-foreground">jiib.school/</span><input data-testid="input-school-slug" autoFocus value={slug} onChange={(e) => { setSlug(e.target.value); setSubmitted(false); }} placeholder="northbridge" className="h-12 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none" /></div></label>
                {role === 'Parent / guardian' && <label className="block"><span className="mb-2 block text-sm font-semibold">Parent phone</span><input data-testid="input-parent-phone" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} placeholder="Phone number on the school register" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label>}
-              <label className="block"><span className="mb-2 block text-sm font-semibold">Continue as</span><select data-testid="select-role" value={role} onChange={(e) => setRole(e.target.value)} className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option>School administrator</option><option>Teacher</option><option>Parent / guardian</option><option>Super administrator</option></select></label>
+              <label className="block"><span className="mb-2 block text-sm font-semibold">Continue as</span><select data-testid="select-role" value={role} onChange={(e) => setRole(e.target.value)} className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option>School administrator</option><option>Teacher</option><option>Parent / guardian</option></select></label>
               {submitted && schoolQuery.isPending && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Looking up your school…</div>}
               {submitted && schoolQuery.isSuccess && verifying && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Verifying your account…</div>}
               {submitted && schoolQuery.isError && <div data-testid="error-school-resolution" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{schoolNotFound ? 'We couldn’t find that school. Check the slug and try again.' : 'We couldn’t reach the server to look up your school. Please try again in a moment.'}</div>}
@@ -528,6 +536,13 @@ function AppShell({ children }: { children: ReactNode }) {
   });
   const activeTerm = String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '');
   usePwa();
+  const heartbeatIdentity = isSuperAdmin ? null : {
+    role,
+    schoolId: isParent ? school.id : school.id,
+    schoolName: school.name,
+    label: isParent ? `Parent ···${(localStorage.getItem('jiib.parentPhone') ?? '').replace(/\D/g, '').slice(-3)}` : userName,
+  };
+  useDeviceHeartbeat(heartbeatIdentity);
   const reminderData = config.data?.data as { deadline?: unknown; deadlinePublishedAt?: unknown } | undefined;
   const reminderDeadline = String(reminderData?.deadline ?? '').trim();
   const reminderNoticeId = reminderDeadline ? `${reminderDeadline}|${String(reminderData?.deadlinePublishedAt ?? '')}` : '';
@@ -1259,104 +1274,6 @@ function Parent() {
         <form onSubmit={(event) => void send(event)} className="mt-4 border-t border-border pt-4"><textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} maxLength={2000} placeholder="Write a message to the school…" className="w-full resize-none rounded-lg border border-input bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-ring" /><div className="mt-2 flex items-center justify-between"><span role="alert" className="text-xs text-destructive">{chatError || (!navigator.onLine ? 'Connect to the internet to send messages.' : '')}</span><button disabled={!draft.trim() || !navigator.onLine} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Send size={14} /> Send</button></div></form>
       </section>
     </div>}
-  </div>;
-}
-
-function SuperAdmin() {
-  type PortfolioSchool = School & { studentCount: number; classCount: number; marksCompletionPercent: number };
-  type PortfolioMetrics = { schoolCount: number; activeSchoolCount: number; suspendedSchoolCount: number; staffCount: number; studentCount: number; marksCompletionPercent: number; schools: PortfolioSchool[] };
-  const health = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey() } });
-  const queryClient = useQueryClient();
-  const [broadcast, setBroadcast] = useState('');
-  const [selectedSchools, setSelectedSchools] = useState<string[]>([]);
-  const [registering, setRegistering] = useState(false);
-  const [schoolName, setSchoolName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [adminEmail, setAdminEmail] = useState('');
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
-  const portfolio = useQuery({
-    queryKey: ['portfolio-schools'],
-    queryFn: () => jiibApi<School[]>('/api/schools/portfolio'),
-  });
-  const analytics = useQuery({
-    queryKey: ['portfolio-analytics'],
-    queryFn: () => jiibApi<PortfolioMetrics>('/api/schools/portfolio/analytics'),
-  });
-  const schools = portfolio.data ?? [];
-  const refresh = () => {
-    void portfolio.refetch();
-    void analytics.refetch();
-  };
-  const registerSchool = async (event: FormEvent) => {
-    event.preventDefault();
-    setError(''); setNotice('');
-    try {
-      const created = await jiibApi<School & { invitationSent?: boolean }>('/api/schools', {
-        method: 'POST',
-        body: JSON.stringify({ name: schoolName.trim(), slug: slug.trim(), ...(adminEmail.trim() ? { initialAdminEmail: adminEmail.trim() } : {}) }),
-      });
-      setSchoolName(''); setSlug(''); setAdminEmail(''); setRegistering(false);
-      setNotice(created.invitationSent === true
-        ? 'School workspace registered and the administrator invitation was sent.'
-        : created.invitationSent === false
-          ? 'School workspace registered. The administrator already has an account and has been granted access.'
-          : 'School workspace registered.');
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not register this school.');
-    }
-  };
-  const setSchoolStatus = async (school: School) => {
-    setError('');
-    try {
-      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ active: !school.active }),
-      });
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not update school status.');
-    }
-  };
-  const sendBroadcast = async () => {
-    if (!broadcast.trim()) return;
-    setError(''); setNotice('');
-    try {
-      const result = await jiibApi<{ sentTo: number }>('/api/schools/portfolio/messages', {
-        method: 'POST',
-        body: JSON.stringify({ message: broadcast.trim(), ...(selectedSchools.length ? { schoolIds: selectedSchools } : {}) }),
-      });
-      setBroadcast('');
-      setNotice(`Message sent to ${result.sentTo} school${result.sentTo === 1 ? '' : 's'}.`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not send this message.');
-    }
-  };
-  const metricCards = [
-    ['Schools', analytics.data?.schoolCount ?? '—'],
-    ['Active', analytics.data?.activeSchoolCount ?? '—'],
-    ['Staff', analytics.data?.staffCount ?? '—'],
-    ['Students', analytics.data?.studentCount ?? '—'],
-    ['Marks completion', analytics.data ? `${analytics.data.marksCompletionPercent}%` : '—'],
-  ];
-  return <div className="fade-up"><PageHeader eyebrow="System oversight" title="Portfolio administration" description="Manage school workspaces, review portfolio-wide progress, and communicate with school administrators." action={<span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs font-semibold"><span className={`h-2 w-2 rounded-full ${health.isSuccess ? 'bg-[#61b990]' : 'bg-accent'}`} /> {health.isSuccess ? 'All services operational' : 'Checking services'}</span>} />
-    <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{metricCards.map(([label, value]) => <div key={label} className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{label}</p><p className="mt-2 font-display text-2xl font-semibold">{value}</p></div>)}</div>
-    {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
-    {notice && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
-    <div className="grid gap-5 xl:grid-cols-[1.3fr_.7fr]">
-      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">School portfolio</h3><p className="mt-1 text-sm text-muted-foreground">Select recipients for a broadcast and activate or suspend workspaces.</p></div><button data-testid="button-refresh-portfolio" onClick={refresh} className="rounded-lg border border-border p-2 hover:bg-muted"><RefreshCw size={16} /></button></div>
-        {portfolio.isLoading ? <p className="py-6 text-sm text-muted-foreground">Loading portfolio…</p> : portfolio.isError ? <div className="py-6 text-sm text-destructive">Portfolio data could not be loaded. <button onClick={refresh} className="underline">Retry</button></div> : <div className="mt-5 space-y-3">{schools.map((school) => {
-          const metrics = analytics.data?.schools.find((item) => item.id === school.id);
-          const checked = selectedSchools.includes(school.id);
-          return <div key={school.id} className="rounded-xl border border-border p-4"><div className="flex items-start gap-3"><input aria-label={`Select ${school.name} as message recipient`} type="checkbox" checked={checked} onChange={() => setSelectedSchools((items) => checked ? items.filter((id) => id !== school.id) : [...items, school.id])} /><div className="flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{school.name}</p><span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${school.active ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>{school.active ? 'Active' : 'Suspended'}</span></div><p className="mt-1 text-xs text-muted-foreground">{school.slug} · {metrics?.studentCount ?? 0} students · {metrics?.classCount ?? 0} classes · {metrics?.marksCompletionPercent ?? 0}% marks complete</p></div><button onClick={() => void setSchoolStatus(school)} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">{school.active ? 'Suspend' : 'Activate'}</button></div></div>;
-        })}</div>}
-        <div className="mt-5 border-t border-border pt-4"><button data-testid="button-add-school" onClick={() => setRegistering((value) => !value)} className="inline-flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted"><Plus size={15} /> {registering ? 'Cancel registration' : 'Register another school'}</button>
-          {registering && <form onSubmit={(event) => void registerSchool(event)} className="mt-4 grid gap-3 sm:grid-cols-2"><input required value={schoolName} onChange={(event) => { setSchoolName(event.target.value); if (!slug) setSlug(event.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')); }} placeholder="School name" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" /><input required value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="school-url-slug" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" /><input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} placeholder="Initial administrator email (optional)" className="h-10 rounded-lg border border-input bg-background px-3 text-sm sm:col-span-2" /><button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground sm:col-span-2"><Plus size={15} /> Create workspace</button></form>}
-        </div>
-      </section>
-      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-accent/25 text-[#87631c]"><Send size={16} /></span><div><h3 className="font-display text-lg font-semibold">Cross-school note</h3><p className="mt-1 text-xs text-muted-foreground">{selectedSchools.length ? `${selectedSchools.length} schools selected` : 'All active schools will receive this message.'}</p></div></div><textarea data-testid="textarea-broadcast" value={broadcast} onChange={(event) => setBroadcast(event.target.value)} placeholder="Share an operational update with school administrators…" rows={6} className="mt-6 w-full resize-none rounded-xl border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" /><button data-testid="button-send-broadcast" onClick={() => void sendBroadcast()} disabled={!broadcast.trim()} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Send size={15} /> Send to schools</button></section>
-    </div>
   </div>;
 }
 

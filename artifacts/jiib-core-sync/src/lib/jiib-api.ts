@@ -1,4 +1,7 @@
 import { supabase } from "@/lib/supabase";
+import { forceSignOut } from "@/lib/device";
+
+export const HQ_PROOF_KEY = "jiib.hq-proof";
 
 export async function jiibApi<T>(
   path: string,
@@ -9,6 +12,10 @@ export async function jiibApi<T>(
   if (data.session?.access_token) {
     headers.set("Authorization", `Bearer ${data.session.access_token}`);
   }
+  try {
+    const proof = sessionStorage.getItem(HQ_PROOF_KEY);
+    if (proof) headers.set("x-hq-proof", proof);
+  } catch { /* storage unavailable */ }
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -16,7 +23,8 @@ export async function jiibApi<T>(
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {
-      const body = await response.json() as { error?: string; message?: string };
+      const body = await response.json() as { error?: string; message?: string; code?: string };
+      if (body.code === "account_blocked") void forceSignOut("blocked");
       message = body.error || body.message || message;
     } catch {
       // Keep the HTTP error if the server did not return JSON.
