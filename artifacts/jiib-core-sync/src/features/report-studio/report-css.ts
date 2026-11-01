@@ -143,7 +143,7 @@ export const REPORT_CARD_CSS = String.raw`
 .rc-sig-body { height:56px; display:flex; align-items:center; justify-content:center; font-size:6pt; color:#999; flex-direction:column; gap:4px; }
 
 .rc-qr-wrap { width:72px; height:80px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; flex-shrink:0; border:2px solid #1a3a6b; background:#fff; padding:3px; }
-.rc-qr-wrap canvas, .rc-qr-wrap img { width:60px!important; height:60px!important; }
+.rc-qr-wrap canvas, .rc-qr-wrap img { width:60px!important; height:60px!important; image-rendering:pixelated; }
 .rc-qr-label { font-size:5pt; color:#1a3a6b; font-weight:700; text-align:center; font-family:Arial,sans-serif; }
 
 /* ════════════════════════════════════
