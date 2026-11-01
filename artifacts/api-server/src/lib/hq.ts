@@ -158,7 +158,7 @@ export async function accountIsBlocked(req: Request, user: SupabaseUser): Promis
   if (hit && Date.now() - hit.at < 20_000) return hit.blocked;
   let blocked = false;
   try {
-    blocked = (await supabaseRequest<unknown>(req, "rpc/account_blocked", { method: "POST", body: "{}" })) === true;
+    blocked = (await supabaseRequest<unknown>(req, "rpc/jhq_account_blocked", { method: "POST", body: "{}" })) === true;
   } catch {
     blocked = false; // the setup script has not been run yet: never lock anyone out because of it
   }

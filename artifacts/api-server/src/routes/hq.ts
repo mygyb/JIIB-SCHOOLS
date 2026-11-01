@@ -101,7 +101,7 @@ router.post("/devices/heartbeat", async (req, res) => {
     const body = HeartbeatBody.parse(req.body);
     const userAgent = String(req.header("user-agent") ?? "");
     const info = describeDevice(userAgent);
-    const result = await supabaseRequest<{ status?: string } | null>(req, "rpc/device_heartbeat", {
+    const result = await supabaseRequest<{ status?: string } | null>(req, "rpc/jhq_device_heartbeat", {
       method: "POST",
       body: jsonBody({
         p_device_id: body.deviceId,
@@ -140,7 +140,7 @@ router.use("/hq", hqOnly);
 async function audit(req: Request, action: string, target: string, detail = "") {
   const user = req.res?.locals.hqUser as SupabaseUser | undefined;
   try {
-    await supabaseRequest(req, "hq_audit", { method: "POST", body: jsonBody({ actor: user?.email ?? SUPER_ADMIN_EMAIL, action, target, detail: detail.slice(0, 300) }) }, "");
+    await supabaseRequest(req, "jhq_audit", { method: "POST", body: jsonBody({ actor: user?.email ?? SUPER_ADMIN_EMAIL, action, target, detail: detail.slice(0, 300) }) }, "");
   } catch { /* the audit table is part of the setup script */ }
 }
 
@@ -169,7 +169,7 @@ function mapDevice(row: Record<string, unknown>) {
 
 router.get("/hq/devices", async (req, res) => {
   try {
-    const rows = asRows(await supabaseRequest(req, "device_sessions", {}, "?select=*&order=last_seen.desc&limit=1500"));
+    const rows = asRows(await supabaseRequest(req, "jhq_devices", {}, "?select=*&order=last_seen.desc&limit=1500"));
     res.json(rows.map(mapDevice));
   } catch (error) { fail(res, error); }
 });
@@ -177,7 +177,7 @@ router.get("/hq/devices", async (req, res) => {
 router.get("/hq/devices/:deviceId/logins", async (req, res) => {
   try {
     const rows = asRows(await supabaseRequest(
-      req, "device_logins", {},
+      req, "jhq_logins", {},
       `?device_id=eq.${encodeURIComponent(String(req.params.deviceId))}&select=*&order=at.desc&limit=40`,
     ));
     res.json(rows.map((row) => ({ at: String(row.at), email: row.user_email ?? null, role: row.role ?? null, ip: row.ip ?? null })));
@@ -187,7 +187,7 @@ router.get("/hq/devices/:deviceId/logins", async (req, res) => {
 async function patchDevice(req: Request, res: Response, patch: Record<string, unknown>, action: string) {
   try {
     const id = String(req.params.deviceId);
-    await supabaseRequest(req, "device_sessions", { method: "PATCH", body: jsonBody(patch) }, `?device_id=eq.${encodeURIComponent(id)}`);
+    await supabaseRequest(req, "jhq_devices", { method: "PATCH", body: jsonBody(patch) }, `?device_id=eq.${encodeURIComponent(id)}`);
     await audit(req, action, id);
     res.json({ ok: true });
   } catch (error) { fail(res, error); }
@@ -199,7 +199,7 @@ router.post("/hq/devices/:deviceId/unblock", (req, res) => patchDevice(req, res,
 // ---- Blocking accounts ------------------------------------------------------------------------------------
 router.get("/hq/blocked", async (req, res) => {
   try {
-    const rows = asRows(await supabaseRequest(req, "blocked_accounts", {}, "?select=*&order=blocked_at.desc"));
+    const rows = asRows(await supabaseRequest(req, "jhq_blocked", {}, "?select=*&order=blocked_at.desc"));
     res.json(rows.map((row) => ({ email: String(row.email), reason: (row.reason as string | null) ?? "", blockedAt: String(row.blocked_at) })));
   } catch (error) { fail(res, error); }
 });
@@ -207,7 +207,7 @@ router.get("/hq/blocked", async (req, res) => {
 async function setLoginBan(req: Request, email: string, banned: boolean): Promise<boolean> {
   if (!isSupabaseAdminConfigured()) return false;
   try {
-    const id = await supabaseRequest<string | null>(req, "rpc/hq_user_id_by_email", { method: "POST", body: jsonBody({ p_email: email }) });
+    const id = await supabaseRequest<string | null>(req, "rpc/jhq_user_id_by_email", { method: "POST", body: jsonBody({ p_email: email }) });
     if (!id) return false;
     await supabaseAdminRequest(`/auth/v1/admin/users/${encodeURIComponent(String(id))}`, {
       method: "PUT",
@@ -225,11 +225,11 @@ router.post("/hq/accounts/block", async (req, res) => {
       res.status(400).json({ error: "The system administrator account cannot be blocked." });
       return;
     }
-    await supabaseRequest(req, "blocked_accounts", {
+    await supabaseRequest(req, "jhq_blocked", {
       method: "POST",
       body: jsonBody({ email, reason: body.reason ?? "", blocked_by: SUPER_ADMIN_EMAIL, blocked_at: new Date().toISOString() }),
     }, "?on_conflict=email");
-    await supabaseRequest(req, "device_sessions", {
+    await supabaseRequest(req, "jhq_devices", {
       method: "PATCH",
       body: jsonBody({ revoked: true, revoked_at: new Date().toISOString() }),
     }, `?user_email=eq.${encodeURIComponent(email)}`);
@@ -243,7 +243,7 @@ router.post("/hq/accounts/block", async (req, res) => {
 router.delete("/hq/accounts/:email/block", async (req, res) => {
   try {
     const email = decodeURIComponent(String(req.params.email)).trim().toLowerCase();
-    await supabaseRequest(req, "blocked_accounts", { method: "DELETE" }, `?email=eq.${encodeURIComponent(email)}`);
+    await supabaseRequest(req, "jhq_blocked", { method: "DELETE" }, `?email=eq.${encodeURIComponent(email)}`);
     await setLoginBan(req, email, false);
     forgetBlockState();
     await audit(req, "Unblocked account", email);
@@ -253,7 +253,7 @@ router.delete("/hq/accounts/:email/block", async (req, res) => {
 
 router.get("/hq/audit", async (req, res) => {
   try {
-    const rows = asRows(await supabaseRequest(req, "hq_audit", {}, "?select=*&order=at.desc&limit=200"));
+    const rows = asRows(await supabaseRequest(req, "jhq_audit", {}, "?select=*&order=at.desc&limit=200"));
     res.json(rows.map((row) => ({ at: String(row.at), actor: String(row.actor ?? ""), action: String(row.action ?? ""), target: String(row.target ?? ""), detail: String(row.detail ?? "") })));
   } catch (error) { fail(res, error); }
 });
