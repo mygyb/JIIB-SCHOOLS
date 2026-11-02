@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Bar } from 'react-chartjs-2';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, CalendarDays, Check, Download, LockKeyhole, Megaphone, MessageSquare, Pencil, Plus, Printer, Send, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react';
+import { Archive, ArrowRight, CalendarDays, Check, Download, LockKeyhole, Megaphone, MessageSquare, Pencil, Plus, Printer, Send, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react';
 import {
   getGetSchoolConfigQueryKey,
   getListMarksQueryKey,
@@ -371,6 +371,43 @@ function UserManagement({ school }: { school: School }) {
       setError(cause instanceof Error ? cause.message : 'Could not remove this staff account.');
     }
   };
+  if (editing) {
+    return <div className="fade-up">
+      <SectionHeading eyebrow="People & roles" title="Edit staff account" body={`Update ${editing.displayName || editing.email}’s name, email, role, or class subjects.`} />
+      <button type="button" data-testid="button-back-to-users" onClick={() => setEditing(null)} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted"><ArrowRight className="rotate-180" size={15} /> Back to user management</button>
+      <div className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
+        <ShellCard>
+          <h3 className="font-display text-lg font-semibold">Account details</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Name, sign-in email and role.</p>
+          <div className="mt-5 grid gap-3">
+            <input aria-label="Staff name" value={editName} onChange={(event) => setEditName(event.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+            <input aria-label="Staff email" type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} placeholder="Email" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+            <select aria-label="Edit staff role" value={editRole} onChange={(event) => { setEditRole(event.target.value as 'teacher' | 'admin'); setEditSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
+              <option value="teacher">Teacher</option><option value="admin">School administrator</option>
+            </select>
+          </div>
+          {editError && <p role="alert" className="mt-3 text-sm text-destructive">{editError}</p>}
+          <div className="mt-5 flex justify-end gap-2 border-t border-border pt-5"><button onClick={() => setEditing(null)} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">Cancel</button><button data-testid="button-save-user" onClick={() => void saveEdit()} disabled={!editEmail.trim() || !editName.trim() || editSaving} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button></div>
+        </ShellCard>
+        <ShellCard>
+          <h3 className="font-display text-lg font-semibold">Class subjects</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Teachers can enter marks only for the subjects ticked here.</p>
+        {editRole === 'teacher' ? <div className="mt-4 rounded-xl border border-border p-3">
+          <p className="mb-2 text-xs font-semibold">Assigned class subjects</p>
+          {subjectOptions.length ? <div className="grid max-h-[28rem] gap-1 overflow-y-auto sm:grid-cols-2">{subjectOptions.map((option) => {
+            const key = pairKey(option.className, option.subject);
+            const owner = ownerFor(option.className, option.subject, [editing.email, editEmail]);
+            const checked = editSubjects.includes(key);
+            return <label key={key} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${owner ? 'opacity-50' : 'hover:bg-muted'}`}>
+              <input type="checkbox" checked={checked} disabled={Boolean(owner)} onChange={() => setEditSubjects((items) => checked ? items.filter((item) => item !== key) : [...items, key])} />
+              <span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span>
+            </label>;
+          })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects first.</p>}
+        </div> : <div className="mt-4 rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">School administrators manage the whole school, so they have no class subjects.</div>}
+        </ShellCard>
+      </div>
+    </div>;
+  }
   return <div className="fade-up">
     <SectionHeading eyebrow="People & roles" title="User management" body="Create staff accounts, assign class subjects, and edit school access." />
     <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
@@ -422,32 +459,6 @@ function UserManagement({ school }: { school: School }) {
         </div>;
       }) : !roster.isLoading && !roster.isError ? <p className="py-5 text-sm text-muted-foreground">No staff accounts have access yet.</p> : null}</div>
     </ShellCard>
-    {editing && <div role="dialog" aria-modal="true" aria-labelledby="edit-staff-title" className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-2xl sm:p-6">
-        <div className="flex items-start justify-between gap-4"><div><h3 id="edit-staff-title" className="font-display text-xl font-semibold">Edit staff account</h3><p className="mt-1 text-sm text-muted-foreground">Update this person’s name, email, role, or class subjects.</p></div><button aria-label="Close edit staff form" onClick={() => setEditing(null)} className="rounded-lg p-2 hover:bg-muted"><X size={18} /></button></div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <input aria-label="Staff name" value={editName} onChange={(event) => setEditName(event.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
-          <input aria-label="Staff email" type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} placeholder="Email" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
-          <select aria-label="Edit staff role" value={editRole} onChange={(event) => { setEditRole(event.target.value as 'teacher' | 'admin'); setEditSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
-            <option value="teacher">Teacher</option><option value="admin">School administrator</option>
-          </select>
-        </div>
-        {editRole === 'teacher' && <div className="mt-4 rounded-xl border border-border p-3">
-          <p className="mb-2 text-xs font-semibold">Assigned class subjects</p>
-          {subjectOptions.length ? <div className="grid max-h-56 gap-1 overflow-y-auto sm:grid-cols-2">{subjectOptions.map((option) => {
-            const key = pairKey(option.className, option.subject);
-            const owner = ownerFor(option.className, option.subject, [editing.email, editEmail]);
-            const checked = editSubjects.includes(key);
-            return <label key={key} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${owner ? 'opacity-50' : 'hover:bg-muted'}`}>
-              <input type="checkbox" checked={checked} disabled={Boolean(owner)} onChange={() => setEditSubjects((items) => checked ? items.filter((item) => item !== key) : [...items, key])} />
-              <span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span>
-            </label>;
-          })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects first.</p>}
-        </div>}
-        {editError && <p role="alert" className="mt-3 text-sm text-destructive">{editError}</p>}
-        <div className="mt-5 flex justify-end gap-2"><button onClick={() => setEditing(null)} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">Cancel</button><button data-testid="button-save-user" onClick={() => void saveEdit()} disabled={!editEmail.trim() || !editName.trim() || editSaving} className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button></div>
-      </div>
-    </div>}
   </div>;
 }
 
