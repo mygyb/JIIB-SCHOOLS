@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
-import { useQueryClient } from '@tanstack/react-query';
+import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import { Building2, Inbox, LayoutDashboard, LogOut, RefreshCw, Settings2, Smartphone, UsersRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { HQ_PROOF_KEY, jiibApi } from '@/lib/jiib-api';
@@ -30,6 +30,7 @@ async function leave(setLocation: (path: string) => void) {
 export function SuperAdminPortal() {
   const [location, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const refreshing = useIsFetching({ queryKey: ['hq'] }) > 0;
   const [verified, setVerified] = useState(false);
   const hq = useHq();
   const section = (SECTIONS.find((s) => location === `/super-admin/${s.key}`)?.key ?? 'overview') as SectionKey;
@@ -76,7 +77,7 @@ export function SuperAdminPortal() {
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
           <h1 className="font-display text-xl font-semibold">{title}</h1>
           <div className="flex items-center gap-2">
-            <button type="button" aria-label="Refresh" onClick={() => void queryClient.invalidateQueries({ queryKey: ['hq'] })} className="grid h-10 w-10 place-items-center rounded-xl border border-border hover:bg-muted"><RefreshCw size={16} /></button>
+            <button type="button" aria-label="Refresh" disabled={refreshing} onClick={() => void queryClient.invalidateQueries({ queryKey: ['hq'] })} className="grid h-10 w-10 place-items-center rounded-xl border border-border hover:bg-muted disabled:opacity-70"><RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} /></button>
             <button type="button" aria-label="Sign out" onClick={() => void leave(setLocation)} className="grid h-10 w-10 place-items-center rounded-xl border border-border text-destructive hover:bg-destructive/5 lg:hidden"><LogOut size={16} /></button>
           </div>
         </header>
