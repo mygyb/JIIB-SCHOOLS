@@ -17,7 +17,11 @@ export type AuditEntry = { at: string; actor: string; action: string; target: st
 export type HelpMessage = { id: string; schoolId: string; schoolName: string; senderName: string; senderEmail: string | null; message: string; direction: 'in' | 'out'; createdAt: string };
 
 export function useHq() {
-  const analytics = useQuery({ queryKey: ['hq', 'analytics'], queryFn: () => jiibApi<Portfolio>('/api/schools/portfolio/analytics'), refetchInterval: 60_000 });
+  const analytics = useQuery({ queryKey: ['hq', 'analytics'], queryFn: async () => {
+      // The server names the school key `schoolId`; the portal works with `id`.
+      const raw = await jiibApi<Omit<Portfolio, 'schools'> & { schools: Array<PortfolioSchool & { schoolId?: string }> }>('/api/schools/portfolio/analytics');
+      return { ...raw, schools: raw.schools.map((s) => ({ ...s, id: s.id ?? s.schoolId ?? '' })) } as Portfolio;
+    }, refetchInterval: 60_000 });
   const staff = useQuery({ queryKey: ['hq', 'staff'], queryFn: () => jiibApi<Staff[]>('/api/schools/portfolio/users') });
   const devices = useQuery({ queryKey: ['hq', 'devices'], queryFn: () => jiibApi<Device[]>('/api/hq/devices'), refetchInterval: 30_000, retry: false });
   const blocked = useQuery({ queryKey: ['hq', 'blocked'], queryFn: () => jiibApi<Blocked[]>('/api/hq/blocked'), retry: false });
