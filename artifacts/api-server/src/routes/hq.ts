@@ -21,6 +21,8 @@ import {
   superAdminPasswordLogin,
   tooManyAttempts,
 } from "../lib/hq.js";
+import { logTeacherActivity } from "../lib/activity.js";
+import { getSupabaseUser } from "../lib/supabase.js";
 
 const router: IRouter = Router();
 
@@ -118,6 +120,10 @@ router.post("/devices/heartbeat", async (req, res) => {
         p_ip: clientIp(req),
       }),
     });
+    if (body.event === "login" && body.schoolId) {
+      const user = await getSupabaseUser(req);
+      if (user?.email) await logTeacherActivity(req, user.email, body.schoolId, "login");
+    }
     res.json({ status: result?.status ?? "ok" });
   } catch {
     // Tracking must never get in the way of using the app (for example before the database setup is run).

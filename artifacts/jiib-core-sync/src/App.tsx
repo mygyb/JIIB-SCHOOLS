@@ -2,7 +2,7 @@ import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'rea
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation } from 'wouter';
 import {
-  Activity, Archive, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
+  Activity, Archive, LogIn, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
   ClipboardList, GraduationCap, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
   MessageSquare, Moon, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Search, Settings, ShieldCheck, Sun,
   SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose,
@@ -155,6 +155,14 @@ function initials(name: string) {
 function fmtDate(value?: string) {
   if (!value) return '—';
   return new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value));
+}
+
+function fmtWhen(value?: string) {
+  if (!value) return '—';
+  const date = new Date(value);
+  const sameDay = date.toDateString() === new Date().toDateString();
+  const time = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(date);
+  return sameDay ? `Today, ${time}` : `${new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short' }).format(date)}, ${time}`;
 }
 
 function fmtHeaderDate(value: Date = new Date()) {
@@ -745,6 +753,17 @@ function Dashboard() {
           </div> : <div className="mt-5 grid min-h-40 place-items-center rounded-xl border border-dashed border-border px-4 text-center"><p className="max-w-xs text-sm leading-6 text-muted-foreground">{data.houses.length ? 'No students are currently counted in configured houses.' : 'No houses have been configured.'}</p></div>}
         </section>}
       </div>
+      {!isTeacher && <section aria-labelledby="recent-activity-title" data-testid="recent-activity" className="mt-5 rounded-2xl border border-border bg-card p-5 sm:p-6">
+        <div className="flex items-center justify-between"><div><h3 id="recent-activity-title" className="font-display text-lg font-semibold">Recent activity</h3><p className="mt-1 text-sm text-muted-foreground">Teacher logins and marks entered at your school.</p></div><Activity size={18} className="text-muted-foreground" /></div>
+        {data.recentActivity.length ? <ul className="mt-4 divide-y divide-border">{data.recentActivity.slice(0, 12).map((item) => {
+          const marks = String(item.id).startsWith('marks-');
+          return <li key={item.id} data-testid={`activity-${item.id}`} className="flex items-start gap-3 py-3">
+            <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full ${marks ? 'bg-emerald-500/15 text-emerald-600' : 'bg-primary/10 text-primary'}`}>{marks ? <ClipboardList size={15} aria-hidden="true" /> : <LogIn size={15} aria-hidden="true" />}</span>
+            <span className="min-w-0 flex-1"><span className="block text-sm font-medium leading-5">{item.label}</span>{item.detail && <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{fmtWhen(item.createdAt)}</span>
+          </li>;
+        })}</ul> : <p className="mt-5 text-sm text-muted-foreground">No teacher activity yet. Logins and marks entries will appear here.</p>}
+      </section>}
       <section aria-labelledby="subject-chart-title" className="mt-5 rounded-2xl border border-border bg-card p-5 sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -830,7 +849,6 @@ function Dashboard() {
       </section>
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
         <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Upcoming events</h3><p className="mt-1 text-sm text-muted-foreground">School dates to keep in view.</p></div><CalendarDays size={18} className="text-muted-foreground" /></div>{events.length ? <div className="mt-5 space-y-3">{events.map((event) => <div key={event.id} className="flex gap-3 rounded-xl bg-muted/40 p-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><CalendarDays size={16} /></span><div><p className="text-sm font-semibold">{event.title}</p><p className="mt-1 text-xs text-muted-foreground">{event.date ? fmtDate(event.date) : 'Date to be announced'}</p></div></div>)}</div> : <p className="mt-5 text-sm text-muted-foreground">No upcoming events.</p>}</section>
-        {!isTeacher && <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Recent activity</h3><p className="mt-1 text-sm text-muted-foreground">What changed recently.</p></div><Activity size={18} className="text-muted-foreground" /></div>{data.recentActivity.length ? <div className="mt-5 space-y-4">{data.recentActivity.slice(0, 5).map((item) => <div key={item.id} data-testid={`activity-${item.id}`} className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" /><div className="min-w-0"><p className="text-sm leading-5">{item.label}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{item.detail} · {fmtDate(item.createdAt)}</p></div></div>)}</div> : <p className="mt-6 text-sm text-muted-foreground">No recent activity yet.</p>}</section>}
       </div>
     </> : <EmptyState icon={LayoutDashboard} title="Your overview is quiet" body="Once your school has records, the operating picture will appear here." />}
   </div>;
