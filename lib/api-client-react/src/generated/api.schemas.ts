@@ -350,6 +350,7 @@ export interface StudentUpdate {
   /** @nullable */
   parentPhone?: string | null;
   badges?: string[];
+  subjects?: string[];
 }
 
 export interface Mark {

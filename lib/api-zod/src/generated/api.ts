@@ -581,7 +581,8 @@ export const UpdateStudentBody = zod.object({
   "className": zod.string().min(1).optional(),
   "house": zod.string().min(1).optional(),
   "parentPhone": zod.string().nullish(),
-  "badges": zod.array(zod.string()).optional()
+  "badges": zod.array(zod.string()).optional(),
+  "subjects": zod.array(zod.string()).optional()
 })
 
 

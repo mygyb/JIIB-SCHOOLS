@@ -1518,6 +1518,9 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
     const body = UpdateStudentBody.parse(req.body);
     const config = await readSchoolConfig(req, schoolId);
     const termKey = String(config.activeTerm ?? "");
+    const newSubjects = body.subjects === undefined
+      ? undefined
+      : Array.from(new Set(body.subjects.map((subject) => subject.trim()).filter(Boolean)));
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.name !== undefined) update.name = body.name;
     if (body.className !== undefined) update.class = body.className;
@@ -1555,14 +1558,19 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
                     ...(body.className !== undefined ? { class: body.className } : {}),
                     ...(body.house !== undefined ? { house: body.house } : {}),
                     ...(body.parentPhone !== undefined ? { parentPhone: body.parentPhone ?? "" } : {}),
+                    ...(newSubjects !== undefined ? { subjects: newSubjects } : {}),
                   }
                 : student,
+            ).concat(
+              newSubjects !== undefined && !students.some((student) => String(student.id) === studentId)
+                ? [{ id: studentId, name: String(rows[0].name ?? ""), class: String(rows[0].class ?? ""), house: String(rows[0].house ?? ""), parentPhone: String(rows[0].parent_phone ?? ""), subjects: newSubjects }]
+                : [],
             ),
           },
         },
       });
     }
-    res.json(mapStudent(rows[0]));
+    res.json(newSubjects !== undefined ? { ...mapStudent(rows[0]), subjects: newSubjects } : mapStudent(rows[0]));
   } catch (error) {
     sendError(res, error);
   }

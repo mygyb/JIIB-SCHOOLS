@@ -964,7 +964,7 @@ function Students() {
       setBulkPending(false);
     }
   };
-  const saveStudent = (payload: { name: string; className: string; house: string; parentPhone?: string | null; badges?: string[] }) => {
+  const saveStudent = (payload: { name: string; className: string; house: string; parentPhone?: string | null; badges?: string[]; subjects?: string[] }) => {
     if (!editing) return;
     update.mutate({ schoolId: school.id, studentId: editing.id, data: payload }, {
       onSuccess: async () => {
@@ -989,8 +989,20 @@ function Students() {
     });
   };
   const deleteStudent = (student: Student) => { if (window.confirm(`Delete ${student.name} from the register and remove all linked marks? This cannot be undone.`)) remove.mutate({ schoolId: school.id, studentId: student.id }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) }) }); };
+  if (showForm && editing) {
+    return <StudentFormPage
+      student={editing}
+      classes={classes}
+      houses={houses}
+      configData={configData}
+      pending={update.isPending}
+      error={update.error instanceof Error ? update.error.message : ''}
+      onCancel={() => { setShowForm(false); setEditing(null); }}
+      onSave={saveStudent}
+    />;
+  }
   if (showForm && !editing) {
-    return <StudentCreatePage
+    return <StudentFormPage
       classes={classes}
       houses={houses}
       configData={configData}
@@ -1004,11 +1016,11 @@ function Students() {
     <div className="mb-5 flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={17} className="absolute left-3 top-3.5 text-muted-foreground" /><input data-testid="input-student-search" value={search} onChange={(e) => { setSearch(e.target.value); setSelectedIds([]); }} placeholder="Search by student name" className="h-11 w-full rounded-xl border border-input bg-card pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></div><select data-testid="select-student-class" value={className} onChange={(e) => { setClassName(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select><select data-testid="select-student-house" value={house} onChange={(e) => { setHouse(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All houses</option>{houses.map((item) => <option key={item} value={item}>{item}</option>)}</select><button data-testid="button-filter-students" onClick={() => { setSearch(''); setClassName(''); setHouse(''); setSelectedIds([]); }} disabled={!search && !className && !house} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50"><SlidersHorizontal size={15} /> Clear filters</button></div>
     {bulkError && <p role="alert" className="mb-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{bulkError}</p>}
     <div className="overflow-hidden rounded-2xl border border-border bg-card">{query.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-14" />)}</div> : query.isError ? <div className="p-5"><ErrorState retry={() => query.refetch()} /></div> : students.length === 0 ? <EmptyState icon={UsersRound} title="No students match" body={search || className || house ? 'Try a different search or clear the filters.' : 'Your register is ready for its first student.'} action={!search && !className && !house ? <button data-testid="button-empty-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Add first student</button> : undefined} /> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-4 py-4"><input aria-label="Select all visible students" type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : students.map((student) => student.id))} /></th><th className="px-5 py-4 font-bold">Student</th><th className="px-5 py-4 font-bold">Class</th><th className="px-5 py-4 font-bold">House</th><th className="px-5 py-4 font-bold">Optional subjects</th><th className="px-5 py-4 font-bold">Parent contact</th><th className="px-5 py-4 text-right font-bold">Actions</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => <tr key={student.id} data-testid={`row-student-${student.id}`} className="group transition hover:bg-muted/25"><td className="px-4 py-4"><input aria-label={`Select ${student.name}`} type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /></td><td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">{initials(student.name)}</span><div><p data-testid={`text-student-${student.id}`} className="text-sm font-semibold uppercase">{student.name}</p><p className="mt-0.5 text-xs text-muted-foreground">Joined {fmtDate(student.createdAt)}</p></div></div></td><td className="px-5 py-4 text-sm">{student.className}</td><td className="px-5 py-4"><span className="rounded-full bg-[#f7edcf] px-2.5 py-1 text-xs font-semibold text-[#87631c]">{student.house}</span></td><td className="px-5 py-4"><div className="flex flex-wrap gap-1.5">{student.subjects?.length ? student.subjects.map((item) => <span key={item} className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">{item}</span>) : <span className="text-sm text-muted-foreground">None</span>}</div></td><td className="px-5 py-4 text-sm text-muted-foreground">{student.parentPhone || 'Not provided'}</td><td className="px-5 py-4"><div className="flex justify-end gap-1 opacity-70 group-hover:opacity-100"><button data-testid={`button-edit-student-${student.id}`} onClick={() => { setEditing(student); setShowForm(true); }} className="rounded-lg p-2 hover:bg-muted"><Pencil size={15} /></button><button data-testid={`button-delete-student-${student.id}`} onClick={() => deleteStudent(student)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div></td></tr>)}</tbody></table></div>}</div>
-    {showForm && editing && <StudentDialog student={editing} pending={update.isPending} classes={classes} houses={houses} defaultClass={className} onClose={() => { setShowForm(false); setEditing(null); }} onSave={saveStudent} />}
   </div>;
 }
 
-function StudentCreatePage({
+function StudentFormPage({
+  student = null,
   classes,
   houses,
   configData,
@@ -1017,6 +1029,7 @@ function StudentCreatePage({
   onCancel,
   onSave,
 }: {
+  student?: Student | null;
   classes: string[];
   houses: string[];
   configData: SchoolConfig;
@@ -1025,12 +1038,14 @@ function StudentCreatePage({
   onCancel: () => void;
   onSave: (data: { name: string; className: string; house: string; parentPhone?: string | null; subjects?: string[] }) => void;
 }) {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [className, setClassName] = useState(classes[0] ?? '');
-  const [house, setHouse] = useState(houses[0] ?? '');
-  const [parentPhone, setParentPhone] = useState('');
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  const editing = Boolean(student);
+  const nameParts = (student?.name ?? '').trim().split(/\s+/);
+  const [firstName, setFirstName] = useState(nameParts[0] ?? '');
+  const [lastName, setLastName] = useState(nameParts.slice(1).join(' '));
+  const [className, setClassName] = useState(student?.className || classes[0] || '');
+  const [house, setHouse] = useState(student?.house || houses[0] || '');
+  const [parentPhone, setParentPhone] = useState(student?.parentPhone || '');
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>(student?.subjects ?? []);
   const availableSubjects = subjectNames(configData, className);
   const settings = configData.settings && typeof configData.settings === 'object'
     ? configData.settings
@@ -1043,9 +1058,9 @@ function StudentCreatePage({
     event.preventDefault();
     const first = firstName.trim();
     const last = lastName.trim();
-    if (!first || !last || !className || !house.trim()) return;
+    if (!first || (!editing && !last) || !className || !house.trim()) return;
     onSave({
-      name: `${first} ${last}`,
+      name: [first, last].filter(Boolean).join(' '),
       className,
       house: house.trim(),
       parentPhone: parentPhone.trim() || null,
@@ -1055,16 +1070,16 @@ function StudentCreatePage({
   return <div className="fade-up">
     <PageHeader
       eyebrow="School register"
-      title="Add a student"
-      description="Create a student record for the active term. Optional subject choices are saved with the student."
+      title={editing ? 'Edit student' : 'Add a student'}
+      description={editing ? `Update ${student?.name ?? 'this student'}’s details and optional subject choices.` : 'Create a student record for the active term. Optional subject choices are saved with the student.'}
       action={<button type="button" data-testid="button-back-to-students" onClick={onCancel} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted"><ArrowRight className="rotate-180" size={15} /> Back to students</button>}
     />
     <form onSubmit={submit} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="rounded-2xl border border-border bg-card p-5 sm:p-7">
-        <div className="mb-6"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">Student profile</p><h3 className="mt-1 font-display text-xl font-semibold">Basic information</h3><p className="mt-1 text-sm text-muted-foreground">Enter the student’s name and school placement.</p></div>
+        <div className="mb-6"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">Student profile</p><h3 className="mt-1 font-display text-xl font-semibold">Basic information</h3><p className="mt-1 text-sm text-muted-foreground">{editing ? 'Change the student’s name or school placement.' : 'Enter the student’s name and school placement.'}</p></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="First name" value={firstName} onChange={setFirstName} testId="input-student-first-name" required />
-          <Field label="Last name" value={lastName} onChange={setLastName} testId="input-student-last-name" required />
+          <Field label="Last name" value={lastName} onChange={setLastName} testId="input-student-last-name" required={!editing} />
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block">
@@ -1088,8 +1103,8 @@ function StudentCreatePage({
         <div className="mt-7 flex flex-wrap justify-end gap-3 border-t border-border pt-5">
           <button type="button" data-testid="button-cancel-student" onClick={onCancel} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">Cancel</button>
           <button type="submit" disabled={pending || !classes.length} data-testid="button-save-student" className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60">
-            {pending ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-            {pending ? 'Adding student…' : 'Add student'}
+            {pending ? <Loader2 size={15} className="animate-spin" /> : editing ? <Check size={15} /> : <Plus size={15} />}
+            {pending ? (editing ? 'Saving…' : 'Adding student…') : editing ? 'Save changes' : 'Add student'}
           </button>
         </div>
       </section>
@@ -1124,14 +1139,6 @@ function StudentCreatePage({
   </div>;
 }
 
-function StudentDialog({ student, pending, classes, houses, defaultClass, onClose, onSave }: { student: Student | null; pending: boolean; classes: string[]; houses: string[]; defaultClass: string; onClose: () => void; onSave: (data: { name: string; className: string; house: string; parentPhone?: string | null; badges?: string[] }) => void }) {
-  const [name, setName] = useState(student?.name || '');
-  const [className, setClassName] = useState(student?.className || defaultClass || classes[0] || '');
-  const [house, setHouse] = useState(student?.house || houses[0] || '');
-  const [parentPhone, setParentPhone] = useState(student?.parentPhone || '');
-  const submit = (event: FormEvent) => { event.preventDefault(); if (name.trim() && className.trim() && house.trim()) onSave({ name: name.trim(), className: className.trim(), house: house.trim(), parentPhone: parentPhone.trim() || null }); };
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-[#172b43]/45 p-4"><div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl"><div className="flex items-start justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-primary">{student ? 'Update record' : 'New record'}</p><h3 className="mt-1 font-display text-2xl font-semibold">{student ? 'Edit student' : 'Add student'}</h3></div><button data-testid="button-close-student-dialog" onClick={onClose} className="rounded-lg p-2 hover:bg-muted"><X size={18} /></button></div><form onSubmit={submit} className="mt-6 space-y-4"><Field label="Full name" value={name} onChange={setName} testId="input-student-name" required /><div className="grid gap-4 sm:grid-cols-2">{classes.length ? <label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Class</span><select data-testid="input-student-class" required value={className} onChange={(event) => setClassName(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm">{className && !classes.includes(className) && <option value={className}>{className}</option>}{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label> : <Field label="Class" value={className} onChange={setClassName} testId="input-student-class" required />}{houses.length ? <label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">House</span><select data-testid="input-student-house-form" required value={house} onChange={(event) => setHouse(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm">{house && !houses.includes(house) && <option value={house}>{house}</option>}{houses.map((item) => <option key={item} value={item}>{item}</option>)}</select></label> : <Field label="House" value={house} onChange={setHouse} testId="input-student-house-form" required />}</div><Field label="Parent phone" value={parentPhone} onChange={setParentPhone} testId="input-student-parent-phone" /><div className="flex justify-end gap-3 pt-3"><button type="button" data-testid="button-cancel-student" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">Cancel</button><button disabled={pending} data-testid="button-save-student" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60">{pending && <Loader2 size={15} className="animate-spin" />} {student ? 'Save changes' : 'Create student'}</button></div></form></div></div>;
-}
 function Field({ label, value, onChange, testId, required = false }: { label: string; value: string; onChange: (value: string) => void; testId: string; required?: boolean }) { return <label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">{label}</span><input data-testid={testId} required={required} value={value} onChange={(e) => onChange(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label>; }
 
 function Marks() {

@@ -1214,6 +1214,10 @@ components:
           type: array
           items:
             type: string
+        subjects:
+          type: array
+          items:
+            type: string
     Mark:
       type: object
       required: [id, schoolId, studentId, termKey, subject, aoi, midterm, end]
