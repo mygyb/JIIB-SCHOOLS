@@ -48,6 +48,7 @@ import {
   updateSupabaseAuthUser,
   valueOf,
 } from "../lib/supabase.js";
+import { logTeacherActivity, readSchoolActivity } from "../lib/activity.js";
 import { accountIsBlocked, verifySuperAdmin } from "../lib/hq.js";
 
 const router: IRouter = Router();
@@ -1374,12 +1375,7 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
       assessmentFields,
       activeTerm: String(activeTerm.label ?? termKey),
       events,
-      recentActivity: students.slice(0, 6).map((student) => ({
-        id: String(student.id),
-        label: "Student record updated",
-        detail: String(student.name ?? student.class ?? "Student record"),
-        createdAt: new Date(String(student.created_at ?? new Date().toISOString())),
-      })),
+      recentActivity: res.locals.jiibRole === "teacher" ? [] : await readSchoolActivity(req, schoolId),
     });
   } catch (error) {
     sendError(res, error);
@@ -1834,6 +1830,9 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
         },
       },
     });
+    if (res.locals.jiibRole === "teacher") {
+      await logTeacherActivity(req, String(req.headers["x-verified-user-email"] ?? ""), schoolId, "marks", [body.subject, studentClass].filter(Boolean).join(" · "));
+    }
     res.json(mapMark(rows[0] ?? {
       id: `${body.studentId}-${termKey}-${body.subject}`,
       school_id: schoolId,
