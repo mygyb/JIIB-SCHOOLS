@@ -11,7 +11,7 @@ import {
   useUpsertMark,
 } from "@workspace/api-client-react";
 import type { Mark, School, Student } from "@workspace/api-client-react";
-import { CalendarDays, CircleAlert, ClipboardList, Loader2, LockKeyhole, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowDownAZ, ArrowUpAZ, ArrowUpDown, CalendarDays, CircleAlert, ClipboardList, Loader2, LockKeyhole, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { configuredHouses, currentTerm, getAssessmentFields, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from "@/lib/school-data";
 import { getPendingMarks, queueMark } from "@/lib/offline-marks";
 import { jiibApi } from "@/lib/jiib-api";
@@ -51,6 +51,7 @@ export function MarksRegister({ school }: { school: School }) {
   const [className, setClassName] = useState(() => isTeacher ? readAssignments().find((item) => item.class)?.class ?? "" : "");
   const [subject, setSubject] = useState("");
   const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState<"none" | "asc" | "desc">("none");
   const [pendingMarks, setPendingMarks] = useState(() => getPendingMarks(school.id));
   const [error, setError] = useState("");
   const [fieldSaveStates, setFieldSaveStates] = useState<Record<string, "saved" | "unsaved">>({});
@@ -163,6 +164,11 @@ export function MarksRegister({ school }: { school: School }) {
     !usesOptionalSubjects || !selectedSubject || !student.subjects?.length ||
     student.subjects.includes(selectedSubject),
   );
+  if (sortOrder !== "none") {
+    const direction = sortOrder === "asc" ? 1 : -1;
+    students.sort((a, b) => direction * String(a.name ?? "").localeCompare(String(b.name ?? ""), undefined, { sensitivity: "base", numeric: true }));
+  }
+  const refreshing = configQuery.isFetching || studentsQuery.isFetching || marksQuery.isFetching || allStudents.isFetching;
   const marks = marksQuery.data ?? [];
   const locked = Boolean(configData.marksLocked || isTermLocked(configData, selectedTerm));
   const pendingForTerm = pendingMarks.filter((item) => item.termKey === selectedTerm);
@@ -295,7 +301,10 @@ export function MarksRegister({ school }: { school: School }) {
   return <div className="fade-up">
     <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
       <div><p className="mb-2 text-[10px] font-bold uppercase tracking-[.22em] text-primary">Assessment desk</p><h2 className="font-display text-3xl font-semibold tracking-[-.035em] sm:text-4xl">Marks register</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Enter, review, and keep assessment records moving by class and subject.</p></div>
-      <div className="flex flex-wrap items-center gap-2"><span className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">{navigator.onLine ? `${pendingForTerm.length} pending` : "Offline · queued"}</span>{locked && <span className="inline-flex items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs font-semibold text-destructive"><LockKeyhole size={14} /> Marks locked</span>}{!isTeacher && <button data-testid="button-clear-term-marks" onClick={() => void clearTerm()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted"><Trash2 size={14} /> Clear term</button>}</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" data-testid="button-sort-students" onClick={() => setSortOrder(sortOrder === "none" ? "asc" : sortOrder === "asc" ? "desc" : "none")} aria-label={sortOrder === "asc" ? "Sorted A to Z. Tap to sort Z to A" : sortOrder === "desc" ? "Sorted Z to A. Tap to clear sorting" : "Sort students by name A to Z"} title={sortOrder === "asc" ? "A → Z" : sortOrder === "desc" ? "Z → A" : "Sort by name"} className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold ${sortOrder === "none" ? "border-border bg-card hover:bg-muted" : "border-primary/40 bg-primary/10 text-primary"}`}>{sortOrder === "desc" ? <ArrowUpAZ size={15} aria-hidden="true" /> : sortOrder === "asc" ? <ArrowDownAZ size={15} aria-hidden="true" /> : <ArrowUpDown size={15} aria-hidden="true" />}{sortOrder === "asc" ? "A–Z" : sortOrder === "desc" ? "Z–A" : "Sort"}</button>
+        <button type="button" data-testid="button-refresh-marks" disabled={refreshing} onClick={retry} aria-label="Refresh marks register" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-semibold hover:bg-muted disabled:opacity-70"><RefreshCw size={15} className={refreshing ? "animate-spin" : ""} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button>
+        <span className="rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground">{navigator.onLine ? `${pendingForTerm.length} pending` : "Offline · queued"}</span>{locked && <span className="inline-flex items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs font-semibold text-destructive"><LockKeyhole size={14} /> Marks locked</span>}{!isTeacher && <button data-testid="button-clear-term-marks" onClick={() => void clearTerm()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted"><Trash2 size={14} /> Clear term</button>}</div>
     </div>
 
     {isTeacher && deadline && dismissedDeadline !== deadlineNoticeId && <div data-testid="deadline-notification" role="status" className="mb-5 flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-destructive">
