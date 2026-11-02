@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, RefreshCw, X } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { applyUpdate, installApp, isStandalone, shouldOfferInstall, snoozeInstall, usePwa } from '@/lib/pwa';
+import { applyUpdate, installApp, installGuide, isStandalone, shouldOfferInstall, snoozeInstall, usePwa } from '@/lib/pwa';
 
 /** Install sheet (offered when someone taps Log in on the website), "update ready" bar, and launch-screen fade-out. */
 export function PwaUi() {
@@ -70,6 +70,7 @@ export function PwaUi() {
 export function InstallButton({ className = '', testId }: { className?: string; testId: string }) {
   const pwa = usePwa();
   const [help, setHelp] = useState(false);
+  const guide = installGuide();
   if (pwa.installed || isStandalone()) return null;
   return (
     <>
@@ -83,10 +84,9 @@ export function InstallButton({ className = '', testId }: { className?: string; 
               <img src="/icons/icon-192.png" alt="" width={56} height={56} className="h-14 w-14 rounded-2xl" />
               <h2 id="install-help-title" className="text-lg font-semibold">Install J-SCHOOLS</h2>
             </div>
-            <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm text-slate-600">
-              <li>Open this site in <strong>Chrome</strong> on your phone.</li>
-              <li>Tap the <strong>⋮ menu</strong> at the top right.</li>
-              <li>Choose <strong>Install app</strong> (or <strong>Add to Home screen</strong>).</li>
+            <p className="mt-4 text-sm text-slate-600">Your browser ({guide.browser}) installs apps from its own menu. Follow these steps:</p>
+            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+              {guide.steps.map((step) => <li key={step}>{step.split(/\*\*(.+?)\*\*/g).map((part, n) => (n % 2 ? <strong key={n}>{part}</strong> : part))}</li>)}
             </ol>
             <button type="button" onClick={() => setHelp(false)} className="mt-5 h-11 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white">Got it</button>
           </div>
