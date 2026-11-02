@@ -63,6 +63,36 @@ export async function installApp(): Promise<boolean> {
   return outcome === 'accepted';
 }
 
+export type InstallGuide = { browser: string; steps: string[]; note?: string };
+
+/** Step-by-step install instructions for browsers that cannot open the install prompt from a button. */
+export function installGuide(): InstallGuide {
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+  const android = /Android/i.test(ua);
+  const edge = /EdgA?\/|Edg\//.test(ua);
+  const samsung = /SamsungBrowser/i.test(ua);
+  const opera = /OPR\/|OPiOS/i.test(ua);
+  const firefox = /Firefox|FxiOS/i.test(ua);
+  const chromeLike = /Chrome|CriOS/i.test(ua) && !edge && !samsung && !opera;
+  const safari = /Safari/i.test(ua) && !chromeLike && !edge && !samsung && !opera && !firefox;
+  if (ios) {
+    if (safari) return { browser: 'Safari', steps: ['Tap the **Share** button (the square with an arrow) at the bottom or top of the screen.', 'Scroll down and tap **Add to Home Screen**.', 'Tap **Add**.'] };
+    return { browser: 'this browser', steps: ['On iPhone and iPad, apps can only be installed from **Safari**. Open this page in Safari.', 'Tap the **Share** button.', 'Choose **Add to Home Screen**, then tap **Add**.'] };
+  }
+  if (firefox) {
+    return android
+      ? { browser: 'Firefox', steps: ['Tap the **⋮ menu** at the top right.', 'Tap **Install** (or **Add to Home screen**).', 'Confirm with **Add**.'] }
+      : { browser: 'Firefox', steps: ['Firefox on computers cannot install web apps.', 'Open this page in **Chrome** or **Edge** and use the Install button there.'] };
+  }
+  if (samsung) return { browser: 'Samsung Internet', steps: ['Tap the **menu** (three lines) at the bottom.', 'Tap **Add page to** then **Home screen** (or **Install app**).', 'Confirm with **Add**.'] };
+  if (opera) return { browser: 'Opera', steps: ['Tap the **⋮ menu**.', 'Choose **Home screen** (or **Install app**).', 'Confirm with **Add**.'] };
+  if (edge) return { browser: 'Edge', steps: android ? ['Tap the **⋯ menu** at the bottom.', 'Tap **Add to phone** (or **Install app**).', 'Confirm with **Add**.'] : ['Click the **⋯ menu** at the top right.', 'Choose **Apps** then **Install this site as an app**.', 'Click **Install**.'] };
+  if (safari) return { browser: 'Safari', steps: ['In the menu bar choose **File**, then **Add to Dock**.', 'Click **Add**.'] };
+  if (chromeLike) return { browser: 'Chrome', steps: android ? ['Tap the **⋮ menu** at the top right.', 'Tap **Install app** (or **Add to Home screen**).', 'Confirm with **Install**.'] : ['Click the **install icon** at the right end of the address bar, or open the **⋮ menu** and choose **Cast, save and share → Install page as app**.', 'Click **Install**.'] };
+  return { browser: 'your browser', steps: ['Open your browser menu.', 'Look for **Install app** or **Add to Home screen**.', 'If it is not there, open this page in Chrome, Edge or Safari.'] };
+}
+
 export function applyUpdate() {
   const waiting = registration?.waiting;
   if (!waiting) { window.location.reload(); return; }
