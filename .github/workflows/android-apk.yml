@@ -22,12 +22,14 @@ jobs:
         run: |
           if [ -z "$B64" ]; then echo "::error::ANDROID_KEYSTORE_B64 secret is missing. Add the 4 ANDROID_* secrets (Settings > Secrets and variables > Actions)."; exit 1; fi
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # The GitHub machine already has the Android SDK; only the licences need accepting.
+      - name: Accept Android SDK licences
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - uses: gradle/actions/setup-gradle@v4
         with:
