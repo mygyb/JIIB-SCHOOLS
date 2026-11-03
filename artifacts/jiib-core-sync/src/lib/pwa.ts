@@ -1,5 +1,5 @@
 // Install-as-app, update notices and reminders for J-SCHOOLS. Everything here is a no-op where the browser lacks support.
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -189,4 +189,27 @@ export async function remindAboutDeadline(deadline: string, noticeId: string, fo
     { tag: `jiib-deadline-${stage}`, url: '/marks' },
   );
   if (shown) { try { localStorage.setItem(key, '1'); } catch { /* storage unavailable */ } }
+}
+
+// ---- Android app (APK) download ---------------------------------------------------------------------
+
+export const APK_URL = '/downloads/J-SCHOOLS.apk';
+
+export function isAndroid(): boolean {
+  return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+}
+
+let apkCheck: Promise<boolean> | null = null;
+/** True on Android phones when the signed APK has been published with the website. */
+export function useApkAvailable(): boolean {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    if (!isAndroid()) return;
+    // The site answers unknown paths with the web page, so a real APK is told apart by its content type.
+    apkCheck ??= fetch(APK_URL, { method: 'HEAD', cache: 'no-store' })
+      .then((response) => response.ok && !(response.headers.get('content-type') ?? '').includes('text/html'))
+      .catch(() => false);
+    void apkCheck.then(setAvailable);
+  }, []);
+  return available;
 }
