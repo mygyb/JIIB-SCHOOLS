@@ -1,0 +1,65 @@
+name: Build Android app (APK)
+
+# Run it from the GitHub "Actions" tab (Run workflow). It signs the app, and adds J-SCHOOLS.apk to the website.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['android/**']
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check signing secrets
+        env:
+          B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$B64" ]; then echo "::error::ANDROID_KEYSTORE_B64 secret is missing. Add the 4 ANDROID_* secrets (Settings > Secrets and variables > Actions)."; exit 1; fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Decode signing key
+        env:
+          B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: echo "$B64" | base64 -d > "$RUNNER_TEMP/jschools.jks"
+
+      - name: Build signed APK
+        working-directory: android
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/jschools.jks
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          APP_VERSION_CODE: ${{ github.run_number }}
+        run: gradle --no-daemon assembleRelease
+
+      - name: Add the APK to the website
+        run: |
+          mkdir -p artifacts/jiib-core-sync/public/downloads
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/jiib-core-sync/public/downloads/J-SCHOOLS.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/jiib-core-sync/public/downloads/J-SCHOOLS.apk
+          git commit -m "Update J-SCHOOLS Android app (build ${{ github.run_number }})" || echo "No change"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: J-SCHOOLS-apk
+          path: android/app/build/outputs/apk/release/app-release.apk

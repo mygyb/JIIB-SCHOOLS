@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.jschools.app",
+      "sha256_cert_fingerprints": ["FD:74:9C:9A:43:73:67:E2:75:94:AC:58:AF:87:78:07:15:A9:5C:05:04:9E:EF:2B:23:73:DB:93:36:BD:A1:55"]
+    }
+  }
+]

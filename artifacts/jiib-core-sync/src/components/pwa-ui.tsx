@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, RefreshCw, X } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { applyUpdate, installApp, installGuide, isStandalone, shouldOfferInstall, snoozeInstall, usePwa } from '@/lib/pwa';
+import { APK_URL, applyUpdate, installApp, installGuide, useApkAvailable, isStandalone, shouldOfferInstall, snoozeInstall, usePwa } from '@/lib/pwa';
 
 /** Install sheet (offered when someone taps Log in on the website), "update ready" bar, and launch-screen fade-out. */
 export function PwaUi() {
@@ -70,11 +70,14 @@ export function PwaUi() {
 export function InstallButton({ className = '', testId }: { className?: string; testId: string }) {
   const pwa = usePwa();
   const [help, setHelp] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
+  const apk = useApkAvailable();
   const guide = installGuide();
+  const open = () => { setShowSteps(false); setHelp(true); };
   if (pwa.installed || isStandalone()) return null;
   return (
     <>
-      <button type="button" data-testid={testId} onClick={() => (pwa.canInstall ? void installApp() : setHelp(true))} className={`install-chip ${className}`}>
+      <button type="button" data-testid={testId} onClick={() => (apk || !pwa.canInstall ? open() : void installApp())} className={`install-chip ${className}`}>
         <Download size={14} aria-hidden="true" /> Install app
       </button>
       {help && (
@@ -84,10 +87,17 @@ export function InstallButton({ className = '', testId }: { className?: string; 
               <img src="/icons/icon-192.png" alt="" width={56} height={56} className="h-14 w-14 rounded-2xl" />
               <h2 id="install-help-title" className="text-lg font-semibold">Install J-SCHOOLS</h2>
             </div>
+            {apk && !showSteps ? <>
+              <p className="mt-4 text-sm text-slate-600">Get the Android app. It opens straight to login and updates itself with the system.</p>
+              <a href={APK_URL} download="J-SCHOOLS.apk" data-testid="link-download-apk" onClick={() => setHelp(false)} style={{ color: '#fff' }} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 text-sm font-semibold"><Download size={16} aria-hidden="true" /> Download Android app (APK)</a>
+              <p className="mt-2 text-xs text-slate-500">When the download finishes, open it. If your phone asks, allow installs from this browser, then tap Install.</p>
+              <button type="button" data-testid="button-install-from-browser" onClick={() => { if (pwa.canInstall) { setHelp(false); void installApp(); } else setShowSteps(true); }} className="mt-4 h-11 w-full rounded-xl border border-slate-300 text-sm font-semibold text-slate-700">Install from the browser instead</button>
+            </> : <>
             <p className="mt-4 text-sm text-slate-600">Your browser ({guide.browser}) installs apps from its own menu. Follow these steps:</p>
             <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
               {guide.steps.map((step) => <li key={step}>{step.split(/\*\*(.+?)\*\*/g).map((part, n) => (n % 2 ? <strong key={n}>{part}</strong> : part))}</li>)}
             </ol>
+            </>}
             <button type="button" onClick={() => setHelp(false)} className="mt-5 h-11 w-full rounded-xl bg-slate-900 text-sm font-semibold text-white">Got it</button>
           </div>
         </div>
