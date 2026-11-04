@@ -836,7 +836,7 @@ router.post("/schools/portfolio/messages", async (req, res) => {
         method: "POST",
         body: jsonBody({
           school_id: String(school.id),
-          sender_name: user.email ?? "JIIB system administrator",
+          sender_name: user.email ?? "J-SCHOOLS system administrator",
           sender_email: user.email ?? null,
           message: `[System administrator help] ${body.message}`,
           direction: "out",

@@ -35,7 +35,7 @@ function Brand({ light = false }: { light?: boolean }) {
   return (
     <span className={`jiib-brand${light ? ' jiib-brand--light' : ''}`}>
       <span className="jiib-brand-mark" aria-hidden="true"><GraduationCap size={22} strokeWidth={2.2} /></span>
-      <span className="jiib-brand-type"><strong>JIIB</strong><small>CORE SYNC</small></span>
+      <span className="jiib-brand-type"><strong>J-SCHOOLS</strong><small>SCHOOL SYSTEM</small></span>
     </span>
   );
 }
@@ -47,7 +47,7 @@ function SiteHeader() {
   return (
     <header className="site-header">
       <div className="site-header-inner">
-        <Link href="/" className="brand-link" aria-label="JIIB Core Sync home" data-testid="link-brand-home"><Brand /></Link>
+        <Link href="/" className="brand-link" aria-label="J-SCHOOLS home" data-testid="link-brand-home"><Brand /></Link>
         <InstallButton className="install-chip--header" testId="button-install-top" />
         <button
           className="mobile-menu-toggle"
@@ -76,7 +76,7 @@ function Footer() {
   return (
     <footer className="site-footer">
       <div className="footer-main">
-        <Link href="/" className="brand-link" aria-label="JIIB Core Sync home" data-testid="link-footer-brand"><Brand light /></Link>
+        <Link href="/" className="brand-link" aria-label="J-SCHOOLS home" data-testid="link-footer-brand"><Brand light /></Link>
         <p>More time for the work that matters at school.</p>
         <InstallButton className="install-chip--footer" testId="button-install-bottom" />
         <div className="footer-links">
@@ -85,7 +85,7 @@ function Footer() {
           <Link href="/signup" data-testid="link-footer-signup">Sign up</Link>
         </div>
       </div>
-      <div className="footer-bottom"><span onClick={secretTap}>JIIB Core Sync</span><span>Built for the everyday work of schools in Uganda.</span></div>
+      <div className="footer-bottom"><span onClick={secretTap}>J-SCHOOLS</span><span>Built for the everyday work of schools in Uganda.</span></div>
     </footer>
   );
 }
@@ -96,7 +96,7 @@ function SectionEyebrow({ children }: { children: string }) {
 
 export function LandingPage() {
   useEffect(() => {
-    document.title = 'JIIB Core Sync | A school day in sync';
+    document.title = 'J-SCHOOLS | A school day in sync';
 
     const sections = document.querySelectorAll<HTMLElement>('[data-reveal]');
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) {
@@ -153,7 +153,7 @@ export function LandingPage() {
         <div className="section-heading">
           <SectionEyebrow>Everything has its place</SectionEyebrow>
           <h2>Less chasing.<br /><em>More teaching.</em></h2>
-          <p>School information is most useful when it is where the team expects it. Core Sync gives staff a steady, shared view of the work across the term.</p>
+          <p>School information is most useful when it is where the team expects it. J-SCHOOLS gives staff a steady, shared view of the work across the term.</p>
         </div>
         <div className="workspace-grid">
           <article className="workspace-item workspace-item--wide" data-reveal>
@@ -238,7 +238,7 @@ export function LandingPage() {
           <details><summary>Who can request a staff account?<ChevronDown size={18} /></summary><p>Teachers and school administrators can request access using their school portal name. A system administrator must approve the request before the account can be used.</p></details>
           <details><summary>How do I find my school portal name?<ChevronDown size={18} /></summary><p>Ask your school administrator for the portal name, also called the school slug. It identifies the correct school workspace.</p></details>
           <details><summary>Can parents sign up here?<ChevronDown size={18} /></summary><p>This request form is for school staff only. The parent portal uses phone verification provided by the school.</p></details>
-          <details><summary>What does Core Sync help a school coordinate?<ChevronDown size={18} /></summary><p>Student enrolment, marks, family communication, academic terms and school operations—all in one shared workspace.</p></details>
+          <details><summary>What does J-SCHOOLS help a school coordinate?<ChevronDown size={18} /></summary><p>Student enrolment, marks, family communication, academic terms and school operations—all in one shared workspace.</p></details>
         </div>
       </section>
 
@@ -247,7 +247,7 @@ export function LandingPage() {
         <p className="final-kicker">A school runs on people working together.</p>
         <h2>Let the school day<br />move <em>in sync.</em></h2>
         <Link href="/signup" className="button" data-testid="link-final-signup">Request portal access <ArrowRight size={17} /></Link>
-        <p className="final-login">Already on Core Sync? <Link href="/login" data-testid="link-final-login">Log in here</Link></p>
+        <p className="final-login">Already on J-SCHOOLS? <Link href="/login" data-testid="link-final-login">Log in here</Link></p>
       </section>
       <Footer />
     </main>
@@ -267,7 +267,7 @@ export function PortalRequestPage({ onSubmit }: { onSubmit: (values: PortalReque
   const [validation, setValidation] = useState('');
 
   useEffect(() => {
-    document.title = 'Request portal access | JIIB Core Sync';
+    document.title = 'Request portal access | J-SCHOOLS';
   }, []);
 
   async function submitRequest(event: FormEvent<HTMLFormElement>) {
@@ -319,7 +319,7 @@ export function PortalRequestPage({ onSubmit }: { onSubmit: (values: PortalReque
             <p>Request a staff account for your school. Your system administrator will review your details before access is approved.</p>
           </div>
           <div className="request-assurance"><ShieldCheck size={19} /><span><strong>Access is reviewed</strong><small>Submitting a request does not grant immediate access.</small></span></div>
-          <div className="request-aside-footer">JIIB CORE SYNC <span>·</span> BUILT FOR SCHOOL TEAMS</div>
+          <div className="request-aside-footer">J-SCHOOLS <span>·</span> BUILT FOR SCHOOL TEAMS</div>
         </aside>
         <section className="request-form-area">
           <div className="request-card">
