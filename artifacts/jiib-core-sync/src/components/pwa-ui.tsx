@@ -54,12 +54,15 @@ export function PwaUi() {
         </div>
       )}
       {pwa.updateReady && (
-        <div role="alertdialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-banner" className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onKeyDown={(event) => event.stopPropagation()}>
-          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center text-slate-900 shadow-2xl">
-            <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 text-primary"><RefreshCw size={26} aria-hidden="true" /></div>
-            <h2 id="update-title" className="mt-4 text-lg font-bold">Update required</h2>
-            <p className="mt-2 text-sm text-slate-600">A new version of J-SCHOOLS is ready. Please update to continue. Marks you saved on this phone while offline are kept and will still be sent.</p>
-            <button type="button" autoFocus data-testid="button-update-now" onClick={applyUpdate} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground"><RefreshCw size={17} /> Update now</button>
+        <div role="alertdialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-banner" className="fixed inset-0 z-[10000] flex flex-col bg-white text-slate-900" onKeyDown={(event) => event.stopPropagation()}>
+          <h2 id="update-title" className="px-6 pt-10 text-center text-lg font-semibold text-primary">Update J-SCHOOLS</h2>
+          <div className="flex flex-1 items-center justify-center">
+            <div className="grid h-32 w-32 place-items-center rounded-full bg-primary text-primary-foreground" aria-hidden="true"><Download size={56} strokeWidth={2.5} /></div>
+          </div>
+          <div className="px-8 pb-10 text-center">
+            <p className="text-base">This version of J-SCHOOLS is <span className="font-bold">out of date</span>. Tap "Update" below to get the latest version.</p>
+            <p className="mt-5 text-xs text-slate-500">Marks you saved on this phone while offline are kept and will still be sent.</p>
+            <button type="button" autoFocus data-testid="button-update-now" onClick={applyUpdate} className="mt-8 h-12 rounded-full bg-primary px-12 text-base font-semibold text-primary-foreground">Update</button>
           </div>
         </div>
       )}
