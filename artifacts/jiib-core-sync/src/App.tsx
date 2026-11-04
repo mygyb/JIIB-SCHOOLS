@@ -1,6 +1,7 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation } from 'wouter';
+import { EmailField, ModeSwitch, PasswordField, PhoneField, SchoolPicker, readRememberedSchool, rememberSchool, type SchoolChoice } from '@/features/login-parts';
 import {
   Activity, Archive, LogIn, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
   ClipboardList, GraduationCap, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
@@ -47,7 +48,7 @@ import { MarksRegister } from '@/features/marks-register';
 
 const queryClient = new QueryClient();
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
-const DEFAULT_SCHOOL = { id: '00000000-0000-0000-0000-000000000000', name: 'JIIB Core Sync', slug: 'demo-school', active: true } as School;
+const DEFAULT_SCHOOL = { id: '00000000-0000-0000-0000-000000000000', name: 'J-SCHOOLS', slug: 'demo-school', active: true } as School;
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/students', label: 'Students', icon: UsersRound },
@@ -295,11 +296,13 @@ function MarksPage() {
 function SignIn() {
   const secretTap = useSecretTaps();
   useEffect(() => {
-    document.title = 'Log in | JIIB Core Sync';
+    document.title = 'Log in | J-SCHOOLS';
   }, []);
 
   const [, setLocation] = useLocation();
   const [slug, setSlug] = useState('');
+  const [choice, setChoice] = useState<SchoolChoice | null>(() => readRememberedSchool());
+  const effectiveSlug = (choice?.slug ?? slug).trim().toLowerCase();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [parentPhone, setParentPhone] = useState('');
@@ -308,8 +311,8 @@ function SignIn() {
   const [verifying, setVerifying] = useState(false);
   const [authError, setAuthError] = useState(() => takeSignOutNotice());
   const [accessToken, setAccessToken] = useState('');
-  const schoolQuery = useGetSchoolBySlug(slug.trim().toLowerCase(), {
-    query: { enabled: submitted && Boolean(slug.trim()), queryKey: getGetSchoolBySlugQueryKey(slug.trim().toLowerCase()) },
+  const schoolQuery = useGetSchoolBySlug(effectiveSlug, {
+    query: { enabled: submitted && Boolean(effectiveSlug), queryKey: getGetSchoolBySlugQueryKey(effectiveSlug) },
   });
   // Only a 404 means the slug is wrong; anything else (500, network error) is a server or connection problem.
   const schoolNotFound = (schoolQuery.error as { status?: number } | null)?.status === 404;
@@ -317,7 +320,10 @@ function SignIn() {
 
   const resolve = async (event: FormEvent) => {
     event.preventDefault();
-    if (!slug.trim() && role !== 'Super administrator') return;
+    if (!effectiveSlug && role !== 'Super administrator') {
+      setAuthError('Choose your school first.');
+      return;
+    }
     setAuthError('');
     if (role === 'Parent / guardian') {
       if (parentPhone.replace(/\D/g, '').length < 7) {
@@ -382,6 +388,7 @@ function SignIn() {
             `/api/schools/${encodeURIComponent(school.id)}/parents/portal?phone=${encodeURIComponent(parentPhone.trim())}`,
           );
           localStorage.setItem('jiib.school', JSON.stringify(school));
+          rememberSchool({ slug: school.slug, name: school.name });
           localStorage.setItem('jiib.role', 'Parent / guardian');
           localStorage.setItem('jiib.parentPhone', parentPhone.trim());
           localStorage.setItem('jiib.parentVerified', 'true');
@@ -424,15 +431,7 @@ function SignIn() {
         );
         const actualRole: 'School administrator' | 'Teacher' = allowed.role === 'admin' ? 'School administrator' : 'Teacher';
 
-        if (actualRole !== role) {
-          setAuthError(`This account is registered as a ${actualRole}. Please select "${actualRole}" above and sign in again.`);
-          await supabase?.auth.signOut();
-          clearAccountTheme();
-          setSubmitted(false);
-          setVerifying(false);
-          return;
-        }
-
+        rememberSchool({ slug: school.slug, name: school.name });
         localStorage.setItem('jiib.school', JSON.stringify(school));
         localStorage.setItem('jiib.role', actualRole);
         localStorage.setItem('jiib.userName', allowed.displayName || email.trim().split('@')[0]);
@@ -459,7 +458,7 @@ function SignIn() {
           <div className="absolute inset-0 app-grid opacity-[.12]" />
           <div className="relative z-10 flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#f3bb52] text-[#172b43]"><GraduationCap size={23} strokeWidth={2.5} /></div>
-            <div><div className="font-display text-xl font-semibold tracking-tight">JIIB</div><div className="text-[10px] uppercase tracking-[.24em] text-[#aebdca]">Core Sync</div></div>
+            <div><div className="font-display text-xl font-semibold tracking-tight">J-SCHOOLS</div><div className="text-[10px] uppercase tracking-[.24em] text-[#aebdca]">School system</div></div>
           </div>
           <div className="relative z-10 max-w-md">
             <p className="mb-5 text-xs font-semibold uppercase tracking-[.22em] text-[#f3bb52]">The school operating record</p>
@@ -476,27 +475,29 @@ function SignIn() {
           <div className="relative w-full max-w-[440px] fade-up">
             <div className="mb-10 flex items-center gap-3 lg:hidden">
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground"><GraduationCap size={22} /></div>
-              <div><div className="font-display text-xl font-semibold">JIIB</div><div className="text-[10px] uppercase tracking-[.24em] text-muted-foreground">Score-sync</div></div>
+              <div><div className="font-display text-xl font-semibold">J-SCHOOLS</div><div className="text-[10px] uppercase tracking-[.24em] text-muted-foreground">School system</div></div>
             </div>
             <div className="mb-9">
               <p className="mb-3 text-xs font-semibold uppercase tracking-[.2em] text-primary">Welcome back</p>
               <h2 onClick={secretTap} className="font-display text-4xl font-semibold tracking-[-.04em]">Open your school Portal.</h2>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">Resolve your school first, then continue to the right view for your role.</p>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">Sign in to continue to your school.</p>
             </div>
-              <form onSubmit={resolve} className="space-y-6">
-               {role !== 'Parent / guardian' && <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-sm font-semibold">Staff email</span><input data-testid="input-login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jii@school.com" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label><label className="block"><span className="mb-2 block text-sm font-semibold">Password</span><input data-testid="input-login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label></div>}
-              <label className="block"><span className="mb-2 block text-sm font-semibold">School slug</span><div className="flex items-center rounded-xl border border-input bg-card px-3 shadow-sm focus-within:ring-2 focus-within:ring-ring"><span className="text-sm text-muted-foreground">jiib.school/</span><input data-testid="input-school-slug" autoFocus value={slug} onChange={(e) => { setSlug(e.target.value); setSubmitted(false); }} placeholder="northbridge" className="h-12 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none" /></div></label>
-               {role === 'Parent / guardian' && <label className="block"><span className="mb-2 block text-sm font-semibold">Parent phone</span><input data-testid="input-parent-phone" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} placeholder="Phone number on the school register" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label>}
-              <label className="block"><span className="mb-2 block text-sm font-semibold">Continue as</span><select data-testid="select-role" value={role} onChange={(e) => setRole(e.target.value)} className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option>School administrator</option><option>Teacher</option><option>Parent / guardian</option></select></label>
+              <form onSubmit={resolve} className="space-y-5">
+                <ModeSwitch mode={role === 'Parent / guardian' ? 'parent' : 'staff'} onChange={(mode) => { setRole(mode === 'parent' ? 'Parent / guardian' : 'School administrator'); setAuthError(''); setSubmitted(false); }} />
+                <SchoolPicker choice={choice} text={slug} onText={(value) => { setSlug(value); setSubmitted(false); }} onChoose={(next) => { setChoice(next); setSubmitted(false); }} />
+                {role === 'Parent / guardian' ? <PhoneField value={parentPhone} onChange={setParentPhone} /> : <>
+                  <EmailField value={email} onChange={setEmail} autoFocus={Boolean(choice)} />
+                  <PasswordField value={password} onChange={setPassword} />
+                </>}
               {submitted && schoolQuery.isPending && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Looking up your school…</div>}
               {submitted && schoolQuery.isSuccess && verifying && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Verifying your account…</div>}
-              {submitted && schoolQuery.isError && <div data-testid="error-school-resolution" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{schoolNotFound ? 'We couldn’t find that school. Check the slug and try again.' : 'We couldn’t reach the server to look up your school. Please try again in a moment.'}</div>}
+              {submitted && schoolQuery.isError && <div data-testid="error-school-resolution" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{schoolNotFound ? 'We couldn’t find that school. Type its name and pick it from the list.' : 'We couldn’t reach the server to look up your school. Please try again in a moment.'}</div>}
                {authError && <div data-testid="error-login" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{authError}</div>}
               <button data-testid="button-open-workspace" className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90" type="submit">LOGIN <ArrowRight size={17} /></button>
             </form>
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-              <Link href="/" className="font-medium text-primary hover:underline">Back to JIIB Core Sync</Link>
-              <span>New to Core Sync? <Link href="/signup" className="font-semibold text-primary hover:underline">Sign up</Link></span>
+              <Link href="/" className="font-medium text-primary hover:underline">Back to J-SCHOOLS</Link>
+              <span>New to J-SCHOOLS? <Link href="/signup" className="font-semibold text-primary hover:underline">Sign up</Link></span>
             </div>
             <p className="mt-8 text-center text-xs leading-5 text-muted-foreground">© 2025 - 2026 System Developed by JIIB Technologies</p>
           </div>
@@ -635,7 +636,7 @@ function AppShell({ children }: { children: ReactNode }) {
       {open && <button aria-label="Close navigation" data-testid="button-close-mobile-nav" className="fixed inset-0 z-30 bg-[#172b43]/40 lg:hidden" onClick={() => setOpen(false)} />}
       <aside className={`${open ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-[76px]' : 'lg:w-[248px]'} fixed inset-y-0 left-0 z-40 flex w-[280px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-200 lg:relative lg:translate-x-0`}>
         <div className="flex h-[78px] items-center justify-between border-b border-sidebar-border px-5">
-          <Link href={isParent ? '/parent' : isSuperAdmin ? '/super-admin' : '/dashboard'} data-testid="link-brand" className={`flex items-center gap-3 ${collapsed ? 'lg:mx-auto' : ''}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"><GraduationCap size={21} /></span>{!collapsed && <span><span className="block font-display text-lg font-semibold tracking-tight">JIIB</span><span className="block text-[9px] uppercase tracking-[.22em] text-sidebar-foreground/60">Core Sync</span></span>}</Link>
+          <Link href={isParent ? '/parent' : isSuperAdmin ? '/super-admin' : '/dashboard'} data-testid="link-brand" className={`flex items-center gap-3 ${collapsed ? 'lg:mx-auto' : ''}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"><GraduationCap size={21} /></span>{!collapsed && <span><span className="block font-display text-lg font-semibold tracking-tight">J-SCHOOLS</span><span className="block text-[9px] uppercase tracking-[.22em] text-sidebar-foreground/60">School system</span></span>}</Link>
           <button data-testid="button-close-nav" onClick={() => { setCollapsed(!collapsed); setOpen(false); }} className="hidden rounded-lg p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:block">{collapsed ? <Menu size={17} /> : <PanelLeftClose size={17} />}</button>
         </div>
         <div className={`mx-3 mt-5 rounded-xl bg-sidebar-accent/70 p-3 ${collapsed ? 'lg:p-2' : ''}`}><div className="flex items-center gap-2.5"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary/15 text-xs font-bold text-sidebar-primary">{initials(school.name)}</span>{!collapsed && <div className="min-w-0"><p data-testid="text-active-school" className="truncate text-sm font-semibold">{school.name}</p><p className="mt-0.5 text-[10px] uppercase tracking-widest text-sidebar-foreground/50">Active school</p></div>}</div></div>
@@ -658,8 +659,8 @@ function AppShell({ children }: { children: ReactNode }) {
                 <div className="border-b border-border px-2 pb-3"><p className="truncate text-sm font-semibold">{userName}</p><p className="truncate text-xs text-muted-foreground">{accountEmail || role}</p><p className="mt-1 truncate text-xs text-muted-foreground">{school.name}</p></div>
                 {isTeacher && notificationsSupported() && notificationPermission() === 'default' && <button role="menuitem" type="button" data-testid="button-enable-reminders" onClick={async () => { await enableNotifications(); setProfileOpen(false); }} className="mt-2 flex w-full rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-muted">Turn on marks reminders</button>}
                 {!isSuperAdmin && !isParent && <Link role="menuitem" href="/account-settings" onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">Account settings</Link>}
-                {!isTeacher && <Link role="menuitem" href={isSuperAdmin ? '/support' : isParent ? '/parent-messages' : '/support'} onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isSuperAdmin ? 'Support inbox' : isParent ? 'Contact the school' : 'Contact JIIB support'}</Link>}
-                <p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">JIIB Core Sync · Version 8.2</p>
+                {!isTeacher && <Link role="menuitem" href={isSuperAdmin ? '/support' : isParent ? '/parent-messages' : '/support'} onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isSuperAdmin ? 'Support inbox' : isParent ? 'Contact the school' : 'Contact J-SCHOOLS support'}</Link>}
+                <p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">J-SCHOOLS · Version 8.2</p>
                 <button role="menuitem" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); clearAccountTheme(); setLocation('/'); }} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-destructive hover:bg-destructive/5"><LogOut size={14} /> Sign out</button>
               </div>}
             </div>
@@ -903,7 +904,7 @@ function SupportPage() {
         });
       }
       setDraft('');
-      setNotice(isSuperAdmin ? 'Reply sent to the school.' : 'Your request was sent to JIIB support.');
+      setNotice(isSuperAdmin ? 'Reply sent to the school.' : 'Your request was sent to J-SCHOOLS support.');
       await queryClient.invalidateQueries({ queryKey: supportQueryKey });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The message could not be sent.');
@@ -912,11 +913,11 @@ function SupportPage() {
   if (!isSuperAdmin && localStorage.getItem('jiib.role') !== 'School administrator') {
     return <div className="fade-up"><PageHeader eyebrow="Help" title="Contact support" description="This support area is available to school administrators and system administrators." /><EmptyState icon={ShieldCheck} title="Ask your school administrator" body="Your school administrator can send a support request to JIIB." /></div>;
   }
-  return <div className="fade-up"><PageHeader eyebrow={isSuperAdmin ? 'System support' : 'School support'} title={isSuperAdmin ? 'Support inbox' : 'Contact JIIB support'} description={isSuperAdmin ? 'Review requests from school administrators and send replies to the relevant school.' : 'Send a request to the JIIB support team and review replies.'} />
+  return <div className="fade-up"><PageHeader eyebrow={isSuperAdmin ? 'System support' : 'School support'} title={isSuperAdmin ? 'Support inbox' : 'Contact J-SCHOOLS support'} description={isSuperAdmin ? 'Review requests from school administrators and send replies to the relevant school.' : 'Send a request to the JIIB support team and review replies.'} />
     {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
     {notice && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
     <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
-      <section className="rounded-2xl border border-border bg-card p-5"><h3 className="font-display text-lg font-semibold">{isSuperAdmin ? 'Requests' : 'Support history'}</h3>{query.isLoading ? <p className="py-5 text-sm text-muted-foreground">Loading messages…</p> : query.isError ? <div className="py-5 text-sm text-destructive">Could not load messages. <button onClick={() => void query.refetch()} className="underline">Retry</button></div> : messages.length ? <div className="mt-4 space-y-2">{messages.map((item) => <button key={item.id} onClick={() => setSelectedId(item.id)} className={`w-full rounded-xl border p-3 text-left ${selected?.id === item.id ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/40'}`}><p className="text-sm font-semibold">{isSuperAdmin ? item.schoolName ?? item.senderName : item.direction === 'out' ? 'JIIB support' : 'You'}</p><p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.message.replace(/^\[system administrator help\]\s*/i, '')}</p><p className="mt-2 text-[10px] text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</p></button>)}</div> : <p className="py-5 text-sm text-muted-foreground">No messages yet.</p>}</section>
+      <section className="rounded-2xl border border-border bg-card p-5"><h3 className="font-display text-lg font-semibold">{isSuperAdmin ? 'Requests' : 'Support history'}</h3>{query.isLoading ? <p className="py-5 text-sm text-muted-foreground">Loading messages…</p> : query.isError ? <div className="py-5 text-sm text-destructive">Could not load messages. <button onClick={() => void query.refetch()} className="underline">Retry</button></div> : messages.length ? <div className="mt-4 space-y-2">{messages.map((item) => <button key={item.id} onClick={() => setSelectedId(item.id)} className={`w-full rounded-xl border p-3 text-left ${selected?.id === item.id ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/40'}`}><p className="text-sm font-semibold">{isSuperAdmin ? item.schoolName ?? item.senderName : item.direction === 'out' ? 'J-SCHOOLS support' : 'You'}</p><p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.message.replace(/^\[system administrator help\]\s*/i, '')}</p><p className="mt-2 text-[10px] text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</p></button>)}</div> : <p className="py-5 text-sm text-muted-foreground">No messages yet.</p>}</section>
       <section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><h3 className="font-display text-lg font-semibold">{isSuperAdmin ? selected ? `Reply to ${selected.schoolName ?? selected.senderName}` : 'Select a request' : 'Send a support request'}</h3>{isSuperAdmin && selected && <div className="mt-4 rounded-xl bg-muted/40 p-4 text-sm leading-6">{selected.message.replace(/^\[system administrator help\]\s*/i, '')}<p className="mt-2 text-xs text-muted-foreground">{selected.senderEmail || selected.senderName}</p></div>}<form onSubmit={(event) => void submit(event)}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={7} maxLength={5000} placeholder={isSuperAdmin ? 'Write a reply to this school…' : 'Describe the issue or question…'} className="mt-4 w-full resize-y rounded-xl border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" /><button disabled={!draft.trim() || (isSuperAdmin && !selected)} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Send size={15} /> {isSuperAdmin ? 'Send reply' : 'Send to support'}</button></form></section>
     </div>
   </div>;
@@ -1224,7 +1225,7 @@ function SettingsPage() {
   const school = useActiveSchool(); const qc = useQueryClient(); const config = useGetSchoolConfig(school.id, { query: { queryKey: getGetSchoolConfigQueryKey(school.id) } }); const update = useUpdateSchoolConfig(); const [saved, setSaved] = useState(false); const data = config.data?.data || {}; const initialSubjects = Array.isArray(data.subjects) ? data.subjects as string[] : ['English', 'Mathematics', 'Science', 'Social Studies']; const initialTerms = Array.isArray(data.terms) ? data.terms as string[] : ['2024 / 25 · Term 1', '2024 / 25 · Term 2', '2024 / 25 · Term 3']; const [subjects, setSubjects] = useState(initialSubjects); const [newSubject, setNewSubject] = useState('');
   const save = () => update.mutate({ schoolId: school.id, data: { data: { ...data, subjects, terms: initialTerms } } }, { onSuccess: (result) => { setSaved(true); qc.setQueryData(getGetSchoolConfigQueryKey(school.id), result); setTimeout(() => setSaved(false), 2200); } });
   return <div className="fade-up"><PageHeader eyebrow="Administration" title="School settings" description="Keep the school’s academic structure and access conventions in one place." action={<button data-testid="button-save-settings" onClick={save} disabled={update.isPending} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60">{update.isPending ? <Loader2 size={15} className="animate-spin" /> : saved ? <Check size={15} /> : null}{saved ? 'Saved' : 'Save changes'}</button>} />
-    {config.isLoading ? <div className="grid gap-5 lg:grid-cols-2"><SkeletonBlock className="h-72" /><SkeletonBlock className="h-72" /></div> : config.isError ? <ErrorState retry={() => config.refetch()} /> : <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]"><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><h3 className="font-display text-lg font-semibold">Academic structure</h3><p className="mt-1 text-sm text-muted-foreground">These values shape marks entry and reporting.</p><div className="mt-7"><p className="mb-3 text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Subjects</p><div className="flex flex-wrap gap-2">{subjects.map((item) => <span key={item} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs font-semibold">{item}<button data-testid={`button-remove-subject-${item}`} onClick={() => setSubjects(subjects.filter((subject) => subject !== item))} className="rounded-full text-muted-foreground hover:text-destructive"><X size={13} /></button></span>)}</div><div className="mt-4 flex gap-2"><input data-testid="input-new-subject" value={newSubject} onChange={(e) => setNewSubject(e.target.value)} placeholder="Add a subject" className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-subject" onClick={() => { if (newSubject.trim()) { setSubjects([...subjects, newSubject.trim()]); setNewSubject(''); } }} className="grid h-10 w-10 place-items-center rounded-lg border border-input bg-background hover:bg-muted"><Plus size={16} /></button></div></div><div className="mt-8"><p className="mb-3 text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Terms</p><div className="space-y-2">{initialTerms.map((item, index) => <div key={item} className={`flex items-center justify-between rounded-xl border p-3 text-sm ${index === 1 ? 'border-[#e4c66e] bg-[#fffaf0]' : 'border-border bg-muted/30'}`}><span className="font-semibold">{item}</span>{index === 1 && <span className="rounded-full bg-accent px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-accent-foreground">Current</span>}</div>)}</div></div></section><section className="space-y-5"><div className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-start justify-between"><div><h3 className="font-display text-lg font-semibold">School profile</h3><p className="mt-1 text-sm text-muted-foreground">Identity visible across Core Sync.</p></div><Building2 size={18} className="text-primary" /></div><div className="mt-6 space-y-4"><Field label="School name" value={school.name} onChange={() => undefined} testId="input-school-name" /><Field label="Workspace slug" value={school.slug} onChange={() => undefined} testId="input-school-slug-settings" /></div></div><div className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-start justify-between"><div><h3 className="font-display text-lg font-semibold">User access</h3><p className="mt-1 text-sm text-muted-foreground">Access controls for your school team.</p></div><ShieldCheck size={18} className="text-primary" /></div><div className="mt-5 space-y-3">{[['Amina Cole', 'School administrator', 'Active'], ['Jon Bell', 'Teacher', 'Active'], ['Mariam Diaz', 'Teacher', 'Invite pending']].map(([name, role, status]) => <div key={name} className="flex items-center gap-3 rounded-xl bg-muted/40 p-3"><span className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">{initials(name)}</span><div className="flex-1"><p className="text-sm font-semibold">{name}</p><p className="text-xs text-muted-foreground">{role}</p></div><span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{status}</span><button data-testid={`button-user-menu-${name.replace(' ', '-')}`} className="rounded-md p-1.5 hover:bg-background"><MoreHorizontal size={16} /></button></div>)}</div></div></section></div>}
+    {config.isLoading ? <div className="grid gap-5 lg:grid-cols-2"><SkeletonBlock className="h-72" /><SkeletonBlock className="h-72" /></div> : config.isError ? <ErrorState retry={() => config.refetch()} /> : <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]"><section className="rounded-2xl border border-border bg-card p-5 sm:p-6"><h3 className="font-display text-lg font-semibold">Academic structure</h3><p className="mt-1 text-sm text-muted-foreground">These values shape marks entry and reporting.</p><div className="mt-7"><p className="mb-3 text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Subjects</p><div className="flex flex-wrap gap-2">{subjects.map((item) => <span key={item} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs font-semibold">{item}<button data-testid={`button-remove-subject-${item}`} onClick={() => setSubjects(subjects.filter((subject) => subject !== item))} className="rounded-full text-muted-foreground hover:text-destructive"><X size={13} /></button></span>)}</div><div className="mt-4 flex gap-2"><input data-testid="input-new-subject" value={newSubject} onChange={(e) => setNewSubject(e.target.value)} placeholder="Add a subject" className="h-10 flex-1 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-subject" onClick={() => { if (newSubject.trim()) { setSubjects([...subjects, newSubject.trim()]); setNewSubject(''); } }} className="grid h-10 w-10 place-items-center rounded-lg border border-input bg-background hover:bg-muted"><Plus size={16} /></button></div></div><div className="mt-8"><p className="mb-3 text-xs font-bold uppercase tracking-[.15em] text-muted-foreground">Terms</p><div className="space-y-2">{initialTerms.map((item, index) => <div key={item} className={`flex items-center justify-between rounded-xl border p-3 text-sm ${index === 1 ? 'border-[#e4c66e] bg-[#fffaf0]' : 'border-border bg-muted/30'}`}><span className="font-semibold">{item}</span>{index === 1 && <span className="rounded-full bg-accent px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-accent-foreground">Current</span>}</div>)}</div></div></section><section className="space-y-5"><div className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-start justify-between"><div><h3 className="font-display text-lg font-semibold">School profile</h3><p className="mt-1 text-sm text-muted-foreground">Identity visible across J-SCHOOLS.</p></div><Building2 size={18} className="text-primary" /></div><div className="mt-6 space-y-4"><Field label="School name" value={school.name} onChange={() => undefined} testId="input-school-name" /><Field label="Workspace slug" value={school.slug} onChange={() => undefined} testId="input-school-slug-settings" /></div></div><div className="rounded-2xl border border-border bg-card p-5 sm:p-6"><div className="flex items-start justify-between"><div><h3 className="font-display text-lg font-semibold">User access</h3><p className="mt-1 text-sm text-muted-foreground">Access controls for your school team.</p></div><ShieldCheck size={18} className="text-primary" /></div><div className="mt-5 space-y-3">{[['Amina Cole', 'School administrator', 'Active'], ['Jon Bell', 'Teacher', 'Active'], ['Mariam Diaz', 'Teacher', 'Invite pending']].map(([name, role, status]) => <div key={name} className="flex items-center gap-3 rounded-xl bg-muted/40 p-3"><span className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">{initials(name)}</span><div className="flex-1"><p className="text-sm font-semibold">{name}</p><p className="text-xs text-muted-foreground">{role}</p></div><span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{status}</span><button data-testid={`button-user-menu-${name.replace(' ', '-')}`} className="rounded-md p-1.5 hover:bg-background"><MoreHorizontal size={16} /></button></div>)}</div></div></section></div>}
   </div>;
 }
 
