@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Download, RefreshCw, X } from 'lucide-react';
+import { Download, RefreshCw } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { APK_URL, applyUpdate, installApp, installGuide, useApkAvailable, isStandalone, shouldOfferInstall, snoozeInstall, usePwa } from '@/lib/pwa';
 
-/** Install sheet (offered when someone taps Log in on the website), "update ready" bar, and launch-screen fade-out. */
+/** Install sheet (offered when someone taps Log in on the website), required-update screen, and launch-screen fade-out. */
 export function PwaUi() {
   const pwa = usePwa();
   const [location, setLocation] = useLocation();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   // Fade the launch screen away once the app has drawn its first page.
   useEffect(() => {
@@ -54,12 +53,17 @@ export function PwaUi() {
           </div>
         </div>
       )}
-      {pwa.updateReady && !updateDismissed && (
-        <div role="status" data-testid="update-banner" className="fixed inset-x-3 bottom-3 z-[9000] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-border bg-card p-3 pl-4 text-card-foreground shadow-2xl">
-          <RefreshCw size={18} className="shrink-0 text-primary" aria-hidden="true" />
-          <p className="min-w-0 flex-1 text-sm"><span className="font-semibold">Update available.</span> A newer version of J-SCHOOLS is ready.</p>
-          <button type="button" data-testid="button-update-now" onClick={applyUpdate} className="h-9 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground">Update</button>
-          <button type="button" aria-label="Later" onClick={() => setUpdateDismissed(true)} className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X size={16} /></button>
+      {pwa.updateReady && (
+        <div role="alertdialog" aria-modal="true" aria-labelledby="update-title" data-testid="update-banner" className="fixed inset-0 z-[10000] flex flex-col bg-white text-slate-900" onKeyDown={(event) => event.stopPropagation()}>
+          <h2 id="update-title" className="px-6 pt-10 text-center text-lg font-semibold text-primary">Update J-SCHOOLS</h2>
+          <div className="flex flex-1 items-center justify-center">
+            <div className="grid h-32 w-32 place-items-center rounded-full bg-primary text-primary-foreground" aria-hidden="true"><Download size={56} strokeWidth={2.5} /></div>
+          </div>
+          <div className="px-8 pb-10 text-center">
+            <p className="text-base">This version of J-SCHOOLS is <span className="font-bold">out of date</span>. Tap "Update" below to get the latest version.</p>
+            <p className="mt-5 text-xs text-slate-500">Marks you saved on this phone while offline are kept and will still be sent.</p>
+            <button type="button" autoFocus data-testid="button-update-now" onClick={applyUpdate} className="mt-8 h-12 rounded-full bg-primary px-12 text-base font-semibold text-primary-foreground">Update</button>
+          </div>
         </div>
       )}
     </>
