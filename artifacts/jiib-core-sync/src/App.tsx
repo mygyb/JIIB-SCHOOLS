@@ -754,17 +754,6 @@ function Dashboard() {
           </div> : <div className="mt-5 grid min-h-40 place-items-center rounded-xl border border-dashed border-border px-4 text-center"><p className="max-w-xs text-sm leading-6 text-muted-foreground">{data.houses.length ? 'No students are currently counted in configured houses.' : 'No houses have been configured.'}</p></div>}
         </section>}
       </div>
-      {!isTeacher && <section aria-labelledby="recent-activity-title" data-testid="recent-activity" className="mt-5 rounded-2xl border border-border bg-card p-5 sm:p-6">
-        <div className="flex items-center justify-between"><div><h3 id="recent-activity-title" className="font-display text-lg font-semibold">Recent activity</h3><p className="mt-1 text-sm text-muted-foreground">Teacher logins and marks entered at your school.</p></div><Activity size={18} className="text-muted-foreground" /></div>
-        {data.recentActivity.length ? <ul className="mt-4 divide-y divide-border">{data.recentActivity.slice(0, 12).map((item) => {
-          const marks = String(item.id).startsWith('marks-');
-          return <li key={item.id} data-testid={`activity-${item.id}`} className="flex items-start gap-3 py-3">
-            <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full ${marks ? 'bg-emerald-500/15 text-emerald-600' : 'bg-primary/10 text-primary'}`}>{marks ? <ClipboardList size={15} aria-hidden="true" /> : <LogIn size={15} aria-hidden="true" />}</span>
-            <span className="min-w-0 flex-1"><span className="block text-sm font-medium leading-5">{item.label}</span>{item.detail && <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>}</span>
-            <span className="shrink-0 text-xs text-muted-foreground">{fmtWhen(item.createdAt)}</span>
-          </li>;
-        })}</ul> : <p className="mt-5 text-sm text-muted-foreground">No teacher activity yet. Logins and marks entries will appear here.</p>}
-      </section>}
       <section aria-labelledby="subject-chart-title" className="mt-5 rounded-2xl border border-border bg-card p-5 sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>

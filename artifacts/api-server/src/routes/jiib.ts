@@ -48,7 +48,7 @@ import {
   updateSupabaseAuthUser,
   valueOf,
 } from "../lib/supabase.js";
-import { logTeacherActivity, readSchoolActivity } from "../lib/activity.js";
+import { listSchoolActivity, logTeacherActivity } from "../lib/activity.js";
 import { accountIsBlocked, clientIp, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
 const router: IRouter = Router();
@@ -876,6 +876,18 @@ router.post("/schools/:schoolId/help-messages", async (req, res) => {
   }
 });
 
+// Teacher logins and marks entries for the school's System settings page (administrators only).
+router.get("/schools/:schoolId/activity", requireSchoolAdmin, async (req, res) => {
+  try {
+    res.json(await listSchoolActivity(req, String(req.params.schoolId), {
+      kind: req.query.kind === "login" || req.query.kind === "marks" ? req.query.kind : undefined,
+      days: Math.max(0, Math.min(3650, Number(req.query.days) || 0)),
+    }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 router.get("/schools/:schoolId/help-messages", async (req, res) => {
   try {
     const schoolId = String(req.params.schoolId);
@@ -1396,7 +1408,7 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
       assessmentFields,
       activeTerm: String(activeTerm.label ?? termKey),
       events,
-      recentActivity: res.locals.jiibRole === "teacher" ? [] : await readSchoolActivity(req, schoolId),
+      recentActivity: [],
     });
   } catch (error) {
     sendError(res, error);
