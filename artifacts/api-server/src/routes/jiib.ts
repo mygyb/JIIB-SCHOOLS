@@ -876,18 +876,6 @@ router.post("/schools/:schoolId/help-messages", async (req, res) => {
   }
 });
 
-// Teacher logins and marks entries for the school's System settings page (administrators only).
-router.get("/schools/:schoolId/activity", requireSchoolAdmin, async (req, res) => {
-  try {
-    res.json(await listSchoolActivity(req, String(req.params.schoolId), {
-      kind: req.query.kind === "login" || req.query.kind === "marks" ? req.query.kind : undefined,
-      days: Math.max(0, Math.min(3650, Number(req.query.days) || 0)),
-    }));
-  } catch (error) {
-    sendError(res, error);
-  }
-});
-
 router.get("/schools/:schoolId/help-messages", async (req, res) => {
   try {
     const schoolId = String(req.params.schoolId);
@@ -1015,6 +1003,18 @@ router.use("/schools/:schoolId", async (req, res, next) => {
     }
     if (email) req.headers["x-verified-user-email"] = email;
     next();
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// Teacher logins and marks entries for the school's System settings page (administrators only).
+router.get("/schools/:schoolId/activity", requireSchoolAdmin, async (req, res) => {
+  try {
+    res.json(await listSchoolActivity(req, String(req.params.schoolId), {
+      kind: req.query.kind === "login" || req.query.kind === "marks" ? req.query.kind : undefined,
+      days: Math.max(0, Math.min(3650, Number(req.query.days) || 0)),
+    }));
   } catch (error) {
     sendError(res, error);
   }
