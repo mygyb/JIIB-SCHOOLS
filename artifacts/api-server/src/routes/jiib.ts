@@ -1713,6 +1713,9 @@ router.get("/schools/:schoolId/marks", async (req, res) => {
   }
 });
 
+// Which score columns the database uses (aoi/midterm/end or c1/c2/c3); learned on the first save.
+let markColumnStyle: "aoi" | "c" | null = null;
+
 router.put("/schools/:schoolId/marks", async (req, res) => {
   try {
     const { schoolId } = UpsertMarkParams.parse(req.params);
@@ -1777,13 +1780,20 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
       }
     }
     const fields = activeAssessmentFields(config);
-    const scores = { c1: body.aoi ?? 0, c2: body.midterm ?? 0, c3: body.end ?? 0 };
-    const invalidScore = fields.find((field) => Number(scores[field.field]) > field.max);
+    // Only the boxes the teacher actually changed are written. An older app that sends every box still works.
+    const SCORE_KEYS = ["aoi", "midterm", "end"] as const;
+    const FIELD_OF = { aoi: "c1", midterm: "c2", end: "c3" } as const;
+    const sent = SCORE_KEYS.filter((key) => typeof body[key] === "number");
+    const touched = sent.length ? sent : [...SCORE_KEYS];
+    const incoming = { aoi: body.aoi ?? 0, midterm: body.midterm ?? 0, end: body.end ?? 0 };
+    const touchedFields = new Set<string>(touched.map((key) => FIELD_OF[key]));
+    const scores: Record<string, number> = { c1: incoming.aoi, c2: incoming.midterm, c3: incoming.end };
+    const invalidScore = fields.find((field) => touchedFields.has(field.field) && Number(scores[field.field]) > field.max);
     if (invalidScore) {
       res.status(400).json({ error: `${invalidScore.name} cannot be greater than ${invalidScore.max}.` });
       return;
     }
-    const enteredFields = Array.isArray(body.enteredFields)
+    const sentEntered = Array.isArray(body.enteredFields)
       ? body.enteredFields.filter((field) => fields.some((item) => item.field === field))
       : [];
     let rows: Array<Record<string, unknown>> = [];
@@ -1798,31 +1808,43 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
         updated_at: now,
         updated_by: req.header("x-user-email") ?? "app",
       };
-      const writeMarkRow = (scores: Record<string, number>) =>
-        supabaseRequest(
+      const enc = encodeURIComponent;
+      const rowFilter = `?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&student_id=eq.${enc(body.studentId)}&subject=eq.${enc(body.subject)}`;
+      const changed = (style: "aoi" | "c") =>
+        Object.fromEntries(touched.map((key) => [style === "aoi" ? key : FIELD_OF[key], incoming[key]]));
+      const patchRow = async (style: "aoi" | "c") => asRows(await supabaseRequest(
+        req,
+        "marks",
+        {
+          method: "PATCH",
+          headers: { Prefer: "return=representation" },
+          body: jsonBody({ class: studentClass, updated_at: now, updated_by: databaseMarkFields.updated_by, ...changed(style) }),
+        },
+        `${rowFilter}&select=*`,
+      ));
+      // Changes only the boxes that were typed in, so two people (or two quick saves) never wipe each other's boxes.
+      const writeScores = async (style: "aoi" | "c") => {
+        const patched = await patchRow(style);
+        if (patched[0]) return patched;
+        const blank = style === "aoi" ? { aoi: 0, midterm: 0, end: 0 } : { c1: 0, c2: 0, c3: 0 };
+        const created = asRows(await supabaseRequest(
           req,
           "marks",
-          {
-            method: "POST",
-            body: jsonBody({ ...databaseMarkFields, ...scores }),
-          },
+          { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" }, body: jsonBody({ ...databaseMarkFields, ...blank, ...changed(style) }) },
           "?on_conflict=school_id,term_key,student_id,subject&select=*",
-        );
+        ));
+        return created[0] ? created : patchRow(style); // someone created the row a moment earlier
+      };
       try {
-        rows = asRows(await writeMarkRow({
-          aoi: body.aoi ?? 0,
-          midterm: body.midterm ?? 0,
-          end: body.end ?? 0,
-        }));
+        rows = await writeScores(markColumnStyle ?? "aoi");
+        markColumnStyle ??= "aoi";
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
-        if (/Could not find the 'aoi' column of 'marks' in the schema cache/i.test(message)) {
+        markColumnStyle = null;
+        if (/Could not find the '(aoi|midterm|end)' column of 'marks' in the schema cache/i.test(message)) {
           try {
-            rows = asRows(await writeMarkRow({
-              c1: body.aoi ?? 0,
-              c2: body.midterm ?? 0,
-              c3: body.end ?? 0,
-            }));
+            rows = await writeScores("c");
+            markColumnStyle = "c";
           } catch (legacyError) {
             const legacyMessage = legacyError instanceof Error ? legacyError.message : "";
             const missingLegacyScoreColumn =
@@ -1842,28 +1864,46 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
     if (normalizedStudent && !rows[0] && !databaseSchemaFallback) {
       throw new Error("Mark was not saved. Check the signed-in account's database access.");
     }
-    const existingMarks = Array.isArray(term?.marks)
-      ? (term.marks as Array<Record<string, unknown>>)
+    // Re-read the school record right before writing it back, so a save made a moment ago by someone else is kept.
+    const freshConfig = await readSchoolConfig(req, schoolId);
+    const freshTerms = freshConfig.terms && typeof freshConfig.terms === "object"
+      ? (freshConfig.terms as Record<string, Record<string, unknown>>)
+      : {};
+    const freshTerm = freshTerms[termKey] ?? term;
+    const freshMarks = Array.isArray(freshTerm?.marks)
+      ? (freshTerm.marks as Array<Record<string, unknown>>)
       : [];
+    const previous = freshMarks.find(
+      (mark) => String(mark.studentId) === body.studentId && String(mark.subject) === body.subject,
+    );
+    const enteredFields = new Set<string>(Array.isArray(previous?.enteredFields) ? previous.enteredFields.map(String) : []);
+    for (const key of touched) {
+      const field = FIELD_OF[key];
+      if (sentEntered.includes(field)) enteredFields.add(field);
+      else enteredFields.delete(field);
+    }
+    const saved = rows[0] ? mapMark(rows[0]) : null;
+    const valueFor = (key: (typeof SCORE_KEYS)[number]) =>
+      saved?.[key] ?? (touched.includes(key) ? incoming[key] : Number(previous?.[key] ?? previous?.[FIELD_OF[key]] ?? 0));
     const nextMark = {
       studentId: body.studentId,
       subject: body.subject,
       class: studentClass,
-      aoi: body.aoi ?? 0,
-      midterm: body.midterm ?? 0,
-      end: body.end ?? 0,
-      enteredFields,
+      aoi: valueFor("aoi"),
+      midterm: valueFor("midterm"),
+      end: valueFor("end"),
+      enteredFields: [...enteredFields],
       updatedAt: now,
     };
     await writeSchoolConfig(req, schoolId, {
-      ...config,
-      activeTerm: config.activeTerm ?? termKey,
+      ...freshConfig,
+      activeTerm: freshConfig.activeTerm ?? termKey,
       terms: {
-        ...termMap,
+        ...freshTerms,
         [termKey]: {
-          ...(term ?? { label: termKey, students: [], locked: false }),
+          ...(freshTerm ?? { label: termKey, students: [], locked: false }),
           marks: [
-            ...existingMarks.filter(
+            ...freshMarks.filter(
               (mark) => !(String(mark.studentId) === body.studentId && String(mark.subject) === body.subject),
             ),
             nextMark,
@@ -1874,17 +1914,19 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
     if (res.locals.jiibRole === "teacher") {
       await logTeacherActivity(req, String(req.headers["x-verified-user-email"] ?? ""), schoolId, "marks", [body.subject, studentClass].filter(Boolean).join(" · "));
     }
-    res.json(mapMark(rows[0] ?? {
-      id: `${body.studentId}-${termKey}-${body.subject}`,
-      school_id: schoolId,
-      student_id: body.studentId,
-      term_key: termKey,
-      subject: body.subject,
-      aoi: nextMark.aoi,
-      midterm: nextMark.midterm,
-      end: nextMark.end,
-      enteredFields,
-    }));
+    res.json({
+      ...mapMark(rows[0] ?? {
+        id: `${body.studentId}-${termKey}-${body.subject}`,
+        school_id: schoolId,
+        student_id: body.studentId,
+        term_key: termKey,
+        subject: body.subject,
+        aoi: nextMark.aoi,
+        midterm: nextMark.midterm,
+        end: nextMark.end,
+      }),
+      enteredFields: nextMark.enteredFields,
+    });
   } catch (error) {
     sendError(res, error);
   }

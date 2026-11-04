@@ -5,12 +5,17 @@ export type PendingMark = {
   studentId: string;
   termKey: string;
   subject: string;
-  aoi: number;
-  midterm: number;
-  end: number;
+  // Only the boxes listed in `touched` were changed; the rest are left as they are on the server.
+  // Older saved items have no `touched` and carry all three boxes.
+  aoi?: number;
+  midterm?: number;
+  end?: number;
   enteredFields?: string[];
+  touched?: Array<"c1" | "c2" | "c3">;
   queuedAt: number;
 };
+
+const STORAGE_OF = { c1: "aoi", c2: "midterm", c3: "end" } as const;
 
 const QUEUE_KEY = "jiib.pendingMarks";
 
@@ -27,11 +32,28 @@ export function queueMark(mark: Omit<PendingMark, "queuedAt">) {
   const items = getPendingMarks();
   const key = (item: PendingMark) =>
     `${item.schoolId}|${item.termKey}|${item.studentId}|${item.subject}`;
-  const next = {
-    ...mark,
-    queuedAt: Date.now(),
-  };
-  const index = items.findIndex((item) => key(item) === key(next));
+  const index = items.findIndex((item) => key(item) === key({ ...mark, queuedAt: 0 }));
+  let next: PendingMark = { ...mark, queuedAt: Date.now() };
+  const existing = index >= 0 ? items[index] : undefined;
+  // Several boxes typed offline for the same student are kept together instead of replacing each other.
+  if (existing?.touched && mark.touched) {
+    const entered = new Set(existing.enteredFields ?? []);
+    for (const field of mark.touched) {
+      if (mark.enteredFields?.includes(field)) entered.add(field);
+      else entered.delete(field);
+    }
+    next = {
+      ...existing,
+      ...mark,
+      touched: [...new Set([...existing.touched, ...mark.touched])],
+      enteredFields: [...entered],
+      queuedAt: Date.now(),
+    };
+    for (const field of existing.touched) {
+      const name = STORAGE_OF[field];
+      if (!mark.touched.includes(field) && existing[name] !== undefined) next[name] = existing[name];
+    }
+  }
   if (index >= 0) items[index] = next;
   else items.push(next);
   localStorage.setItem(QUEUE_KEY, JSON.stringify(items));
@@ -51,9 +73,10 @@ export async function flushPendingMarks() {
           studentId: item.studentId,
           termKey: item.termKey,
           subject: item.subject,
-          aoi: item.aoi,
-          midterm: item.midterm,
-          end: item.end,
+          // Send only the boxes that were changed (older saved items send all three).
+          ...(!item.touched || item.touched.includes("c1") ? { aoi: item.aoi ?? 0 } : {}),
+          ...(!item.touched || item.touched.includes("c2") ? { midterm: item.midterm ?? 0 } : {}),
+          ...(!item.touched || item.touched.includes("c3") ? { end: item.end ?? 0 } : {}),
           enteredFields: item.enteredFields ?? [],
         }),
       },
