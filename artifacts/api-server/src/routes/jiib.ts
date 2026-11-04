@@ -2700,6 +2700,37 @@ router.post("/schools/:schoolId/promote", async (req, res) => {
       ? (config.terms as Record<string, Record<string, unknown>>)
       : {};
     const term = terms[termKey];
+    // Students saved only in the school's settings (e.g. brought over from the old system) have no database row yet.
+    // Create it now, already in the new class, so they are promoted like everyone else.
+    if (termKey && term && Array.isArray(term.students)) {
+      const inDatabase = new Set(studentRows.map((row) => String(row.id)));
+      for (const legacy of term.students as Array<Record<string, unknown>>) {
+        const legacyId = String(legacy.id ?? "");
+        if (!legacyId || inDatabase.has(legacyId)) continue;
+        if (String(legacy.class ?? legacy.className ?? "") !== body.fromClass) continue;
+        const created = asRows(
+          await supabaseRequest(
+            req,
+            "students",
+            {
+              method: "POST",
+              body: jsonBody({
+                school_id: schoolId,
+                term_key: termKey,
+                id: legacyId,
+                name: String(legacy.name ?? ""),
+                class: body.toClass,
+                house: String(legacy.house ?? ""),
+                parent_phone: String(legacy.parentPhone ?? legacy.parent_phone ?? "") || null,
+                updated_at: new Date().toISOString(),
+              }),
+            },
+            "?on_conflict=id,school_id,term_key&select=*",
+          ),
+        );
+        if (created[0]) results.push(mapStudent(created[0]));
+      }
+    }
     if (term && Array.isArray(term.students)) {
       const assignments = body.assignments ?? {};
       await writeSchoolConfig(req, schoolId, {
