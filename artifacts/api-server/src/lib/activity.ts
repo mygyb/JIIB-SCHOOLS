@@ -32,19 +32,17 @@ export async function logTeacherActivity(req: Request, email: string, schoolId: 
   } catch { /* the activity table comes from supabase/activity-setup.sql */ }
 }
 
-export async function readSchoolActivity(req: Request, schoolId: string) {
-  try {
-    const rows = asRows(await supabaseRequest(
-      req, "jsa_activity", {},
-      `?school_id=eq.${encodeURIComponent(schoolId)}&select=*&order=at.desc&limit=30`,
-    ));
-    return rows.map((row) => ({
-      id: `${row.kind === "marks" ? "marks" : "login"}-${String(row.id)}`,
-      label: row.kind === "marks" ? `${String(row.user_name)} entered marks` : `${String(row.user_name)} logged in`,
-      detail: String(row.detail ?? ""),
-      createdAt: new Date(String(row.at)),
-    }));
-  } catch {
-    return [];
-  }
+export async function listSchoolActivity(req: Request, schoolId: string, filter: { kind?: Kind; days?: number }) {
+  const parts = [`school_id=eq.${encodeURIComponent(schoolId)}`];
+  if (filter.kind) parts.push(`kind=eq.${filter.kind}`);
+  if (filter.days) parts.push(`at=gte.${encodeURIComponent(new Date(Date.now() - filter.days * 86_400_000).toISOString())}`);
+  const rows = asRows(await supabaseRequest(req, "jsa_activity", {}, `?${parts.join("&")}&select=*&order=at.desc&limit=500`));
+  return rows.map((row) => ({
+    id: String(row.id),
+    kind: row.kind === "marks" ? "marks" : "login",
+    userName: String(row.user_name ?? row.user_email ?? ""),
+    userEmail: String(row.user_email ?? ""),
+    detail: String(row.detail ?? ""),
+    at: String(row.at),
+  }));
 }
