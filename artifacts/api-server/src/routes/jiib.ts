@@ -1559,7 +1559,7 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
     if (body.className !== undefined) update.class = body.className;
     if (body.house !== undefined) update.house = body.house;
     if (body.parentPhone !== undefined) update.parent_phone = body.parentPhone;
-    const rows = asRows(
+    let rows = asRows(
       await supabaseRequest(
         req,
         "students",
@@ -1568,8 +1568,40 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
       ),
     );
     if (!rows[0]) {
-      res.status(404).json({ error: "Student not found" });
-      return;
+      // The student list also shows students that only exist in the school's saved settings (e.g. brought over from the
+      // old system). Create their database row now, from that saved copy plus the edits, so the edit can be saved.
+      const legacyTerms = config.terms && typeof config.terms === "object"
+        ? (config.terms as Record<string, Record<string, unknown>>)
+        : {};
+      const legacyList = Array.isArray(legacyTerms[termKey]?.students)
+        ? (legacyTerms[termKey].students as Array<Record<string, unknown>>)
+        : [];
+      const legacy = legacyList.find((student) => String(student.id) === studentId);
+      if (!legacy) {
+        res.status(404).json({ error: "Student not found" });
+        return;
+      }
+      rows = asRows(
+        await supabaseRequest(
+          req,
+          "students",
+          {
+            method: "POST",
+            body: jsonBody({
+              school_id: schoolId,
+              term_key: termKey,
+              id: studentId,
+              name: body.name ?? String(legacy.name ?? ""),
+              class: body.className ?? String(legacy.class ?? legacy.className ?? ""),
+              house: body.house ?? String(legacy.house ?? ""),
+              parent_phone: body.parentPhone !== undefined ? body.parentPhone : (String(legacy.parentPhone ?? legacy.parent_phone ?? "") || null),
+              updated_at: new Date().toISOString(),
+            }),
+          },
+          "?on_conflict=id,school_id,term_key&select=*",
+        ),
+      );
+      if (!rows[0]) throw new Error("Student was not saved. Check the signed-in account's database access.");
     }
     const terms = config.terms && typeof config.terms === "object"
       ? (config.terms as Record<string, Record<string, unknown>>)
