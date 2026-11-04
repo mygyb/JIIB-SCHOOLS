@@ -49,7 +49,7 @@ import {
   valueOf,
 } from "../lib/supabase.js";
 import { logTeacherActivity, readSchoolActivity } from "../lib/activity.js";
-import { accountIsBlocked, verifySuperAdmin } from "../lib/hq.js";
+import { accountIsBlocked, clientIp, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
 const router: IRouter = Router();
 
@@ -452,6 +452,27 @@ router.get("/schools/by-slug/:slug", async (req, res) => {
       return;
     }
     res.json(mapSchool(rows[0]));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// Lets the login page find a school by name. Only the name, short code and logo are returned, a few at a time.
+router.get("/schools/search", async (req, res) => {
+  try {
+    if (tooManyAttempts(`school-search:${clientIp(req)}`, 60, 60_000)) {
+      res.status(429).json({ error: "Too many searches. Please wait a moment." });
+      return;
+    }
+    const q = String(req.query.q ?? "").replace(/[*%,()\\]/g, " ").trim().slice(0, 40);
+    if (q.length < 2) {
+      res.json([]);
+      return;
+    }
+    const rows = asRows(
+      await supabaseRequest(req, "schools", {}, `?name=ilike.${encodeURIComponent(`*${q}*`)}&active=eq.true&select=name,slug,logo_url&order=name.asc&limit=6`),
+    );
+    res.json(rows.map((row) => ({ name: String(row.name ?? ""), slug: String(row.slug ?? ""), logoUrl: (row.logo_url as string | null) ?? null })));
   } catch (error) {
     sendError(res, error);
   }

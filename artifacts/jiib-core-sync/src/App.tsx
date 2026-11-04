@@ -1,6 +1,7 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation } from 'wouter';
+import { EmailField, ModeSwitch, PasswordField, PhoneField, SchoolPicker, readRememberedSchool, rememberSchool, type SchoolChoice } from '@/features/login-parts';
 import {
   Activity, Archive, LogIn, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
   ClipboardList, GraduationCap, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
@@ -300,6 +301,8 @@ function SignIn() {
 
   const [, setLocation] = useLocation();
   const [slug, setSlug] = useState('');
+  const [choice, setChoice] = useState<SchoolChoice | null>(() => readRememberedSchool());
+  const effectiveSlug = (choice?.slug ?? slug).trim().toLowerCase();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [parentPhone, setParentPhone] = useState('');
@@ -308,8 +311,8 @@ function SignIn() {
   const [verifying, setVerifying] = useState(false);
   const [authError, setAuthError] = useState(() => takeSignOutNotice());
   const [accessToken, setAccessToken] = useState('');
-  const schoolQuery = useGetSchoolBySlug(slug.trim().toLowerCase(), {
-    query: { enabled: submitted && Boolean(slug.trim()), queryKey: getGetSchoolBySlugQueryKey(slug.trim().toLowerCase()) },
+  const schoolQuery = useGetSchoolBySlug(effectiveSlug, {
+    query: { enabled: submitted && Boolean(effectiveSlug), queryKey: getGetSchoolBySlugQueryKey(effectiveSlug) },
   });
   // Only a 404 means the slug is wrong; anything else (500, network error) is a server or connection problem.
   const schoolNotFound = (schoolQuery.error as { status?: number } | null)?.status === 404;
@@ -317,7 +320,10 @@ function SignIn() {
 
   const resolve = async (event: FormEvent) => {
     event.preventDefault();
-    if (!slug.trim() && role !== 'Super administrator') return;
+    if (!effectiveSlug && role !== 'Super administrator') {
+      setAuthError('Choose your school first.');
+      return;
+    }
     setAuthError('');
     if (role === 'Parent / guardian') {
       if (parentPhone.replace(/\D/g, '').length < 7) {
@@ -382,6 +388,7 @@ function SignIn() {
             `/api/schools/${encodeURIComponent(school.id)}/parents/portal?phone=${encodeURIComponent(parentPhone.trim())}`,
           );
           localStorage.setItem('jiib.school', JSON.stringify(school));
+          rememberSchool({ slug: school.slug, name: school.name });
           localStorage.setItem('jiib.role', 'Parent / guardian');
           localStorage.setItem('jiib.parentPhone', parentPhone.trim());
           localStorage.setItem('jiib.parentVerified', 'true');
@@ -424,15 +431,7 @@ function SignIn() {
         );
         const actualRole: 'School administrator' | 'Teacher' = allowed.role === 'admin' ? 'School administrator' : 'Teacher';
 
-        if (actualRole !== role) {
-          setAuthError(`This account is registered as a ${actualRole}. Please select "${actualRole}" above and sign in again.`);
-          await supabase?.auth.signOut();
-          clearAccountTheme();
-          setSubmitted(false);
-          setVerifying(false);
-          return;
-        }
-
+        rememberSchool({ slug: school.slug, name: school.name });
         localStorage.setItem('jiib.school', JSON.stringify(school));
         localStorage.setItem('jiib.role', actualRole);
         localStorage.setItem('jiib.userName', allowed.displayName || email.trim().split('@')[0]);
@@ -481,16 +480,18 @@ function SignIn() {
             <div className="mb-9">
               <p className="mb-3 text-xs font-semibold uppercase tracking-[.2em] text-primary">Welcome back</p>
               <h2 onClick={secretTap} className="font-display text-4xl font-semibold tracking-[-.04em]">Open your school Portal.</h2>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">Resolve your school first, then continue to the right view for your role.</p>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">Sign in to continue to your school.</p>
             </div>
-              <form onSubmit={resolve} className="space-y-6">
-               {role !== 'Parent / guardian' && <div className="grid gap-4 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-sm font-semibold">Staff email</span><input data-testid="input-login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jii@school.com" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label><label className="block"><span className="mb-2 block text-sm font-semibold">Password</span><input data-testid="input-login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label></div>}
-              <label className="block"><span className="mb-2 block text-sm font-semibold">School slug</span><div className="flex items-center rounded-xl border border-input bg-card px-3 shadow-sm focus-within:ring-2 focus-within:ring-ring"><span className="text-sm text-muted-foreground">jiib.school/</span><input data-testid="input-school-slug" autoFocus value={slug} onChange={(e) => { setSlug(e.target.value); setSubmitted(false); }} placeholder="northbridge" className="h-12 min-w-0 flex-1 bg-transparent px-1 text-sm outline-none" /></div></label>
-               {role === 'Parent / guardian' && <label className="block"><span className="mb-2 block text-sm font-semibold">Parent phone</span><input data-testid="input-parent-phone" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} placeholder="Phone number on the school register" className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></label>}
-              <label className="block"><span className="mb-2 block text-sm font-semibold">Continue as</span><select data-testid="select-role" value={role} onChange={(e) => setRole(e.target.value)} className="h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option>School administrator</option><option>Teacher</option><option>Parent / guardian</option></select></label>
+              <form onSubmit={resolve} className="space-y-5">
+                <ModeSwitch mode={role === 'Parent / guardian' ? 'parent' : 'staff'} onChange={(mode) => { setRole(mode === 'parent' ? 'Parent / guardian' : 'School administrator'); setAuthError(''); setSubmitted(false); }} />
+                <SchoolPicker choice={choice} text={slug} onText={(value) => { setSlug(value); setSubmitted(false); }} onChoose={(next) => { setChoice(next); setSubmitted(false); }} />
+                {role === 'Parent / guardian' ? <PhoneField value={parentPhone} onChange={setParentPhone} /> : <>
+                  <EmailField value={email} onChange={setEmail} autoFocus={Boolean(choice)} />
+                  <PasswordField value={password} onChange={setPassword} />
+                </>}
               {submitted && schoolQuery.isPending && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Looking up your school…</div>}
               {submitted && schoolQuery.isSuccess && verifying && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={15} className="animate-spin" /> Verifying your account…</div>}
-              {submitted && schoolQuery.isError && <div data-testid="error-school-resolution" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{schoolNotFound ? 'We couldn’t find that school. Check the slug and try again.' : 'We couldn’t reach the server to look up your school. Please try again in a moment.'}</div>}
+              {submitted && schoolQuery.isError && <div data-testid="error-school-resolution" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{schoolNotFound ? 'We couldn’t find that school. Type its name and pick it from the list.' : 'We couldn’t reach the server to look up your school. Please try again in a moment.'}</div>}
                {authError && <div data-testid="error-login" className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{authError}</div>}
               <button data-testid="button-open-workspace" className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground shadow-sm transition hover:-translate-y-0.5 hover:bg-primary/90" type="submit">LOGIN <ArrowRight size={17} /></button>
             </form>
