@@ -5,7 +5,7 @@ const ASSET_CACHE = "j-schools-assets";
 const SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
-  // No skipWaiting here: the app shows "Update available" and the user chooses when to switch.
+  // No skipWaiting here: the app shows a required-update screen and switches when the user taps Update.
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL)).catch(() => undefined));
 });
 
