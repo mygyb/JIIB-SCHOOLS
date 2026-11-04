@@ -132,10 +132,11 @@ export function registerPwa() {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
       registration = reg;
       watchForUpdate(reg);
-      // Look for a new release when the phone comes back online, when the app is reopened, and every 30 minutes.
+      // Look for a new release when the phone comes back online, when the app is reopened, and every minute.
       window.addEventListener('online', checkForUpdate);
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
-      window.setInterval(checkForUpdate, 30 * 60_000);
+      window.addEventListener('focus', checkForUpdate);
+      window.setInterval(checkForUpdate, 60_000);
     }).catch(() => undefined);
   });
 }

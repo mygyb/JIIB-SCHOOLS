@@ -1452,9 +1452,8 @@ router.get("/schools/:schoolId/students", async (req, res) => {
         house: student.house || String(legacy?.house ?? ""),
         parentPhone: student.parentPhone || String(legacy?.parentPhone ?? legacy?.parent_phone ?? "") || null,
         badges: student.badges.length ? student.badges : Array.isArray(legacy?.badges) ? legacy.badges.map(String) : [],
-        subjects: student.subjects?.length
-          ? student.subjects
-          : Array.isArray(legacy?.subjects) ? legacy.subjects.map(String) : [],
+        // The saved-settings copy is what the edit page writes, so it wins; the table's own list is the fallback.
+        subjects: Array.isArray(legacy?.subjects) ? legacy.subjects.map(String) : (student.subjects ?? []),
       });
     }
     for (const legacy of legacyStudents) {
