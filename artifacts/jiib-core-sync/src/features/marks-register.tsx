@@ -56,6 +56,7 @@ export function MarksRegister({ school }: { school: School }) {
   const [error, setError] = useState("");
   const [fieldSaveStates, setFieldSaveStates] = useState<Record<string, "saved" | "unsaved">>({});
   const saveVersions = useRef<Record<string, number>>({});
+  const saveChain = useRef(new Map<string, Promise<void>>());
   const pendingSyncKeys = useRef(new Map<string, { markKey: string; hasValue: boolean }>());
   const configQuery = useGetSchoolConfig(school.id, {
     query: { queryKey: getGetSchoolConfigQueryKey(school.id) },
@@ -178,7 +179,22 @@ export function MarksRegister({ school }: { school: School }) {
       item.schoolId === school.id && item.studentId === studentId &&
       item.termKey === selectedTerm && item.subject === selectedSubject,
     );
-    return queued ?? marks.find((mark) => mark.studentId === studentId && mark.subject === selectedSubject);
+    const saved = marks.find((mark) => mark.studentId === studentId && mark.subject === selectedSubject);
+    if (!queued) return saved;
+    if (!queued.touched) return queued as unknown as typeof saved; // older saved item: it holds every box
+    // Show what the server has, with the boxes typed while offline on top.
+    const entered = new Set(saved?.enteredFields ?? []);
+    for (const field of queued.touched) {
+      if (queued.enteredFields?.includes(field)) entered.add(field);
+      else entered.delete(field);
+    }
+    return {
+      ...(saved ?? { id: `${studentId}-${selectedTerm}-${selectedSubject}`, schoolId: school.id, studentId, termKey: selectedTerm, subject: selectedSubject, aoi: 0, midterm: 0, end: 0 }),
+      aoi: queued.touched.includes("c1") ? queued.aoi ?? 0 : saved?.aoi ?? 0,
+      midterm: queued.touched.includes("c2") ? queued.midterm ?? 0 : saved?.midterm ?? 0,
+      end: queued.touched.includes("c3") ? queued.end ?? 0 : saved?.end ?? 0,
+      enteredFields: [...entered],
+    };
   };
 
   // Enter / "Next" on the phone keypad jumps to the next mark box (down the list, box by box).
@@ -210,27 +226,19 @@ export function MarksRegister({ school }: { school: School }) {
     const saveVersion = (saveVersions.current[fieldKey] ?? 0) + 1;
     saveVersions.current[fieldKey] = saveVersion;
     setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" }));
-    const existing = getMark(student.id);
-    const nextEnteredFields = new Set(existing?.enteredFields ?? []);
-    if (value === null) nextEnteredFields.delete(field.field);
-    else nextEnteredFields.add(field.field);
-    const values = {
-      aoi: existing?.aoi ?? 0,
-      midterm: existing?.midterm ?? 0,
-      end: existing?.end ?? 0,
-    };
-    const storageField = { c1: "aoi", c2: "midterm", c3: "end" }[field.field] as keyof typeof values;
-    values[storageField] = value ?? 0;
+    // Only the box that was changed is sent, so other boxes (even ones another teacher just entered) are never overwritten.
+    const storageField = { c1: "aoi", c2: "midterm", c3: "end" }[field.field] as "aoi" | "midterm" | "end";
     const payload = {
       studentId: student.id,
       termKey: selectedTerm,
       subject: selectedSubject,
-      ...values,
-      enteredFields: Array.from(nextEnteredFields),
+      [storageField]: value ?? 0,
+      enteredFields: value === null ? [] : [field.field],
     };
+    const touched = [field.field as "c1" | "c2" | "c3"];
     setError("");
     if (!navigator.onLine) {
-      const next = queueMark({ schoolId: school.id, ...payload });
+      const next = queueMark({ schoolId: school.id, ...payload, touched });
       setPendingMarks(next.filter((item) => item.schoolId === school.id));
       pendingSyncKeys.current.set(fieldKey, {
         markKey: `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}`,
@@ -239,42 +247,46 @@ export function MarksRegister({ school }: { school: School }) {
       window.dispatchEvent(new Event("jiib:sync"));
       return;
     }
-    upsert.mutate(
-      { schoolId: school.id, data: payload },
-      {
-        onSuccess: async () => {
-          if (saveVersions.current[fieldKey] === saveVersion) {
-            setFieldSaveStates((current) => ({ ...current, [fieldKey]: value === null ? "unsaved" : "saved" }));
-          }
-          await queryClient.invalidateQueries({
-            queryKey: getListMarksQueryKey(school.id, {
-              termKey: selectedTerm,
-              className: className || undefined,
-              subject: selectedSubject || undefined,
-            }),
+    // Saves for the same student and subject go one after another, in the order they were typed, and each one
+    // reports its own result (a plain `mutate` only reports the latest one, which could hide a failed save).
+    const rowKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}`;
+    const run = async () => {
+      try {
+        await upsert.mutateAsync({ schoolId: school.id, data: payload });
+
+        if (saveVersions.current[fieldKey] === saveVersion) {
+          setFieldSaveStates((current) => ({ ...current, [fieldKey]: value === null ? "unsaved" : "saved" }));
+        }
+        await queryClient.invalidateQueries({
+          queryKey: getListMarksQueryKey(school.id, {
+            termKey: selectedTerm,
+            className: className || undefined,
+            subject: selectedSubject || undefined,
+          }),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: getGetDashboardSummaryQueryKey(school.id),
+        });
+        localStorage.setItem("jiib.lastSyncAt", new Date().toISOString());
+      } catch (cause) {
+
+        if (!navigator.onLine) {
+          const next = queueMark({ schoolId: school.id, ...payload, touched });
+          setPendingMarks(next.filter((item) => item.schoolId === school.id));
+          pendingSyncKeys.current.set(fieldKey, {
+            markKey: `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}`,
+            hasValue: value !== null,
           });
-          await queryClient.invalidateQueries({
-            queryKey: getGetDashboardSummaryQueryKey(school.id),
-          });
-          localStorage.setItem("jiib.lastSyncAt", new Date().toISOString());
-        },
-        onError: (cause) => {
-          if (!navigator.onLine) {
-            const next = queueMark({ schoolId: school.id, ...payload });
-            setPendingMarks(next.filter((item) => item.schoolId === school.id));
-            pendingSyncKeys.current.set(fieldKey, {
-              markKey: `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}`,
-              hasValue: value !== null,
-            });
-          } else {
-            setError(cause instanceof Error ? cause.message : "This mark could not be saved.");
-          }
-          if (saveVersions.current[fieldKey] === saveVersion) {
-            setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" }));
-          }
-        },
-      },
-    );
+        } else {
+          setError(cause instanceof Error ? cause.message : "This mark could not be saved.");
+        }
+        if (saveVersions.current[fieldKey] === saveVersion) {
+          setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" }));
+        }
+      }
+    };
+    const chained = (saveChain.current.get(rowKey) ?? Promise.resolve()).then(run);
+    saveChain.current.set(rowKey, chained);
   };
 
   const clearTerm = async () => {
