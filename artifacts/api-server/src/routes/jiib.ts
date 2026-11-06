@@ -49,6 +49,7 @@ import {
   valueOf,
 } from "../lib/supabase.js";
 import { listSchoolActivity, logTeacherActivity } from "../lib/activity.js";
+import { subjectsProblem } from "../lib/alevel.js";
 import { cellKey, conversionsFor, convertConfigTerms, convertTable, planRescale, scaleMapper, scaleValue, type Conversion, type Mapper } from "../lib/rescale.js";
 import { accountIsBlocked, clientIp, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
@@ -1139,6 +1140,8 @@ router.put("/schools/:schoolId/config", async (req, res) => {
   try {
     const { schoolId } = UpdateSchoolConfigParams.parse(req.params);
     const { data } = UpdateSchoolConfigBody.parse(req.body);
+    const aLevelIssue = subjectsProblem((data as SchoolConfig).subjects);
+    if (aLevelIssue) { res.status(400).json({ error: aLevelIssue }); return; }
     const savedData = await writeSchoolConfig(req, schoolId, data as SchoolConfig);
     const now = new Date().toISOString();
     res.json({
@@ -1298,6 +1301,19 @@ function trimHistory(entries: RescaleEntry[]) {
   // Keep the last five records; only the three newest keep the exact originals of rounded marks.
   return entries.slice(-5).map((entry, index, all) => index < all.length - 3 ? { ...entry, rounded: [] } : entry);
 }
+
+// ---- A-Level: the school-wide switch. Off by default; nothing A-Level is shown until an admin turns it on. ----
+router.patch("/schools/:schoolId/a-level-settings", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(req.body);
+    const current = await readSchoolConfig(req, schoolId);
+    const saved = await writeSchoolConfig(req, schoolId, { ...current, settings: { ...settingsOf(current), aLevelEnabled: enabled } });
+    res.json(GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
 
 router.post("/schools/:schoolId/assessment-settings/rescale", requireSchoolAdmin, async (req, res) => {
   try {

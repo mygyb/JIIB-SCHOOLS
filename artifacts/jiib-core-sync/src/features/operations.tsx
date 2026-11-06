@@ -26,6 +26,8 @@ import { ActivityLog } from '@/features/activity-log';
 import { previewRescale, RescaleHistory, RescalePanel, type RescalePreview } from '@/features/rescale-marks';
 import { supabase } from '@/lib/supabase';
 import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
+import { ALevelFields, aLevelSummary, defaultALevel } from '@/features/alevel-subject';
+import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } from '@/lib/school-data';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
 
 type Page =
@@ -836,25 +838,33 @@ function ManageSubjects({ school }: { school: School }) {
   const [newClass, setNewClass] = useState('');
   const [subject, setSubject] = useState('');
   const [teacher, setTeacher] = useState('');
-  const [editing, setEditing] = useState<{ original: string; name: string; teacher: string } | null>(null);
+  const [editing, setEditing] = useState<{ original: string; name: string; teacher: string; aLevel?: ALevelSubject } | null>(null);
   const selectedClass = newClass.trim() || className || classes[0] || '';
   const subjects = subjectRecords(configData, selectedClass);
-  const saveClass = (records: Array<{ name: string; teacher: string }>) => config.save({
+  // A-Level fields only exist when the school switched A-Level on, and only for S.5 / S.6 style classes.
+  const aLevelClass = isALevelEnabled(configData) && isALevelClass(selectedClass);
+  const [aDraft, setADraft] = useState<ALevelSubject>(() => defaultALevel());
+  const draftProblem = aLevelClass ? aLevelProblem(aDraft) : null;
+  const editProblem = aLevelClass && editing?.aLevel ? aLevelProblem(editing.aLevel) : null;
+  const saveClass = (records: Array<{ name: string; teacher: string; aLevel?: ALevelSubject }>) => config.save({
     ...config.data,
     subjects: { ...subjectMap, [selectedClass]: records },
   });
   const add = () => {
-    if (!selectedClass || !subject.trim() || subjects.some((value) => value.name.toLowerCase() === subject.trim().toLowerCase())) return;
-    saveClass([...subjects, { name: subject.trim(), teacher: teacher.trim() }]);
+    if (!selectedClass || !subject.trim() || draftProblem || subjects.some((value) => value.name.toLowerCase() === subject.trim().toLowerCase())) return;
+    saveClass([...subjects, { name: subject.trim(), teacher: teacher.trim(), ...(aLevelClass ? { aLevel: aDraft } : {}) }]);
     setSubject('');
     setTeacher('');
+    setADraft(defaultALevel());
   };
   const saveEdit = () => {
-    if (!editing?.name.trim() || subjects.some((item) => item.name.toLowerCase() === editing.name.trim().toLowerCase() && item.name !== editing.original)) return;
-    saveClass(subjects.map((item) => item.name === editing.original ? { name: editing.name.trim(), teacher: editing.teacher.trim() } : item));
+    if (!editing?.name.trim() || editProblem || subjects.some((item) => item.name.toLowerCase() === editing.name.trim().toLowerCase() && item.name !== editing.original)) return;
+    saveClass(subjects.map((item) => item.name === editing.original
+      ? { name: editing.name.trim(), teacher: editing.teacher.trim(), ...(editing.aLevel ?? item.aLevel ? { aLevel: editing.aLevel ?? item.aLevel } : {}) }
+      : item));
     setEditing(null);
   };
-  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Manage subjects" body="Choose a class to review or edit its subjects and teacher assignments. Subject options feed marks entry and reports." /><ShellCard><div className="grid gap-3 md:grid-cols-3"><label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Filter by class</span><select data-testid="input-subject-class" value={className || classes[0] || ''} onChange={(event) => { setClassName(event.target.value); setNewClass(''); setEditing(null); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"><option value="">Select class</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Add new class (optional)</span><input value={newClass} onChange={(event) => setNewClass(event.target.value)} placeholder="e.g. S1" className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label><div className="hidden md:block" /></div><div className="mt-4 grid gap-3 md:grid-cols-2"><input data-testid="input-manage-subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-subject-teacher" value={teacher} onChange={(e) => setTeacher(e.target.value)} placeholder="Teacher name (optional)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /></div><button data-testid="button-manage-subject-add" onClick={add} disabled={!selectedClass || !subject.trim() || config.saving} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add subject</button><div className="mt-6 divide-y divide-border">{subjects.map((item) => editing?.original === item.name ? <div key={item.name} className="grid gap-2 py-3 sm:grid-cols-[1fr_1fr_auto_auto]"><input aria-label="Edit subject name" value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm" /><input aria-label="Edit assigned teacher" value={editing.teacher} onChange={(event) => setEditing({ ...editing, teacher: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm" /><button onClick={saveEdit} disabled={config.saving} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Save</button><button onClick={() => setEditing(null)} className="rounded-md border border-border px-3 py-2 text-xs font-semibold">Cancel</button></div> : <div key={item.name} className="flex items-center gap-3 py-3"><div className="flex-1"><p className="text-sm font-semibold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.teacher ? `Assigned to ${item.teacher}` : 'No teacher assigned'}</p></div><button aria-label={`Edit ${item.name}`} onClick={() => setEditing({ original: item.name, name: item.name, teacher: item.teacher })} className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">Edit</button><button aria-label={`Remove ${item.name}`} onClick={() => saveClass(subjects.filter((value) => value.name !== item.name))} className="text-muted-foreground hover:text-destructive"><X size={15} /></button></div>)}</div>{classes.length === 0 && !selectedClass && <p className="mt-5 text-sm text-muted-foreground">Add a class name above to create its first subject list.</p>}</ShellCard></div>;
+  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Manage subjects" body="Choose a class to review or edit its subjects and teacher assignments. Subject options feed marks entry and reports." /><ShellCard><div className="grid gap-3 md:grid-cols-3"><label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Filter by class</span><select data-testid="input-subject-class" value={className || classes[0] || ''} onChange={(event) => { setClassName(event.target.value); setNewClass(''); setEditing(null); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm"><option value="">Select class</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Add new class (optional)</span><input value={newClass} onChange={(event) => setNewClass(event.target.value)} placeholder="e.g. S1" className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label><div className="hidden md:block" /></div><div className="mt-4 grid gap-3 md:grid-cols-2"><input data-testid="input-manage-subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-subject-teacher" value={teacher} onChange={(e) => setTeacher(e.target.value)} placeholder="Teacher name (optional)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /></div>{aLevelClass && <ALevelFields idPrefix="new-subject" value={aDraft} onChange={setADraft} />}<button data-testid="button-manage-subject-add" onClick={add} disabled={!selectedClass || !subject.trim() || config.saving || Boolean(draftProblem)} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add subject</button><div className="mt-6 divide-y divide-border">{subjects.map((item) => editing?.original === item.name ? <div key={item.name} className="py-3"><div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]"><input aria-label="Edit subject name" value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm" /><input aria-label="Edit assigned teacher" value={editing.teacher} onChange={(event) => setEditing({ ...editing, teacher: event.target.value })} className="h-9 rounded-md border border-input bg-background px-2 text-sm" /><button onClick={saveEdit} disabled={config.saving || Boolean(editProblem)} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">Save</button><button onClick={() => setEditing(null)} className="rounded-md border border-border px-3 py-2 text-xs font-semibold">Cancel</button></div>{aLevelClass && editing.aLevel && <ALevelFields idPrefix="edit-subject" value={editing.aLevel} onChange={(aLevel) => setEditing({ ...editing, aLevel })} />}</div> : <div key={item.name} className="flex items-center gap-3 py-3"><div className="flex-1"><p className="text-sm font-semibold">{item.name}</p><p className="mt-1 text-xs text-muted-foreground">{item.teacher ? `Assigned to ${item.teacher}` : 'No teacher assigned'}</p>{aLevelClass && <p data-testid={`text-alevel-${item.name}`} className="mt-1 text-xs text-muted-foreground">{item.aLevel ? aLevelSummary(item.aLevel) : 'A-Level papers not set up yet. Press Edit to add them.'}</p>}</div><button aria-label={`Edit ${item.name}`} onClick={() => setEditing({ original: item.name, name: item.name, teacher: item.teacher, ...(aLevelClass ? { aLevel: item.aLevel ?? defaultALevel() } : {}) })} className="rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">Edit</button><button aria-label={`Remove ${item.name}`} onClick={() => saveClass(subjects.filter((value) => value.name !== item.name))} className="text-muted-foreground hover:text-destructive"><X size={15} /></button></div>)}</div>{classes.length === 0 && !selectedClass && <p className="mt-5 text-sm text-muted-foreground">Add a class name above to create its first subject list.</p>}</ShellCard></div>;
 }
 
 function GradingSystem({ school }: { school: School }) {
@@ -970,6 +980,39 @@ function PublishDeadline({ school }: { school: School }) {
   </div>;
 }
 
+function ALevelToggleCard({ school, config }: { school: School; config: SchoolConfig }) {
+  const queryClient = useQueryClient();
+  const enabled = isALevelEnabled(config);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const change = async (next: boolean) => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await jiibApi<{ schoolId: string; data: Record<string, unknown>; updatedAt: string }>(`/api/schools/${encodeURIComponent(school.id)}/a-level-settings`, { method: 'PATCH', body: JSON.stringify({ enabled: next }) });
+      queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The A-Level setting could not be saved. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <ShellCard className="max-w-2xl" >
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h3 className="font-display text-lg font-semibold">A-Level (S.5 and S.6)</h3>
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">Switch this on if the school teaches A-Level. A-Level options then appear for S.5 and S.6 classes, starting with each subject's papers in Manage subjects. Switching it off hides them again and keeps what you set up.</p>
+      </div>
+      <button type="button" role="switch" aria-checked={enabled} aria-label="Enable A-Level" data-testid="switch-alevel" disabled={busy} onClick={() => void change(!enabled)}
+        className={`relative mt-1 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-60 ${enabled ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
+        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${enabled ? 'left-[1.4rem]' : 'left-0.5'}`} />
+      </button>
+    </div>
+    {enabled && <p data-testid="text-alevel-next" className="mt-3 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">Next: in Manage subjects, add your S.5 and S.6 classes and set up each subject's category and papers.</p>}
+    {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
+  </ShellCard>;
+}
+
 function SchoolSettings({ school }: { school: School }) {
   const config = useConfig(school.id);
   const queryClient = useQueryClient();
@@ -1072,6 +1115,7 @@ function SchoolSettings({ school }: { school: School }) {
         </div>
         <button data-testid="button-save-school-profile" onClick={() => config.save({ ...config.data, settings: { ...settings, address, phone } })} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Check size={15} /> Save school profile</button>
       </ShellCard>
+      <ALevelToggleCard school={school} config={config.data as SchoolConfig} />
       <ShellCard>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="font-display text-lg font-semibold">Assessment structure</h3><p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">Choose the assessments this school uses, and set the name and maximum score for each. These settings are shared with all school accounts.</p></div>
