@@ -59,7 +59,8 @@ export const CreateSchoolBody = zod.object({
   "assessmentFields": zod.array(zod.object({
   "name": zod.string().min(1).max(createSchoolBodyAssessmentFieldsItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
-  "max": zod.number()
+  "max": zod.number(),
+  "entryMax": zod.number().min(0.5).max(1000).optional()
 })).optional()
 })
 
@@ -257,7 +258,8 @@ export const UpdateSchoolAssessmentSettingsBody = zod.object({
   "marksSchema": zod.array(zod.object({
   "name": zod.string().min(1).max(updateSchoolAssessmentSettingsBodyMarksSchemaItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
-  "max": zod.number()
+  "max": zod.number(),
+  "entryMax": zod.number().min(0.5).max(1000).optional()
 })).min(1).max(updateSchoolAssessmentSettingsBodyMarksSchemaMax)
 })
 
@@ -477,7 +479,8 @@ export const GetDashboardSummaryResponse = zod.object({
   "assessmentFields": zod.array(zod.object({
   "name": zod.string().min(1).max(getDashboardSummaryResponseAssessmentFieldsItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
-  "max": zod.number()
+  "max": zod.number(),
+  "entryMax": zod.number().min(0.5).max(1000).optional()
 })),
   "subjectCompletion": zod.array(zod.object({
   "className": zod.string(),

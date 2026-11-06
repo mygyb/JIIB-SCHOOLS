@@ -5,7 +5,9 @@ import type { Request } from "express";
 import { asRows, jsonBody, supabaseRequest } from "./supabase.js";
 
 export type FieldId = "c1" | "c2" | "c3";
-export type Field = { name: string; max: number; field: FieldId };
+export type Field = { name: string; max: number; field: FieldId; entryMax?: number };
+/** The scale stored marks are on: what teachers type them out of (defaults to the maximum score). */
+const scaleOf = (field: Field) => field.entryMax ?? field.max;
 export type Conversion = { field: FieldId; name: string; oldName: string; from: number; to: number };
 
 /** Column names a box can be stored under (current names first, legacy c1/c2/c3 second). */
@@ -21,8 +23,9 @@ export function conversionsFor(oldFields: Field[], newFields: Field[]): Conversi
   const out: Conversion[] = [];
   for (const next of newFields) {
     const previous = oldFields.find((field) => field.field === next.field);
-    if (previous && Math.abs(previous.max - next.max) > EPS) {
-      out.push({ field: next.field, name: next.name, oldName: previous.name, from: previous.max, to: next.max });
+    // Stored marks are on the "entered out of" scale, so only a change of THAT scale needs the marks converted.
+    if (previous && Math.abs(scaleOf(previous) - scaleOf(next)) > EPS) {
+      out.push({ field: next.field, name: next.name, oldName: previous.name, from: scaleOf(previous), to: scaleOf(next) });
     }
   }
   return out;

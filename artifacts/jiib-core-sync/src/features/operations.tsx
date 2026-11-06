@@ -26,7 +26,7 @@ import { ActivityLog } from '@/features/activity-log';
 import { previewRescale, RescaleHistory, RescalePanel, type RescalePreview } from '@/features/rescale-marks';
 import { supabase } from '@/lib/supabase';
 import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
-import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
+import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
 
 type Page =
   | 'overview'
@@ -651,10 +651,10 @@ function Performance({ school }: { school: School }) {
   const rows = useMemo(() => classStudents.map((student) => {
     const items = (marks.data ?? []).filter((mark) => mark.studentId === student.id);
     const average = items.length
-      ? Math.round(items.reduce((sum, mark) => sum + mark.aoi + mark.midterm + mark.end, 0) / items.length / maxTotal * 100)
+      ? Math.round(items.reduce((sum, mark) => sum + markTotal(mark, fields), 0) / items.length / maxTotal * 100)
       : 0;
     return { id: student.id, name: student.name, className: student.className, average, subjects: items.length };
-  }).filter((row) => row.subjects > 0).sort((a, b) => b.average - a.average), [classStudents, marks.data, maxTotal]);
+  }).filter((row) => row.subjects > 0).sort((a, b) => b.average - a.average), [classStudents, marks.data, maxTotal, fields]);
   const subjectRows = useMemo(() => {
     const names = className ? [className] : classOptions;
     return names.flatMap((name) => {
@@ -663,7 +663,7 @@ function Performance({ school }: { school: School }) {
       for (const mark of marks.data ?? []) {
         if (!classIds.has(mark.studentId)) continue;
         const current = bySubject.get(mark.subject) ?? { total: 0, count: 0 };
-        current.total += mark.aoi + mark.midterm + mark.end;
+        current.total += markTotal(mark, fields);
         current.count += 1;
         bySubject.set(mark.subject, current);
       }
@@ -673,7 +673,7 @@ function Performance({ school }: { school: School }) {
         average: Math.round(value.total / Math.max(1, value.count) / maxTotal * 100),
       }));
     }).sort((a, b) => b.average - a.average);
-  }, [className, classOptions.join('|'), students.data, marks.data, maxTotal]);
+  }, [className, classOptions.join('|'), students.data, marks.data, maxTotal, fields]);
   const highPerformers = rows.filter((row) => row.average >= 80).length;
   const supportNeeded = rows.filter((row) => row.average < 50).length;
   return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Performance" body={`Review ${termKey} results, compare class averages, and identify students and subjects needing support.`} />
@@ -1004,7 +1004,7 @@ function SchoolSettings({ school }: { school: School }) {
     .map((field) => assessmentDraft.find((item) => item.field === field))
     .filter((field): field is (typeof assessmentDraft)[number] => Boolean(field));
   const totalMarks = selectedFields.reduce((sum, field) => sum + field.max, 0);
-  const maximumScoresAreValid = selectedFields.every((field) => Number.isFinite(field.max) && field.max > 0 && field.max <= 100);
+  const maximumScoresAreValid = selectedFields.every((field) => Number.isFinite(field.max) && field.max > 0 && field.max <= 100 && (field.entryMax === undefined || (Number.isFinite(field.entryMax) && field.entryMax >= 0.5 && field.entryMax <= 1000)));
   const namesAreValid = selectedFields.every((field) => field.name.trim())
     && new Set(selectedFields.map((field) => field.name.trim().toLocaleLowerCase())).size === selectedFields.length;
   const assessmentStructureValid = selectedFields.length > 0 && namesAreValid && maximumScoresAreValid && Math.abs(totalMarks - 100) < 0.001;
@@ -1021,8 +1021,13 @@ function SchoolSettings({ school }: { school: School }) {
     setAssessmentNotice('');
     setAssessmentError('');
   };
-  const updateAssessmentField = (fieldId: AssessmentFieldId, changes: Partial<{ name: string; max: number }>) => {
-    setAssessmentDraft((current) => current.map((field) => field.field === fieldId ? { ...field, ...changes } : field));
+  const updateAssessmentField = (fieldId: AssessmentFieldId, changes: Partial<{ name: string; max: number; entryMax: number | undefined }>) => {
+    setAssessmentDraft((current) => current.map((field) => {
+      if (field.field !== fieldId) return field;
+      const next = { ...field, ...changes };
+      if (next.entryMax === undefined) delete next.entryMax;
+      return next;
+    }));
     setAssessmentDirty(true);
     setAssessmentNotice('');
     setAssessmentError('');
@@ -1034,7 +1039,7 @@ function SchoolSettings({ school }: { school: School }) {
     setAssessmentError('');
     try {
       // A changed maximum score means marks already entered must be converted too: show a preview and ask first.
-      const maxChanged = selectedFields.some((field) => structure.some((saved) => saved.field === field.field && Math.abs(saved.max - field.max) > 1e-9));
+      const maxChanged = selectedFields.some((field) => structure.some((saved) => saved.field === field.field && Math.abs(entryMaxOf(saved) - entryMaxOf(field)) > 1e-9));
       if (maxChanged) {
         const preview = await previewRescale(school.id, selectedFields);
         if (preview.totalMarks > 0) { setRescalePreview(preview); return; }
@@ -1090,7 +1095,8 @@ function SchoolSettings({ school }: { school: School }) {
               </label>
               {enabled && <div className="mt-4 grid gap-3">
                 <label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Assessment name</span><input data-testid={`input-assessment-name-${field.field}`} value={field.name} maxLength={60} disabled={!config.isSuccess || assessmentSaving} onChange={(event) => updateAssessmentField(field.field, { name: event.target.value })} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-60" /></label>
-                <label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Maximum score</span><input data-testid={`input-assessment-max-${field.field}`} type="number" min="0.5" max="100" step="0.5" value={field.max} disabled={!config.isSuccess || assessmentSaving} onChange={(event) => updateAssessmentField(field.field, { max: Number(event.target.value) })} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-60" /></label>
+                <label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Maximum score <span className="font-normal">(counts toward 100)</span></span><input data-testid={`input-assessment-max-${field.field}`} type="number" min="0.5" max="100" step="0.5" value={field.max} disabled={!config.isSuccess || assessmentSaving} onChange={(event) => updateAssessmentField(field.field, { max: Number(event.target.value) })} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-60" /></label>
+                <label><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Marks are entered out of <span className="font-normal">(optional)</span></span><input data-testid={`input-assessment-entry-${field.field}`} type="number" min="0.5" max="1000" step="0.5" placeholder={String(field.max)} value={field.entryMax ?? ''} disabled={!config.isSuccess || assessmentSaving} onChange={(event) => updateAssessmentField(field.field, { entryMax: event.target.value === '' ? undefined : Number(event.target.value) })} className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-60" />{field.entryMax !== undefined && field.entryMax !== field.max && <span data-testid={`text-entry-note-${field.field}`} className="mt-1.5 block text-xs leading-4 text-muted-foreground">Teachers type {field.name} out of {field.entryMax}. The system converts it to {field.max} (for example {Math.min(field.entryMax, 2)}/{field.entryMax} counts as {Math.round((Math.min(field.entryMax, 2) / field.entryMax) * field.max * 100) / 100}/{field.max}).</span>}</label>
               </div>}
             </section>;
           })}

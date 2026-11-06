@@ -29,7 +29,7 @@ export function previewRescale(schoolId: string, fields: AssessmentField[]) {
 function describe(conversion: { name: string; oldName: string; from: number; to: number }) {
   const label = conversion.oldName === conversion.name ? conversion.name : `${conversion.oldName} (now ${conversion.name})`;
   const factor = Math.round((conversion.to / conversion.from) * 1000) / 1000;
-  return `${label}: out of ${conversion.from} becomes out of ${conversion.to} (each mark × ${factor})`;
+  return `${label}: typed out of ${conversion.from} becomes out of ${conversion.to} (each mark × ${factor})`;
 }
 
 /** Shown when the maximum score of an assessment changes and marks already exist: preview, confirm, convert. */
@@ -63,7 +63,7 @@ export function RescalePanel({ schoolId, fields, preview, onCancel, onDone }: {
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-800"><Scale size={20} aria-hidden="true" /></span>
       <div className="min-w-0">
         <h4 id="rescale-title" className="font-display text-base font-semibold">Convert the marks already entered?</h4>
-        <p className="mt-1 text-sm leading-5 text-muted-foreground">You changed a maximum score, and <strong>{preview.totalMarks}</strong> marks are already saved on the old scale. They will be converted in proportion so each student keeps the same result.</p>
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">You changed what marks are entered out of, and <strong>{preview.totalMarks}</strong> marks are already saved on the old scale. They will be converted in proportion so each student keeps the same result.</p>
       </div>
     </div>
     <ul className="mt-4 space-y-1.5 text-sm">
