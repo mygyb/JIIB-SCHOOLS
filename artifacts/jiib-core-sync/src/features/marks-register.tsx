@@ -12,7 +12,7 @@ import {
 } from "@workspace/api-client-react";
 import type { Mark, School, Student } from "@workspace/api-client-react";
 import { ArrowDownAZ, ArrowUpAZ, ArrowUpDown, CalendarDays, CircleAlert, ClipboardList, Loader2, LockKeyhole, RefreshCw, Search, Trash2, X } from "lucide-react";
-import { configuredHouses, currentTerm, getAssessmentFields, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from "@/lib/school-data";
+import { configuredHouses, currentTerm, entryMaxOf, finalTotal, getAssessmentFields, getTerms, isTermLocked, subjectNames, weightedScore, type AssessmentField, type SchoolConfig } from "@/lib/school-data";
 import { getPendingMarks, queueMark } from "@/lib/offline-marks";
 import { jiibApi } from "@/lib/jiib-api";
 
@@ -36,6 +36,12 @@ function readAssignments(): SubjectAssignment[] {
     return [];
   }
 }
+
+/** "10" for a normal assessment, "3 → 20" when marks are typed out of 3 but count for 20. */
+function entryLabel(field: AssessmentField) {
+  return entryMaxOf(field) === field.max ? String(field.max) : `${entryMaxOf(field)} → ${field.max}`;
+}
+const shortNumber = (value: number) => String(Math.round(value * 100) / 100);
 
 function scoreFor(mark: Partial<Mark> | undefined, field: AssessmentField) {
   const alias = { c1: "aoi", c2: "midterm", c3: "end" }[field.field] as "aoi" | "midterm" | "end";
@@ -213,8 +219,8 @@ export function MarksRegister({ school }: { school: School }) {
   const save = (student: Student, field: AssessmentField, rawValue: string, input: HTMLInputElement) => {
     const fieldKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}|${field.field}`;
     const value = rawValue.trim() === "" ? null : Number(rawValue);
-    if (value !== null && (!Number.isFinite(value) || value < 0 || value > field.max)) {
-      window.alert(`${field.name} must be between 0 and ${field.max}.`);
+    if (value !== null && (!Number.isFinite(value) || value < 0 || value > entryMaxOf(field))) {
+      window.alert(`${field.name} must be between 0 and ${entryMaxOf(field)}.`);
       const existing = getMark(student.id);
       input.value = existing?.enteredFields?.includes(field.field) ? String(scoreFor(existing, field)) : "";
       setFieldSaveStates((current) => ({
@@ -348,11 +354,11 @@ export function MarksRegister({ school }: { school: School }) {
         : !fields.length ? <div className="p-10 text-center text-sm text-muted-foreground">No assessment components are active for this school.</div>
         : !students.length ? <div className="p-10 text-center"><p className="font-semibold">No students match</p><p className="mt-1 text-sm text-muted-foreground">Choose another class or clear the student search.</p></div>
         : <div className="xl:overflow-x-auto"><table className="block w-full text-left xl:table xl:min-w-[700px]">
-          <thead className="hidden border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground xl:table-header-group"><tr><th className="px-5 py-4 font-bold">Student</th>{fields.map((field) => <th key={field.field} className="px-3 py-4 font-bold">{field.name} <span className="font-normal normal-case tracking-normal">({field.max})</span></th>)}<th className="px-5 py-4 text-right font-bold">Total</th></tr></thead>
+          <thead className="hidden border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground xl:table-header-group"><tr><th className="px-5 py-4 font-bold">Student</th>{fields.map((field) => <th key={field.field} className="px-3 py-4 font-bold">{field.name} <span className="font-normal normal-case tracking-normal">({entryLabel(field)})</span></th>)}<th className="px-5 py-4 text-right font-bold">Total</th></tr></thead>
           {/* Phones and tablets: one card per student with the mark boxes right under the name, so nothing scrolls sideways. Wide screens (xl): the usual table. */}
           <tbody className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:table-row-group xl:divide-y xl:divide-border xl:p-0">{students.map((student) => {
             const mark = getMark(student.id);
-            const total = fields.reduce((sum, field) => sum + scoreFor(mark, field), 0);
+            const total = finalTotal(fields.reduce((sum, field) => sum + weightedScore(scoreFor(mark, field), field), 0), fields);
             const totalColor = total >= maxTotal / 2 ? "text-[#2e8c72]" : "text-foreground";
             return <tr key={student.id} data-testid={`row-mark-${student.id}`} style={{ gridTemplateColumns: `repeat(${fields.length}, minmax(0, 1fr))` }} className="grid content-start gap-x-2 gap-y-3 rounded-xl border border-border bg-background p-3 xl:table-row xl:rounded-none xl:border-0 xl:bg-transparent xl:p-0">
               <td className="col-span-full min-w-0 xl:table-cell xl:px-5 xl:py-3">
@@ -367,8 +373,9 @@ export function MarksRegister({ school }: { school: School }) {
                 const fieldKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}|${field.field}`;
                 const isSaved = (fieldSaveStates[fieldKey] ?? (entered ? "saved" : "unsaved")) === "saved";
                 return <td key={field.field} className="flex min-w-0 flex-col justify-end gap-1 xl:table-cell xl:px-3 xl:py-3">
-                  <span className="text-[10px] font-bold uppercase leading-tight tracking-[.08em] text-muted-foreground xl:hidden">{field.name} <span className="font-normal normal-case tracking-normal">({field.max})</span></span>
-                  <input disabled={locked} data-mark-input data-testid={`input-mark-${field.field}-${student.id}`} data-save-state={isSaved ? "saved" : "unsaved"} aria-label={`${field.name} (out of ${field.max}) for ${student.name}`} title={isSaved ? "Saved" : "Not saved"} type="number" inputMode="decimal" enterKeyHint="next" min="0" max={field.max} step="any" defaultValue={entered ? scoreFor(mark, field) : ""} onChange={() => { saveVersions.current[fieldKey] = (saveVersions.current[fieldKey] ?? 0) + 1; setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" })); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); focusNextMark(event.currentTarget); } }} onBlur={(event) => save(student, field, event.currentTarget.value, event.currentTarget)} className={`h-12 w-full rounded-md border px-2 text-center text-base outline-none transition-colors focus:ring-2 focus:ring-ring disabled:opacity-50 xl:h-9 xl:w-24 xl:text-left xl:text-sm ${isSaved ? "border-[#96cdb8] bg-[#eef8f4]" : "border-[#e6a0a0] bg-[#fff1f1]"}`} />
+                  <span className="text-[10px] font-bold uppercase leading-tight tracking-[.08em] text-muted-foreground xl:hidden">{field.name} <span className="font-normal normal-case tracking-normal">({entryLabel(field)})</span></span>
+                  <input disabled={locked} data-mark-input data-testid={`input-mark-${field.field}-${student.id}`} data-save-state={isSaved ? "saved" : "unsaved"} aria-label={`${field.name} (out of ${entryMaxOf(field)}) for ${student.name}`} title={isSaved ? "Saved" : "Not saved"} type="number" inputMode="decimal" enterKeyHint="next" min="0" max={entryMaxOf(field)} step="any" defaultValue={entered ? scoreFor(mark, field) : ""} onChange={() => { saveVersions.current[fieldKey] = (saveVersions.current[fieldKey] ?? 0) + 1; setFieldSaveStates((current) => ({ ...current, [fieldKey]: "unsaved" })); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); focusNextMark(event.currentTarget); } }} onBlur={(event) => save(student, field, event.currentTarget.value, event.currentTarget)} className={`h-12 w-full rounded-md border px-2 text-center text-base outline-none transition-colors focus:ring-2 focus:ring-ring disabled:opacity-50 xl:h-9 xl:w-24 xl:text-left xl:text-sm ${isSaved ? "border-[#96cdb8] bg-[#eef8f4]" : "border-[#e6a0a0] bg-[#fff1f1]"}`} />
+                  {entered && entryMaxOf(field) !== field.max && <span data-testid={`text-converted-${field.field}-${student.id}`} className="text-center text-[10px] text-muted-foreground xl:ml-2 xl:text-left">= {shortNumber(weightedScore(scoreFor(mark, field), field))} / {field.max}</span>}
                 </td>;
               })}
               <td className="hidden xl:table-cell xl:px-5 xl:py-3 xl:text-right"><span className={`font-display text-lg font-semibold ${totalColor}`}>{total}</span><span className="ml-1 text-xs text-muted-foreground">/ {maxTotal}</span></td>

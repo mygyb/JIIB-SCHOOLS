@@ -167,6 +167,8 @@ export interface AssessmentField {
   name: string;
   field: AssessmentFieldField;
   max: number;
+  /** What teachers type marks out of. Defaults to max. The converted score is mark / entryMax * max. */
+  entryMax?: number;
 }
 
 export interface SchoolRegistrationInput {

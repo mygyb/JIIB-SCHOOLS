@@ -1,6 +1,6 @@
 // Turns the school's students, marks, subjects and grading into the numbers printed on a report.
 // Ported from the Report Studio design file, using the app's own data instead of browser storage.
-import { getAssessmentFields, type AssessmentField, type AssessmentFieldId, type SchoolConfig } from "@/lib/school-data";
+import { finalTotal, getAssessmentFields, weightedScore, type AssessmentField, type AssessmentFieldId, type SchoolConfig } from "@/lib/school-data";
 
 export type ReportType = "midterm" | "endterm";
 
@@ -142,11 +142,14 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
         let sum = 0;
         let any = false;
         counted.forEach((field) => {
-          const value = fieldValue(mark, field);
-          cols[field.field] = value;
+          const typed = fieldValue(mark, field);
+          // Marks typed out of 3 (counting for 20) are shown converted, so every column adds up to the total.
+          const value = typed === null ? null : weightedScore(typed, field);
+          cols[field.field] = value === null ? null : Math.round(value * 100) / 100;
           if (value !== null) { sum += value; any = true; }
         });
-        const total = any ? (type === "endterm" ? Math.min(100, sum) : sum) : null;
+        // Only the final total is rounded (to a whole number), and only when a converted scale is in use.
+        const total = any ? finalTotal(type === "endterm" ? Math.min(100, sum) : sum, fields) : null;
         const percent = total === null ? null : (total / maxPossible) * 100;
         const grade = total === null ? null : gradeFor(type === "endterm" ? total : percent ?? 0, grading);
         const descriptor = percent === null ? null : descriptorFor(percent, grade?.grade);

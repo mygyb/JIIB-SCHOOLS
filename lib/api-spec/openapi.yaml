@@ -1097,6 +1097,11 @@ components:
           enum: [c1, c2, c3]
         max:
           type: number
+        entryMax:
+          type: number
+          minimum: 0.5
+          maximum: 1000
+          description: "What teachers type marks out of. Defaults to max. The converted score is mark / entryMax * max."
     SubjectCompletion:
       type: object
       required: [className, subject, teacher, entered, expected, percentage]

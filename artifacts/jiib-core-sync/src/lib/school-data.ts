@@ -9,7 +9,41 @@ export type SchoolConfig = Record<string, unknown> & {
 };
 
 export type AssessmentFieldId = "c1" | "c2" | "c3";
-export type AssessmentField = { name: string; max: number; field: AssessmentFieldId };
+/** `max` is what the assessment counts for out of 100. `entryMax` (optional, defaults to max) is what marks are typed out of. */
+export type AssessmentField = { name: string; max: number; field: AssessmentFieldId; entryMax?: number };
+
+/** What teachers type this assessment out of. */
+export function entryMaxOf(field: Pick<AssessmentField, "max" | "entryMax">) {
+  return field.entryMax && field.entryMax > 0 ? field.entryMax : field.max;
+}
+
+/** A typed mark converted to what it counts for: mark / entryMax * max. Not rounded. */
+export function weightedScore(raw: number, field: Pick<AssessmentField, "max" | "entryMax">) {
+  const entry = entryMaxOf(field);
+  if (entry === field.max) return raw; // normal assessment: the typed mark is the score, untouched
+  return Math.round(((raw * field.max) / entry) * 1e9) / 1e9;
+}
+
+/** True when at least one assessment is typed out of something other than what it counts for. */
+export function hasEntryScale(fields: Array<Pick<AssessmentField, "max" | "entryMax">>) {
+  return fields.some((field) => entryMaxOf(field) !== field.max);
+}
+
+/** Sum of the converted scores of one subject's marks, rounded to a whole number only when a converted scale is in use. */
+export function finalTotal(total: number, fields: Array<Pick<AssessmentField, "max" | "entryMax">>) {
+  return hasEntryScale(fields) ? roundTotal(total) : total;
+}
+
+/** Converted score of a whole mark record: each assessment's typed mark converted to what it counts for, then added up. Not rounded. */
+export function markTotal(mark: { aoi?: number; midterm?: number; end?: number }, fields: AssessmentField[]) {
+  const alias = { c1: "aoi", c2: "midterm", c3: "end" } as const;
+  return fields.reduce((sum, field) => sum + weightedScore(Number(mark[alias[field.field]] ?? 0), field), 0);
+}
+
+/** The only rounding in the system: a final total shown to people is a whole number (half rounds up). */
+export function roundTotal(total: number) {
+  return Math.round(Math.round(total * 1e6) / 1e6);
+}
 
 export const DEFAULT_ASSESSMENT_FIELDS: AssessmentField[] = [
   { name: "AOI", max: 10, field: "c1" },
@@ -26,8 +60,9 @@ export function getAssessmentStructure(config: SchoolConfig | null | undefined):
     const field = String(item.field ?? "");
     const name = String(item.name ?? "").trim();
     const max = Number(item.max ?? 0);
+    const entryMax = Number(item.entryMax);
     return name && ["c1", "c2", "c3"].includes(field) && Number.isFinite(max) && max > 0
-      ? [{ name, max, field: field as AssessmentField["field"] }]
+      ? [{ name, max, field: field as AssessmentField["field"], ...(Number.isFinite(entryMax) && entryMax > 0 && Math.abs(entryMax - max) > 1e-9 ? { entryMax } : {}) }]
       : [];
   });
   return schema.length ? schema : DEFAULT_ASSESSMENT_FIELDS.map((field) => ({ ...field }));

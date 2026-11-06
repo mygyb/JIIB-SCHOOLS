@@ -169,6 +169,7 @@ const AssessmentFieldBody = z.object({
   name: z.string().trim().min(1),
   field: z.enum(["c1", "c2", "c3"]),
   max: z.number().positive().max(100),
+  entryMax: z.number().min(0.5).max(1000).optional(),
 });
 const SchoolRegistrationBody = z.object({
   name: z.string().trim().min(1).max(180),
@@ -365,6 +366,7 @@ async function getParentPortalData(req: Request, schoolId: string, phoneInput: s
     activeTerm: String(config.activeTerm ?? ""),
     students,
     marks,
+    assessmentFields: activeAssessmentFields(config),
     terms: Object.entries(terms).map(([key, term]) => ({
       key,
       label: String(term.label ?? key),
@@ -385,7 +387,10 @@ function requireSchoolAdmin(req: Request, res: Response, next: () => void) {
   next();
 }
 
-type AssessmentField = { name: string; max: number; field: "c1" | "c2" | "c3" };
+// `max` is what the assessment counts for out of 100. `entryMax` (optional, defaults to max) is what teachers type the
+// mark out of; the converted score is mark / entryMax * max.
+type AssessmentField = { name: string; max: number; field: "c1" | "c2" | "c3"; entryMax?: number };
+const entryScale = (field: { max: number; entryMax?: number }) => field.entryMax ?? field.max;
 
 function configuredAssessmentFields(config: Record<string, unknown>): AssessmentField[] {
   const settings = config.settings && typeof config.settings === "object" && !Array.isArray(config.settings)
@@ -400,7 +405,11 @@ function configuredAssessmentFields(config: Record<string, unknown>): Assessment
       const max = Number(item.max ?? 0);
       const name = String(item.name ?? "").trim();
       if (!name || !["c1", "c2", "c3"].includes(field) || !Number.isFinite(max) || max <= 0) return null;
-      return { name, max, field: field as AssessmentField["field"] };
+      const entryMax = Number(item.entryMax);
+      return {
+        name, max, field: field as AssessmentField["field"],
+        ...(Number.isFinite(entryMax) && entryMax > 0 && Math.abs(entryMax - max) > 1e-9 ? { entryMax } : {}),
+      };
     })
     .filter((entry): entry is AssessmentField => entry !== null);
   const defaultSchema: AssessmentField[] = [
@@ -1206,6 +1215,12 @@ router.patch("/schools/:schoolId/assessment-settings", async (req, res) => {
       res.status(400).json({ error: "Assessment maximums must add up to 100." });
       return;
     }
+    if (fields.some((field) => field.entryMax !== undefined && (!Number.isFinite(field.entryMax) || field.entryMax < 0.5 || field.entryMax > 1000))) {
+      res.status(400).json({ error: "\"Marks are entered out of\" must be between 0.5 and 1000." });
+      return;
+    }
+    // An entry scale equal to the maximum is the default, so it is not stored.
+    for (const field of fields) if (field.entryMax !== undefined && Math.abs(field.entryMax - field.max) < 1e-9) delete field.entryMax;
 
     const current = await readSchoolConfig(req, schoolId);
     const rawSettings = current.settings;
@@ -1261,6 +1276,8 @@ function schemaProblem(fields: AssessmentField[]): string | null {
   const names = fields.map((field) => field.name.trim().toLocaleLowerCase());
   if (new Set(names).size !== names.length) return "Assessment names must be unique.";
   if (Math.abs(fields.reduce((sum, field) => sum + field.max, 0) - 100) > 0.001) return "Assessment maximums must add up to 100.";
+  if (fields.some((field) => field.entryMax !== undefined && (!Number.isFinite(field.entryMax) || field.entryMax < 0.5 || field.entryMax > 1000))) return "\"Marks are entered out of\" must be between 0.5 and 1000.";
+  for (const field of fields) if (field.entryMax !== undefined && Math.abs(field.entryMax - field.max) < 1e-9) delete field.entryMax;
   return null;
 }
 
@@ -1374,7 +1391,7 @@ router.post("/schools/:schoolId/assessment-settings/rescale/undo", requireSchool
       return;
     }
     const current = configuredAssessmentFields(config);
-    if (latest.conversions.some((item) => current.find((field) => field.field === item.field)?.max !== item.to)) {
+    if (latest.conversions.some((item) => (() => { const found = current.find((field) => field.field === item.field); return found ? entryScale(found) : undefined; })() !== item.to)) {
       res.status(409).json({ error: "The assessment maximums were changed after this conversion, so it cannot be undone automatically." });
       return;
     }
@@ -2003,9 +2020,9 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
     const incoming = { aoi: body.aoi ?? 0, midterm: body.midterm ?? 0, end: body.end ?? 0 };
     const touchedFields = new Set<string>(touched.map((key) => FIELD_OF[key]));
     const scores: Record<string, number> = { c1: incoming.aoi, c2: incoming.midterm, c3: incoming.end };
-    const invalidScore = fields.find((field) => touchedFields.has(field.field) && Number(scores[field.field]) > field.max);
+    const invalidScore = fields.find((field) => touchedFields.has(field.field) && Number(scores[field.field]) > entryScale(field));
     if (invalidScore) {
-      res.status(400).json({ error: `${invalidScore.name} cannot be greater than ${invalidScore.max}.` });
+      res.status(400).json({ error: `${invalidScore.name} cannot be greater than ${entryScale(invalidScore)}.` });
       return;
     }
     const sentEntered = Array.isArray(body.enteredFields)

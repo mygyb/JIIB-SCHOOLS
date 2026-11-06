@@ -41,7 +41,7 @@ import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/page
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
 import { clearAccountTheme, getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
-import { configuredHouses, currentTerm, getAssessmentFields, getTerms, isTermLocked, subjectNames, type SchoolConfig } from '@/lib/school-data';
+import { configuredHouses, currentTerm, DEFAULT_ASSESSMENT_FIELDS, finalTotal, getAssessmentFields, markTotal, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from '@/lib/school-data';
 import { flushPendingMarks, getPendingMarks, queueMark } from '@/lib/offline-marks';
 import { OperationsPage } from '@/features/operations';
 import { MarksRegister } from '@/features/marks-register';
@@ -1231,6 +1231,7 @@ function Parent() {
       activeTerm: string;
       students: Array<Student & { termKey: string }>;
       marks: Array<{ id: string; studentId: string; termKey: string; subject: string; aoi: number; midterm: number; end: number }>;
+      assessmentFields?: AssessmentField[];
       terms: Array<{ key: string; label: string }>;
       schoolNews: { title?: string; body?: string } | string | null;
       events: Array<string | { id?: string; title?: string; date?: string }>;
@@ -1243,8 +1244,9 @@ function Parent() {
   const studentId = selectedStudentId || familyStudents[0]?.id || '';
   const student = familyStudents.find((item) => item.id === studentId);
   const studentMarks = (portal.data?.marks ?? []).filter((mark) => mark.studentId === studentId && mark.termKey === term);
+  const portalFields = portal.data?.assessmentFields?.length ? portal.data.assessmentFields : DEFAULT_ASSESSMENT_FIELDS;
   const average = studentMarks.length
-    ? Math.round(studentMarks.reduce((sum, item) => sum + item.aoi + item.midterm + item.end, 0) / studentMarks.length)
+    ? Math.round(studentMarks.reduce((sum, item) => sum + markTotal(item, portalFields), 0) / studentMarks.length)
     : 0;
   const chat = useQuery({
     queryKey: ['parent-chat', school.id, parentPhone],
@@ -1280,7 +1282,7 @@ function Parent() {
         <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs uppercase tracking-[.18em] text-muted-foreground">Student report</p><h3 className="mt-1 font-display text-2xl font-semibold">{student?.name || 'No student in this term'}</h3><p className="text-sm text-muted-foreground">{student ? `${student.className} · ${student.house} house` : 'Select another term or contact your school.'}</p></div>
           <div className="flex gap-2">{(portal.data?.terms ?? []).length > 0 && <select aria-label="Academic term" value={term} onChange={(e) => { setSelectedTerm(e.target.value); setSelectedStudentId(''); }} className="h-10 rounded-lg border border-input bg-background px-2 text-sm">{portal.data?.terms.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select>}{familyStudents.length > 1 && <select aria-label="Student" value={studentId} onChange={(e) => setSelectedStudentId(e.target.value)} className="h-10 rounded-lg border border-input bg-background px-2 text-sm">{familyStudents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</div>
         </div>
-        {student ? <><div className="mt-8 grid grid-cols-3 gap-3"><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Subjects</p><p className="mt-2 font-display text-2xl font-semibold">{studentMarks.length}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Average</p><p className="mt-2 font-display text-2xl font-semibold text-primary">{average}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Term</p><p className="mt-2 truncate font-display text-lg font-semibold">{portal.data?.terms.find((item) => item.key === term)?.label ?? term}</p></div></div><div className="mt-8"><h4 className="mb-3 font-semibold">Subject performance</h4>{studentMarks.length ? <div className="space-y-3">{studentMarks.map((mark) => { const total = mark.aoi + mark.midterm + mark.end; return <div key={mark.id}><div className="mb-1 flex justify-between text-sm"><span>{mark.subject}</span><span className="font-semibold">{total}/100</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${total}%` }} /></div></div>; })}</div> : <p className="text-sm text-muted-foreground">No marks have been published for this term yet.</p>}</div></> : <div className="mt-8"><EmptyState icon={GraduationCap} title="No matching student record" body="The school does not currently have a student record linked to this phone number for this term." /></div>}
+        {student ? <><div className="mt-8 grid grid-cols-3 gap-3"><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Subjects</p><p className="mt-2 font-display text-2xl font-semibold">{studentMarks.length}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Average</p><p className="mt-2 font-display text-2xl font-semibold text-primary">{average}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Term</p><p className="mt-2 truncate font-display text-lg font-semibold">{portal.data?.terms.find((item) => item.key === term)?.label ?? term}</p></div></div><div className="mt-8"><h4 className="mb-3 font-semibold">Subject performance</h4>{studentMarks.length ? <div className="space-y-3">{studentMarks.map((mark) => { const total = finalTotal(markTotal(mark, portalFields), portalFields); return <div key={mark.id}><div className="mb-1 flex justify-between text-sm"><span>{mark.subject}</span><span className="font-semibold">{total}/100</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${total}%` }} /></div></div>; })}</div> : <p className="text-sm text-muted-foreground">No marks have been published for this term yet.</p>}</div></> : <div className="mt-8"><EmptyState icon={GraduationCap} title="No matching student record" body="The school does not currently have a student record linked to this phone number for this term." /></div>}
         {newsBody && <div className="mt-8 rounded-xl border border-border bg-muted/40 p-4"><p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{typeof news === 'object' && news?.title ? news.title : 'School news'}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{newsBody}</p></div>}
         {!!portal.data?.events.length && <div className="mt-5"><h4 className="mb-2 font-semibold">Upcoming events</h4><ul className="space-y-2 text-sm text-muted-foreground">{portal.data.events.map((event, index) => <li key={typeof event === 'object' ? event.id ?? index : `${event}-${index}`} className="rounded-lg bg-muted/40 p-3">{typeof event === 'string' ? event : `${event.title ?? 'School event'}${event.date ? ` · ${event.date}` : ''}`}</li>)}</ul></div>}
       </section>
