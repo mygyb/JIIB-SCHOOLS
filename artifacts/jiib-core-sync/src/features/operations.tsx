@@ -23,6 +23,7 @@ import type { School, SchoolConfig as SchoolConfigResponse, Student } from '@wor
 import { jiibApi } from '@/lib/jiib-api';
 import { ReportStudio } from '@/features/report-studio/report-studio';
 import { ActivityLog } from '@/features/activity-log';
+import { previewRescale, RescaleHistory, RescalePanel, type RescalePreview } from '@/features/rescale-marks';
 import { supabase } from '@/lib/supabase';
 import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
@@ -985,6 +986,9 @@ function SchoolSettings({ school }: { school: School }) {
   const [assessmentSaving, setAssessmentSaving] = useState(false);
   const [assessmentNotice, setAssessmentNotice] = useState('');
   const [assessmentError, setAssessmentError] = useState('');
+  const [rescalePreview, setRescalePreview] = useState<RescalePreview | null>(null);
+  // Any edit after the preview makes it out of date, so close it.
+  useEffect(() => { setRescalePreview(null); }, [assessmentDraft, enabledAssessmentFields]);
   useEffect(() => {
     setAddress(String(settings.address ?? ''));
     setPhone(String(settings.phone ?? ''));
@@ -1029,6 +1033,12 @@ function SchoolSettings({ school }: { school: School }) {
     setAssessmentNotice('');
     setAssessmentError('');
     try {
+      // A changed maximum score means marks already entered must be converted too: show a preview and ask first.
+      const maxChanged = selectedFields.some((field) => structure.some((saved) => saved.field === field.field && Math.abs(saved.max - field.max) > 1e-9));
+      if (maxChanged) {
+        const preview = await previewRescale(school.id, selectedFields);
+        if (preview.totalMarks > 0) { setRescalePreview(preview); return; }
+      }
       const result = await updateAssessmentSettings.mutateAsync({
         schoolId: school.id,
         data: { marksSchema: selectedFields },
@@ -1095,6 +1105,31 @@ function SchoolSettings({ school }: { school: School }) {
           {assessmentNotice && <p role="status" className="text-sm text-emerald-800">{assessmentNotice}</p>}
           {assessmentError && <p role="alert" className="text-sm text-destructive">{assessmentError}</p>}
         </div>
+        {rescalePreview && <RescalePanel
+          schoolId={school.id}
+          fields={selectedFields}
+          preview={rescalePreview}
+          onCancel={() => setRescalePreview(null)}
+          onDone={(result) => {
+            queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), { schoolId: result.schoolId, data: result.data, updatedAt: result.updatedAt });
+            void queryClient.invalidateQueries();
+            setAssessmentDraft(selectedFields);
+            setEnabledAssessmentFields(selectedFields.map((field) => field.field));
+            setAssessmentDirty(false);
+            setRescalePreview(null);
+            setAssessmentNotice('Marks converted and assessment structure saved.');
+          }}
+        />}
+        <RescaleHistory
+          schoolId={school.id}
+          config={config.data as SchoolConfig}
+          onChanged={(result) => {
+            queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), { schoolId: result.schoolId, data: result.data, updatedAt: result.updatedAt });
+            void queryClient.invalidateQueries();
+            setAssessmentDirty(false);
+            setAssessmentNotice('Conversion undone. Marks and assessment structure are back as they were.');
+          }}
+        />
       </ShellCard>
     </div>
   </div>;

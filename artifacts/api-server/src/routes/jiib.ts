@@ -49,6 +49,7 @@ import {
   valueOf,
 } from "../lib/supabase.js";
 import { listSchoolActivity, logTeacherActivity } from "../lib/activity.js";
+import { cellKey, conversionsFor, convertConfigTerms, convertTable, planRescale, scaleMapper, scaleValue, type Conversion, type Mapper } from "../lib/rescale.js";
 import { accountIsBlocked, clientIp, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
 const router: IRouter = Router();
@@ -1225,6 +1226,189 @@ router.patch("/schools/:schoolId/assessment-settings", async (req, res) => {
       data: savedData,
       updatedAt: new Date(),
     }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// ---- Rescale marks: convert marks already entered when an assessment's maximum score changes ----
+const RescaleBody = z.object({
+  marksSchema: z.array(AssessmentFieldBody).min(1).max(3),
+  confirm: z.boolean().optional(),
+  expectedFrom: z.array(z.object({ field: z.enum(["c1", "c2", "c3"]), from: z.number() })).optional(),
+});
+const UndoRescaleBody = z.object({ id: z.string().min(1) });
+
+type RescaleEntry = {
+  id: string;
+  at: string;
+  by: string;
+  conversions: Conversion[];
+  previousSchema: AssessmentField[];
+  previousActive: string[];
+  newSchema: AssessmentField[];
+  total: number;
+  rounded: Array<{ k: string; o: number; n: number }>;
+  undone?: boolean;
+  undoneAt?: string;
+};
+
+function schemaProblem(fields: AssessmentField[]): string | null {
+  if (fields.some((field) => !field.name.trim() || field.name.trim().length > 60 || !Number.isFinite(field.max) || field.max <= 0 || field.max > 100)) {
+    return "Each assessment needs a name and a maximum score between 0 and 100.";
+  }
+  if (new Set(fields.map((field) => field.field)).size !== fields.length) return "Each assessment must use a different mark field.";
+  const names = fields.map((field) => field.name.trim().toLocaleLowerCase());
+  if (new Set(names).size !== names.length) return "Assessment names must be unique.";
+  if (Math.abs(fields.reduce((sum, field) => sum + field.max, 0) - 100) > 0.001) return "Assessment maximums must add up to 100.";
+  return null;
+}
+
+function rescaleHistory(config: SchoolConfig): RescaleEntry[] {
+  const settings = config.settings && typeof config.settings === "object" && !Array.isArray(config.settings) ? config.settings as Record<string, unknown> : {};
+  return Array.isArray(settings.rescaleHistory) ? settings.rescaleHistory as RescaleEntry[] : [];
+}
+
+function settingsOf(config: SchoolConfig): Record<string, unknown> {
+  return config.settings && typeof config.settings === "object" && !Array.isArray(config.settings) ? config.settings as Record<string, unknown> : {};
+}
+
+function termsOf(config: SchoolConfig): Record<string, Record<string, unknown>> {
+  return config.terms && typeof config.terms === "object" && !Array.isArray(config.terms) ? config.terms as Record<string, Record<string, unknown>> : {};
+}
+
+function trimHistory(entries: RescaleEntry[]) {
+  // Keep the last five records; only the three newest keep the exact originals of rounded marks.
+  return entries.slice(-5).map((entry, index, all) => index < all.length - 3 ? { ...entry, rounded: [] } : entry);
+}
+
+router.post("/schools/:schoolId/assessment-settings/rescale", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const body = RescaleBody.parse(req.body);
+    const fields = body.marksSchema as AssessmentField[];
+    const problem = schemaProblem(fields);
+    if (problem) { res.status(400).json({ error: problem }); return; }
+
+    const config = await readSchoolConfig(req, schoolId);
+    const previousSchema = configuredAssessmentFields(config);
+    const previousActive = activeAssessmentFields(config).map((field) => field.field);
+    const conversions = conversionsFor(previousSchema, fields);
+    const { mapper, convertible } = scaleMapper(conversions);
+    const labels = termsOf(config);
+    const plan = await planRescale(req, schoolId, mapper, convertible);
+    const hidden = Object.entries(plan.stats.untouchedFields)
+      .filter(([field]) => !fields.some((item) => item.field === field))
+      .map(([field, count]) => ({ field, name: previousSchema.find((item) => item.field === field)?.name ?? field, count }));
+
+    if (!body.confirm) {
+      res.json({
+        conversions,
+        totalMarks: plan.stats.total,
+        perField: plan.stats.perField,
+        terms: Object.entries(plan.stats.perTerm).map(([termKey, count]) => ({ termKey, label: String(labels[termKey]?.label ?? termKey), count })),
+        examples: plan.stats.examples,
+        hiddenFields: hidden,
+        roundedMarks: Object.values(plan.stats.perField).reduce((sum, item) => sum + item.rounded, 0),
+        clampedMarks: Object.values(plan.stats.perField).reduce((sum, item) => sum + item.clamped, 0),
+      });
+      return;
+    }
+
+    if (body.expectedFrom) {
+      const expected = new Map(body.expectedFrom.map((item) => [item.field, item.from]));
+      const stale = conversions.some((item) => expected.get(item.field) !== item.from) || body.expectedFrom.some((item) => !conversions.some((c) => c.field === item.field));
+      if (stale) { res.status(409).json({ error: "The assessment settings changed since you previewed. Please preview again." }); return; }
+    }
+
+    const table = conversions.length ? await convertTable(req, schoolId, mapper, convertible) : null;
+    try {
+      const fresh = await readSchoolConfig(req, schoolId);
+      const copy = convertConfigTerms(termsOf(fresh), mapper, convertible);
+      const stats = table?.stats;
+      const entry: RescaleEntry | null = conversions.length ? {
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        by: String(req.header("x-verified-user-email") ?? "app"),
+        conversions,
+        previousSchema,
+        previousActive,
+        newSchema: fields,
+        total: stats?.total ?? 0,
+        rounded: (stats?.roundedCells ?? []).map((cell) => ({ k: cellKey(cell), o: cell.before, n: cell.after })),
+      } : null;
+      const freshSettings = settingsOf(fresh);
+      const saved = await writeSchoolConfig(req, schoolId, {
+        ...fresh,
+        terms: copy.terms,
+        settings: {
+          ...freshSettings,
+          marksSchema: fields,
+          activeMarkColumns: fields.map((field) => field.field),
+          ...(entry ? { rescaleHistory: trimHistory([...rescaleHistory(fresh), entry]) } : {}),
+        },
+      });
+      res.json({
+        ...GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }),
+        summary: { converted: stats?.total ?? 0, rounded: Object.values(stats?.perField ?? {}).reduce((sum, item) => sum + item.rounded, 0) },
+      });
+    } catch (error) {
+      // The marks must never stay converted while the school settings still describe the old scale.
+      if (table) await table.rollback().catch(() => undefined);
+      throw error;
+    }
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.post("/schools/:schoolId/assessment-settings/rescale/undo", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const { id } = UndoRescaleBody.parse(req.body);
+    const config = await readSchoolConfig(req, schoolId);
+    const history = rescaleHistory(config);
+    const latest = [...history].reverse().find((entry) => !entry.undone);
+    if (!latest || latest.id !== id) {
+      res.status(409).json({ error: "Only the most recent conversion can be undone." });
+      return;
+    }
+    const current = configuredAssessmentFields(config);
+    if (latest.conversions.some((item) => current.find((field) => field.field === item.field)?.max !== item.to)) {
+      res.status(409).json({ error: "The assessment maximums were changed after this conversion, so it cannot be undone automatically." });
+      return;
+    }
+    const exact = new Map(latest.rounded.map((item) => [item.k, item]));
+    const inverse = new Map(latest.conversions.map((item) => [item.field, item]));
+    const convertible = new Set(latest.conversions.map((item) => item.field));
+    const mapper: Mapper = (cell) => {
+      const conversion = inverse.get(cell.field);
+      if (!conversion) return { value: cell.value };
+      const original = exact.get(cellKey(cell));
+      if (original && original.n === cell.value) return { value: original.o };
+      const { value, rounded, clamped } = scaleValue(cell.value, conversion.to, conversion.from);
+      return { value, rounded, clamped };
+    };
+    const table = await convertTable(req, schoolId, mapper, convertible);
+    try {
+      const fresh = await readSchoolConfig(req, schoolId);
+      const copy = convertConfigTerms(termsOf(fresh), mapper, convertible);
+      const freshHistory = rescaleHistory(fresh).map((entry) => entry.id === latest.id ? { ...entry, undone: true, undoneAt: new Date().toISOString() } : entry);
+      const saved = await writeSchoolConfig(req, schoolId, {
+        ...fresh,
+        terms: copy.terms,
+        settings: {
+          ...settingsOf(fresh),
+          marksSchema: latest.previousSchema,
+          activeMarkColumns: latest.previousActive,
+          rescaleHistory: freshHistory,
+        },
+      });
+      res.json(GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }));
+    } catch (error) {
+      await table.rollback().catch(() => undefined);
+      throw error;
+    }
   } catch (error) {
     sendError(res, error);
   }
