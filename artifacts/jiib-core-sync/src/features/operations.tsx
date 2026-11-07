@@ -28,6 +28,8 @@ import { supabase } from '@/lib/supabase';
 import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { Link } from 'wouter';
 import { ALevelFields, aLevelSummary, defaultALevel } from '@/features/alevel-subject';
+import { ALevelGradingCard } from '@/features/alevel-grading';
+import { ALevelResults } from '@/features/alevel-results';
 import { ALevelSetup } from '@/features/alevel-setup';
 import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } from '@/lib/school-data';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
@@ -44,6 +46,7 @@ type Page =
   | 'termManagement'
   | 'manageSubjects'
   | 'aLevel'
+  | 'aLevelResults'
   | 'gradingSystem'
   | 'publishDeadline'
   | 'schoolEvents'
@@ -842,10 +845,11 @@ function ALevelPage({ school }: { school: School }) {
   return <div className="fade-up">
     <SectionHeading eyebrow="Academics & marks" title="A-Level streams and combinations" body="Group S.5 and S.6 students into the Sciences and Arts streams and their subject combinations. Students pick one when you add or edit them." />
     {isALevelEnabled(configData)
-      ? <ALevelSetup schoolId={school.id} config={configData} enrolledByCombination={enrolled} onChanged={(result) => {
+      ? <><ALevelSetup schoolId={school.id} config={configData} enrolledByCombination={enrolled} onChanged={(result) => {
         queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), { schoolId: result.schoolId, data: result.data, updatedAt: result.updatedAt });
         void queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) });
       }} />
+        <ALevelGradingCard key={JSON.stringify((configData.settings as Record<string, unknown> | undefined)?.aLevelGrading ?? null)} schoolId={school.id} config={configData} onChanged={(result) => queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), { schoolId: result.schoolId, data: result.data, updatedAt: result.updatedAt })} /></>
       : <ShellCard><p className="text-sm text-muted-foreground">A-Level is switched off for this school. An administrator can switch it on in <Link href="/school-settings" className="font-semibold text-primary hover:underline">School settings</Link>.</p></ShellCard>}
   </div>;
 }
@@ -1231,6 +1235,7 @@ export function OperationsPage({ page, school }: { page: Page; school: School })
     case 'termManagement': return <TermManagement school={school} />;
     case 'manageSubjects': return <ManageSubjects school={school} />;
     case 'aLevel': return <ALevelPage school={school} />;
+    case 'aLevelResults': return <ALevelResults school={school} />;
     case 'gradingSystem': return <GradingSystem school={school} />;
     case 'publishDeadline': return <PublishDeadline school={school} />;
     case 'schoolEvents': return <SchoolEvents school={school} />;

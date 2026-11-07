@@ -4,7 +4,7 @@ import { Link, Route, Switch, useLocation } from 'wouter';
 import { EmailField, ModeSwitch, PasswordField, PhoneField, SchoolPicker, readRememberedSchool, rememberSchool, type SchoolChoice } from '@/features/login-parts';
 import {
   Activity, Archive, LogIn, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
-  ClipboardList, GraduationCap, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
+  ClipboardList, GraduationCap, Award, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
   MessageSquare, Moon, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Search, Settings, ShieldCheck, Sun,
   SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose,
 } from 'lucide-react';
@@ -66,6 +66,7 @@ const navItems = [
   { href: '/term-management', label: 'Term management', icon: CalendarDays },
   { href: '/manage-subjects', label: 'Manage subjects', icon: BookOpen },
   { href: '/a-level', label: 'A-Level', icon: GraduationCap },
+  { href: '/a-level-results', label: 'A-Level results', icon: Award },
   { href: '/grading-system', label: 'Grading system', icon: GraduationCap },
   { href: '/publish-deadline', label: 'Publish deadline', icon: Send },
   { href: '/school-events', label: 'School events', icon: CalendarDays },
@@ -77,7 +78,7 @@ const navItems = [
 const ADMIN_ONLY_HREFS = [
   '/messages',
   '/students', '/overview', '/parents-portal', '/user-management', '/performance',
-  '/report-studio', '/print-marksheets', '/term-management', '/manage-subjects', '/a-level',
+  '/report-studio', '/print-marksheets', '/term-management', '/manage-subjects', '/a-level', '/a-level-results',
   '/grading-system', '/publish-deadline', '/school-events', '/school-settings', '/system-settings',
   '/settings', '/parent-messages',
 ];
@@ -272,6 +273,7 @@ function Router() {
         <Route path="/term-management"><AppShell><OperationsRoute page="termManagement" /></AppShell></Route>
         <Route path="/manage-subjects"><AppShell><OperationsRoute page="manageSubjects" /></AppShell></Route>
         <Route path="/a-level"><AppShell><OperationsRoute page="aLevel" /></AppShell></Route>
+        <Route path="/a-level-results"><AppShell><OperationsRoute page="aLevelResults" /></AppShell></Route>
         <Route path="/grading-system"><AppShell><OperationsRoute page="gradingSystem" /></AppShell></Route>
         <Route path="/publish-deadline"><AppShell><OperationsRoute page="publishDeadline" /></AppShell></Route>
         <Route path="/school-events"><AppShell><OperationsRoute page="schoolEvents" /></AppShell></Route>
@@ -622,7 +624,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const visibleNavItems = navItems.filter((item) =>
     isParent || isSuperAdmin
       ? false
-      : item.href === '/a-level' && !aLevelOn
+      : (item.href === '/a-level' || item.href === '/a-level-results') && !aLevelOn
         ? false
         : isTeacher ? !ADMIN_ONLY_HREFS.includes(item.href) : !TEACHER_ONLY_HREFS.includes(item.href),
   );
@@ -632,7 +634,7 @@ function AppShell({ children }: { children: ReactNode }) {
     '/settings': 'School settings', '/parent': 'Family view', '/parent-view': 'Family view', '/parent-messages': 'Parent conversations', '/super-admin': 'Portfolio',
     '/overview': 'Directory & news', '/parents-portal': 'Parents portal', '/user-management': 'User management',
     '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
-    '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/a-level': 'A-Level', '/grading-system': 'Grading system',
+    '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/a-level': 'A-Level', '/a-level-results': 'A-Level results', '/grading-system': 'Grading system',
     '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',
     '/system-settings': 'System settings', '/account-settings': 'Account settings',
   };

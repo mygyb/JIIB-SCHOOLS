@@ -1322,6 +1322,36 @@ const CombinationsBody = z.object({
   }).strict()).max(60),
 }).strict();
 
+const ALevelGradingBody = z.object({
+  principal: z.array(z.object({ grade: z.string().trim().min(1).max(3), min: z.number().min(0).max(100), points: z.number().int().min(0).max(9) }).strict()).min(2).max(10),
+  subsidiaryPass: z.number().min(0).max(100),
+}).strict();
+
+router.patch("/schools/:schoolId/a-level-grading", requireSchoolAdmin, async (req, res) => {
+  try {
+    const { schoolId } = ListMarksParams.parse(req.params);
+    const body = ALevelGradingBody.parse(req.body);
+    const bands = body.principal;
+    const grades = new Set(bands.map((band) => band.grade.toUpperCase()));
+    let problem = "";
+    if (grades.size !== bands.length) problem = "Each grade letter can be used once.";
+    else if (new Set(bands.map((band) => band.min)).size !== bands.length) problem = "Each grade needs a different minimum mark.";
+    else if (Math.min(...bands.map((band) => band.min)) !== 0) problem = "The lowest grade must start at 0 so every mark gets a grade.";
+    else {
+      const sorted = [...bands].sort((a, b) => b.min - a.min);
+      if (sorted.some((band, index) => index > 0 && band.points > sorted[index - 1].points)) problem = "A higher mark can never earn fewer points than a lower one.";
+    }
+    if (problem) { res.status(400).json({ error: problem }); return; }
+    const config = await readSchoolConfig(req, schoolId);
+    const settings = config.settings && typeof config.settings === "object" ? (config.settings as Record<string, unknown>) : {};
+    const principal = [...bands].sort((a, b) => b.min - a.min).map((band) => ({ grade: band.grade.toUpperCase(), min: band.min, points: band.points }));
+    const saved = await writeSchoolConfig(req, schoolId, { ...config, settings: { ...settings, aLevelGrading: { principal, subsidiaryPass: body.subsidiaryPass } } });
+    res.json(GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 const ALEVEL_MARKS_MISSING = "A-Level marks storage is not set up yet. Ask the system administrator to run supabase/alevel-setup.sql once.";
 const alevelMarksTableMissing = (error: unknown) => /jsa_alevel_marks|relation .* does not exist|schema cache/i.test(error instanceof Error ? error.message : "");
 
@@ -1330,12 +1360,12 @@ router.get("/schools/:schoolId/a-level/marks", async (req, res) => {
     const { schoolId } = ListMarksParams.parse(req.params);
     const termKey = String(req.query.termKey ?? "").trim();
     const subject = String(req.query.subject ?? "").trim();
-    if (!termKey || !subject) { res.status(400).json({ error: "termKey and subject are required" }); return; }
+    if (!termKey) { res.status(400).json({ error: "termKey is required" }); return; }
     const rows: Array<Record<string, unknown>> = [];
     try {
       for (let offset = 0; ; offset += 1000) {
         const page = asRows(await supabaseRequest(req, "jsa_alevel_marks", {},
-          `?school_id=eq.${encodeURIComponent(schoolId)}&term_key=eq.${encodeURIComponent(termKey)}&subject=eq.${encodeURIComponent(subject)}&select=student_id,paper,score&order=student_id,paper&limit=1000&offset=${offset}`));
+          `?school_id=eq.${encodeURIComponent(schoolId)}&term_key=eq.${encodeURIComponent(termKey)}${subject ? `&subject=eq.${encodeURIComponent(subject)}` : ""}&select=student_id,subject,paper,score&order=student_id,subject,paper&limit=1000&offset=${offset}`));
         rows.push(...page);
         if (page.length < 1000) break;
       }
@@ -1343,7 +1373,7 @@ router.get("/schools/:schoolId/a-level/marks", async (req, res) => {
       if (alevelMarksTableMissing(error)) { res.status(503).json({ error: ALEVEL_MARKS_MISSING }); return; }
       throw error;
     }
-    res.json(rows.map((row) => ({ studentId: String(row.student_id), subject, paper: String(row.paper), score: Number(row.score) })));
+    res.json(rows.map((row) => ({ studentId: String(row.student_id), subject: String(row.subject ?? subject), paper: String(row.paper), score: Number(row.score) })));
   } catch (error) {
     sendError(res, error);
   }
