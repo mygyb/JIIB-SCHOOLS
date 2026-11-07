@@ -1931,6 +1931,14 @@ router.get("/schools/:schoolId/marks", async (req, res) => {
         ...(legacy?.enteredFields ? { enteredFields: legacy.enteredFields } : {}),
       });
     }
+    // A box holding a value always counts as entered, even if the record of which boxes were typed was lost.
+    for (const mark of byKey.values()) {
+      const entered = new Set(mark.enteredFields ?? []);
+      if (mark.aoi > 0) entered.add("c1");
+      if (mark.midterm > 0) entered.add("c2");
+      if (mark.end > 0) entered.add("c3");
+      mark.enteredFields = [...entered];
+    }
     const matching = Array.from(byKey.values()).filter((mark) =>
       (!subject || mark.subject === subject) &&
       (!className || String(
@@ -2115,6 +2123,11 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
       else enteredFields.delete(field);
     }
     const saved = rows[0] ? mapMark(rows[0]) : null;
+    if (saved) {
+      if (saved.aoi > 0) enteredFields.add("c1");
+      if (saved.midterm > 0) enteredFields.add("c2");
+      if (saved.end > 0) enteredFields.add("c3");
+    }
     const valueFor = (key: (typeof SCORE_KEYS)[number]) =>
       saved?.[key] ?? (touched.includes(key) ? incoming[key] : Number(previous?.[key] ?? previous?.[FIELD_OF[key]] ?? 0));
     const nextMark = {
