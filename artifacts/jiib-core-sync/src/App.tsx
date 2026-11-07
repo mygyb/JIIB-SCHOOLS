@@ -4,7 +4,7 @@ import { Link, Route, Switch, useLocation } from 'wouter';
 import { EmailField, ModeSwitch, PasswordField, PhoneField, SchoolPicker, readRememberedSchool, rememberSchool, type SchoolChoice } from '@/features/login-parts';
 import {
   Activity, Archive, LogIn, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
-  ClipboardList, GraduationCap, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
+  ClipboardList, GraduationCap, Award, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
   MessageSquare, Moon, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Search, Settings, ShieldCheck, Sun,
   SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose,
 } from 'lucide-react';
@@ -41,6 +41,7 @@ import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/page
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
 import { clearAccountTheme, getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
+import { combinationsOf, enrolmentLabel, enrolmentSubjects, isALevelClass, isALevelEnabled, STREAM_LABELS, subsidiarySubjectNames, type Enrolment, type Stream } from '@/lib/school-data';
 import { configuredHouses, currentTerm, DEFAULT_ASSESSMENT_FIELDS, finalTotal, getAssessmentFields, markTotal, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from '@/lib/school-data';
 import { flushPendingMarks, getPendingMarks, queueMark } from '@/lib/offline-marks';
 import { OperationsPage } from '@/features/operations';
@@ -64,6 +65,8 @@ const navItems = [
   { href: '/print-marksheets', label: 'Print marksheets', icon: Printer },
   { href: '/term-management', label: 'Term management', icon: CalendarDays },
   { href: '/manage-subjects', label: 'Manage subjects', icon: BookOpen },
+  { href: '/a-level', label: 'A-Level', icon: GraduationCap },
+  { href: '/a-level-results', label: 'A-Level results', icon: Award },
   { href: '/grading-system', label: 'Grading system', icon: GraduationCap },
   { href: '/publish-deadline', label: 'Publish deadline', icon: Send },
   { href: '/school-events', label: 'School events', icon: CalendarDays },
@@ -75,7 +78,7 @@ const navItems = [
 const ADMIN_ONLY_HREFS = [
   '/messages',
   '/students', '/overview', '/parents-portal', '/user-management', '/performance',
-  '/report-studio', '/print-marksheets', '/term-management', '/manage-subjects',
+  '/report-studio', '/print-marksheets', '/term-management', '/manage-subjects', '/a-level', '/a-level-results',
   '/grading-system', '/publish-deadline', '/school-events', '/school-settings', '/system-settings',
   '/settings', '/parent-messages',
 ];
@@ -269,6 +272,8 @@ function Router() {
         <Route path="/report-studio"><AppShell><OperationsRoute page="reportStudio" /></AppShell></Route>
         <Route path="/term-management"><AppShell><OperationsRoute page="termManagement" /></AppShell></Route>
         <Route path="/manage-subjects"><AppShell><OperationsRoute page="manageSubjects" /></AppShell></Route>
+        <Route path="/a-level"><AppShell><OperationsRoute page="aLevel" /></AppShell></Route>
+        <Route path="/a-level-results"><AppShell><OperationsRoute page="aLevelResults" /></AppShell></Route>
         <Route path="/grading-system"><AppShell><OperationsRoute page="gradingSystem" /></AppShell></Route>
         <Route path="/publish-deadline"><AppShell><OperationsRoute page="publishDeadline" /></AppShell></Route>
         <Route path="/school-events"><AppShell><OperationsRoute page="schoolEvents" /></AppShell></Route>
@@ -523,6 +528,8 @@ function AppShell({ children }: { children: ReactNode }) {
   const [authReady, setAuthReady] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [syncRevision, setSyncRevision] = useState(0);
+  const shellConfig = useGetSchoolConfig(school.id, { query: { queryKey: getGetSchoolConfigQueryKey(school.id), enabled: !isParent && !isSuperAdmin } });
+  const aLevelOn = isALevelEnabled(shellConfig.data?.data as SchoolConfig | undefined);
   useEffect(() => {
     setAccountDarkMode(accountEmail, dark);
   }, [accountEmail, dark]);
@@ -617,7 +624,9 @@ function AppShell({ children }: { children: ReactNode }) {
   const visibleNavItems = navItems.filter((item) =>
     isParent || isSuperAdmin
       ? false
-      : isTeacher ? !ADMIN_ONLY_HREFS.includes(item.href) : !TEACHER_ONLY_HREFS.includes(item.href),
+      : (item.href === '/a-level' || item.href === '/a-level-results') && !aLevelOn
+        ? false
+        : isTeacher ? !ADMIN_ONLY_HREFS.includes(item.href) : !TEACHER_ONLY_HREFS.includes(item.href),
   );
 
   const titleMap: Record<string, string> = {
@@ -625,7 +634,7 @@ function AppShell({ children }: { children: ReactNode }) {
     '/settings': 'School settings', '/parent': 'Family view', '/parent-view': 'Family view', '/parent-messages': 'Parent conversations', '/super-admin': 'Portfolio',
     '/overview': 'Directory & news', '/parents-portal': 'Parents portal', '/user-management': 'User management',
     '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
-    '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/grading-system': 'Grading system',
+    '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/a-level': 'A-Level', '/a-level-results': 'A-Level results', '/grading-system': 'Grading system',
     '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',
     '/system-settings': 'System settings', '/account-settings': 'Account settings',
   };
@@ -918,6 +927,7 @@ function Students() {
   const [search, setSearch] = useState('');
   const [house, setHouse] = useState('');
   const [className, setClassName] = useState('');
+  const [aLevelFilter, setALevelFilter] = useState('');
   const [editing, setEditing] = useState<Student | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -931,8 +941,12 @@ function Students() {
     : [];
   const query = useListStudents(school.id, { search: search || undefined, house: house || undefined, className: className || undefined });
   const create = useCreateStudent(); const update = useUpdateStudent(); const remove = useDeleteStudent();
-  const students = query.data || [];
-  const classes = Array.from(new Set([...configuredClasses, ...students.map((student) => student.className).filter(Boolean)])).sort();
+  const aLevelOn = isALevelEnabled(configData);
+  const allStudents = query.data || [];
+  const students = aLevelFilter
+    ? allStudents.filter((student) => aLevelFilter === 'sciences' || aLevelFilter === 'arts' ? student.aLevel?.stream === aLevelFilter : student.aLevel?.combination === aLevelFilter)
+    : allStudents;
+  const classes = Array.from(new Set([...configuredClasses, ...allStudents.map((student) => student.className).filter(Boolean)])).sort();
   const allVisibleSelected = students.length > 0 && students.every((student) => selectedIds.includes(student.id));
   const toggleStudent = (studentId: string) => setSelectedIds((items) =>
     items.includes(studentId) ? items.filter((id) => id !== studentId) : [...items, studentId],
@@ -1003,9 +1017,9 @@ function Students() {
     />;
   }
   return <div className="fade-up"><PageHeader eyebrow="School register" title="Students" description="Keep the school register accurate, searchable, and ready for every team." action={<div className="flex flex-wrap gap-2">{selectedIds.length > 0 && <button data-testid="button-delete-selected-students" onClick={() => void bulkDelete()} disabled={bulkPending} className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 px-4 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50"><Trash2 size={15} /> {bulkPending ? 'Deleting…' : `Delete selected (${selectedIds.length})`}</button>}<button data-testid="button-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={16} /> Add student</button></div>} />
-    <div className="mb-5 flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={17} className="absolute left-3 top-3.5 text-muted-foreground" /><input data-testid="input-student-search" value={search} onChange={(e) => { setSearch(e.target.value); setSelectedIds([]); }} placeholder="Search by student name" className="h-11 w-full rounded-xl border border-input bg-card pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></div><select data-testid="select-student-class" value={className} onChange={(e) => { setClassName(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select><select data-testid="select-student-house" value={house} onChange={(e) => { setHouse(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All houses</option>{houses.map((item) => <option key={item} value={item}>{item}</option>)}</select><button data-testid="button-filter-students" onClick={() => { setSearch(''); setClassName(''); setHouse(''); setSelectedIds([]); }} disabled={!search && !className && !house} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50"><SlidersHorizontal size={15} /> Clear filters</button></div>
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={17} className="absolute left-3 top-3.5 text-muted-foreground" /><input data-testid="input-student-search" value={search} onChange={(e) => { setSearch(e.target.value); setSelectedIds([]); }} placeholder="Search by student name" className="h-11 w-full rounded-xl border border-input bg-card pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></div><select data-testid="select-student-class" value={className} onChange={(e) => { setClassName(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select><select data-testid="select-student-house" value={house} onChange={(e) => { setHouse(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All houses</option>{houses.map((item) => <option key={item} value={item}>{item}</option>)}</select>{aLevelOn && <select data-testid="select-student-alevel" value={aLevelFilter} onChange={(e) => { setALevelFilter(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All streams</option><option value="sciences">Sciences</option><option value="arts">Arts</option>{combinationsOf(configData).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}<button data-testid="button-filter-students" onClick={() => { setSearch(''); setClassName(''); setHouse(''); setALevelFilter(''); setSelectedIds([]); }} disabled={!search && !className && !house && !aLevelFilter} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50"><SlidersHorizontal size={15} /> Clear filters</button></div>
     {bulkError && <p role="alert" className="mb-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{bulkError}</p>}
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">{query.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-14" />)}</div> : query.isError ? <div className="p-5"><ErrorState retry={() => query.refetch()} /></div> : students.length === 0 ? <EmptyState icon={UsersRound} title="No students match" body={search || className || house ? 'Try a different search or clear the filters.' : 'Your register is ready for its first student.'} action={!search && !className && !house ? <button data-testid="button-empty-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Add first student</button> : undefined} /> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-4 py-4"><input aria-label="Select all visible students" type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : students.map((student) => student.id))} /></th><th className="px-5 py-4 font-bold">Student</th><th className="px-5 py-4 font-bold">Class</th><th className="px-5 py-4 font-bold">House</th><th className="px-5 py-4 font-bold">Optional subjects</th><th className="px-5 py-4 font-bold">Parent contact</th><th className="px-5 py-4 text-right font-bold">Actions</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => <tr key={student.id} data-testid={`row-student-${student.id}`} className="group transition hover:bg-muted/25"><td className="px-4 py-4"><input aria-label={`Select ${student.name}`} type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /></td><td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">{initials(student.name)}</span><div><p data-testid={`text-student-${student.id}`} className="text-sm font-semibold uppercase">{student.name}</p><p className="mt-0.5 text-xs text-muted-foreground">Joined {fmtDate(student.createdAt)}</p></div></div></td><td className="px-5 py-4 text-sm">{student.className}</td><td className="px-5 py-4"><span className="rounded-full bg-[#f7edcf] px-2.5 py-1 text-xs font-semibold text-[#87631c]">{student.house}</span></td><td className="px-5 py-4"><div className="flex flex-wrap gap-1.5">{student.subjects?.length ? student.subjects.map((item) => <span key={item} className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">{item}</span>) : <span className="text-sm text-muted-foreground">None</span>}</div></td><td className="px-5 py-4 text-sm text-muted-foreground">{student.parentPhone || 'Not provided'}</td><td className="px-5 py-4"><div className="flex justify-end gap-1 opacity-70 group-hover:opacity-100"><button data-testid={`button-edit-student-${student.id}`} onClick={() => { setEditing(student); setShowForm(true); }} className="rounded-lg p-2 hover:bg-muted"><Pencil size={15} /></button><button data-testid={`button-delete-student-${student.id}`} onClick={() => deleteStudent(student)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div></td></tr>)}</tbody></table></div>}</div>
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">{query.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-14" />)}</div> : query.isError ? <div className="p-5"><ErrorState retry={() => query.refetch()} /></div> : students.length === 0 ? <EmptyState icon={UsersRound} title="No students match" body={search || className || house ? 'Try a different search or clear the filters.' : 'Your register is ready for its first student.'} action={!search && !className && !house ? <button data-testid="button-empty-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Add first student</button> : undefined} /> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-4 py-4"><input aria-label="Select all visible students" type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : students.map((student) => student.id))} /></th><th className="px-5 py-4 font-bold">Student</th><th className="px-5 py-4 font-bold">Class</th><th className="px-5 py-4 font-bold">House</th><th className="px-5 py-4 font-bold">Optional subjects</th><th className="px-5 py-4 font-bold">Parent contact</th><th className="px-5 py-4 text-right font-bold">Actions</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => <tr key={student.id} data-testid={`row-student-${student.id}`} className="group transition hover:bg-muted/25"><td className="px-4 py-4"><input aria-label={`Select ${student.name}`} type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /></td><td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">{initials(student.name)}</span><div><p data-testid={`text-student-${student.id}`} className="text-sm font-semibold uppercase">{student.name}</p><p className="mt-0.5 text-xs text-muted-foreground">Joined {fmtDate(student.createdAt)}</p></div></div></td><td className="px-5 py-4 text-sm">{student.className}{enrolmentLabel(configData, student.aLevel) && <span data-testid={`badge-alevel-${student.id}`} className="mt-1 block text-[11px] font-semibold text-primary">{enrolmentLabel(configData, student.aLevel)}</span>}</td><td className="px-5 py-4"><span className="rounded-full bg-[#f7edcf] px-2.5 py-1 text-xs font-semibold text-[#87631c]">{student.house}</span></td><td className="px-5 py-4"><div className="flex flex-wrap gap-1.5">{student.subjects?.length ? student.subjects.map((item) => <span key={item} className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">{item}</span>) : <span className="text-sm text-muted-foreground">None</span>}</div></td><td className="px-5 py-4 text-sm text-muted-foreground">{student.parentPhone || 'Not provided'}</td><td className="px-5 py-4"><div className="flex justify-end gap-1 opacity-70 group-hover:opacity-100"><button data-testid={`button-edit-student-${student.id}`} onClick={() => { setEditing(student); setShowForm(true); }} className="rounded-lg p-2 hover:bg-muted"><Pencil size={15} /></button><button data-testid={`button-delete-student-${student.id}`} onClick={() => deleteStudent(student)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div></td></tr>)}</tbody></table></div>}</div>
   </div>;
 }
 
@@ -1026,7 +1040,7 @@ function StudentFormPage({
   pending: boolean;
   error: string;
   onCancel: () => void;
-  onSave: (data: { name: string; className: string; house: string; parentPhone?: string | null; subjects?: string[] }) => void;
+  onSave: (data: { name: string; className: string; house: string; parentPhone?: string | null; subjects?: string[]; aLevel?: Enrolment | null }) => void;
 }) {
   const editing = Boolean(student);
   const nameParts = (student?.name ?? '').trim().split(/\s+/);
@@ -1037,6 +1051,16 @@ function StudentFormPage({
   const [parentPhone, setParentPhone] = useState(student?.parentPhone || '');
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>(student?.subjects ?? []);
   const availableSubjects = subjectNames(configData, className);
+  // A-Level students (S.5 / S.6) are placed in a stream and combination; their subjects follow from that automatically.
+  const aLevelClassSelected = isALevelEnabled(configData) && isALevelClass(className);
+  const allCombinations = combinationsOf(configData);
+  const [stream, setStream] = useState<Stream | ''>(student?.aLevel?.stream ?? '');
+  const [combinationId, setCombinationId] = useState(student?.aLevel?.combination ?? '');
+  const [subsidiary, setSubsidiary] = useState(student?.aLevel?.subsidiary ?? '');
+  const [enrolmentError, setEnrolmentError] = useState('');
+  const streamCombinations = allCombinations.filter((item) => !stream || item.stream === stream);
+  const chosenCombination = allCombinations.find((item) => item.id === combinationId);
+  const autoSubjects = enrolmentSubjects(configData, chosenCombination, subsidiary || undefined);
   const settings = configData.settings && typeof configData.settings === 'object'
     ? configData.settings
     : {};
@@ -1049,12 +1073,21 @@ function StudentFormPage({
     const first = firstName.trim();
     const last = lastName.trim();
     if (!first || (!editing && !last) || !className || !house.trim()) return;
+    if (aLevelClassSelected && allCombinations.length > 0 && (!stream || !chosenCombination)) {
+      setEnrolmentError('Choose the stream and combination for this A-Level student.');
+      return;
+    }
+    setEnrolmentError('');
+    const enrolment: Enrolment | null | undefined = aLevelClassSelected && chosenCombination && stream
+      ? { stream, combination: chosenCombination.id, ...(subsidiary ? { subsidiary } : {}) }
+      : student?.aLevel ? null : undefined;
     onSave({
       name: [first, last].filter(Boolean).join(' '),
       className,
       house: house.trim(),
       parentPhone: parentPhone.trim() || null,
-      subjects: canChooseOptionalSubjects ? selectedSubjects : [],
+      subjects: enrolment ? autoSubjects : canChooseOptionalSubjects ? selectedSubjects : [],
+      ...(enrolment !== undefined ? { aLevel: enrolment } : {}),
     });
   };
   return <div className="fade-up">
@@ -1074,7 +1107,7 @@ function StudentFormPage({
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Class</span>
-            <select data-testid="input-student-class" required disabled={!classes.length} value={className} onChange={(event) => { setClassName(event.target.value); setSelectedSubjects([]); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60">
+            <select data-testid="input-student-class" required disabled={!classes.length} value={className} onChange={(event) => { setClassName(event.target.value); setSelectedSubjects([]); if (!isALevelClass(event.target.value)) { setStream(''); setCombinationId(''); setSubsidiary(''); } }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60">
               <option value="">{classes.length ? 'Select a class' : 'No classes configured'}</option>
               {classes.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
@@ -1089,6 +1122,23 @@ function StudentFormPage({
           </label> : <Field label="House" value={house} onChange={setHouse} testId="input-student-house-form" required />}
         </div>
         <div className="mt-4 max-w-md"><Field label="Parent phone (optional)" value={parentPhone} onChange={setParentPhone} testId="input-student-parent-phone" /></div>
+        {aLevelClassSelected && <div data-testid="alevel-enrolment" className="mt-6 rounded-xl border border-border bg-muted/30 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">A-Level enrolment</p>
+          {allCombinations.length === 0
+            ? <p className="mt-2 text-sm text-muted-foreground">No combinations exist yet. <Link href="/a-level" className="font-semibold text-primary hover:underline">Create them on the A-Level page</Link> first.</p>
+            : <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Stream</span>
+                <select data-testid="select-student-stream" value={stream} onChange={(event) => { setStream(event.target.value as Stream | ''); setCombinationId(''); setEnrolmentError(''); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm">
+                  <option value="">Select a stream</option>{(['sciences', 'arts'] as Stream[]).map((key) => <option key={key} value={key}>{STREAM_LABELS[key]}</option>)}</select></label>
+              <label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Combination</span>
+                <select data-testid="select-student-combination" value={combinationId} disabled={!stream} onChange={(event) => { setCombinationId(event.target.value); setEnrolmentError(''); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-60">
+                  <option value="">{stream ? 'Select a combination' : 'Choose a stream first'}</option>{streamCombinations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label className="block"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Subsidiary</span>
+                <select data-testid="select-student-subsidiary" value={subsidiary} onChange={(event) => setSubsidiary(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm">
+                  <option value="">None</option>{subsidiarySubjectNames(configData).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+            </div>}
+          {enrolmentError && <p role="alert" data-testid="enrolment-error" className="mt-3 text-xs font-medium text-destructive">{enrolmentError}</p>}
+        </div>}
         {error && <p role="alert" className="mt-5 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
         <div className="mt-7 flex flex-wrap justify-end gap-3 border-t border-border pt-5">
           <button type="button" data-testid="button-cancel-student" onClick={onCancel} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">Cancel</button>
@@ -1104,7 +1154,11 @@ function StudentFormPage({
           <BookOpen size={18} className="mt-1 text-muted-foreground" />
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">Choose any optional subjects this student takes. Leave them unchecked if none apply.</p>
-        {canChooseOptionalSubjects ? availableSubjects.length ? <fieldset className="mt-5 space-y-2">
+        {aLevelClassSelected ? <div data-testid="alevel-auto-subjects" className="mt-5 rounded-xl bg-muted/45 p-4 text-sm">
+          <p className="font-semibold">Subjects follow the combination</p>
+          {autoSubjects.length ? <div className="mt-3 flex flex-wrap gap-1.5">{autoSubjects.map((item) => <span key={item} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{item}</span>)}</div>
+            : <p className="mt-1 text-muted-foreground">Choose a stream and combination to see this student's subjects.</p>}
+        </div> : canChooseOptionalSubjects ? availableSubjects.length ? <fieldset className="mt-5 space-y-2">
           <legend className="sr-only">Choose optional subjects</legend>
           {availableSubjects.map((subject) => <label key={subject} className="flex cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-3 text-sm transition hover:bg-muted/40">
             <input

@@ -5,6 +5,7 @@
  * JIIB Core Sync school management API
  * OpenAPI spec version: 0.1.0
  */
+import type { ALevelEnrolment } from './aLevelEnrolment';
 
 export interface StudentUpdate {
   /** @minLength 1 */
@@ -16,4 +17,6 @@ export interface StudentUpdate {
   /** @nullable */
   parentPhone?: string | null;
   badges?: string[];
+  subjects?: string[];
+  aLevel?: ALevelEnrolment | null;
 }

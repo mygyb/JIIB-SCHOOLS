@@ -49,6 +49,7 @@ import {
   valueOf,
 } from "../lib/supabase.js";
 import { listSchoolActivity, logTeacherActivity } from "../lib/activity.js";
+import { aLevelEnabled as isALevelEnabledOn, combinationsOf, combinationsProblem, papersOf, enrolmentSubjects, resolveEnrolment, subjectsProblem, type Combination, type Enrolment } from "../lib/alevel.js";
 import { cellKey, conversionsFor, convertConfigTerms, convertTable, planRescale, scaleMapper, scaleValue, type Conversion, type Mapper } from "../lib/rescale.js";
 import { accountIsBlocked, clientIp, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
@@ -79,8 +80,17 @@ function mapStudent(row: Record<string, unknown>) {
     parentPhone: (row.parent_phone as string | null | undefined) ?? null,
     badges: Array.isArray(row.badges) ? row.badges.map(String) : [],
     subjects: Array.isArray(row.subjects) ? row.subjects.map(String) : [],
+    aLevel: null as Enrolment | null,
     createdAt: new Date(String(row.created_at ?? new Date().toISOString())),
   };
+}
+
+/** The stream / combination / subsidiary kept on a student's saved-settings copy, if any. */
+function enrolmentOf(value: unknown): Enrolment | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  if ((item.stream !== "sciences" && item.stream !== "arts") || typeof item.combination !== "string" || !item.combination) return null;
+  return { stream: item.stream, combination: item.combination, ...(typeof item.subsidiary === "string" && item.subsidiary ? { subsidiary: item.subsidiary } : {}) };
 }
 
 function mapMark(row: Record<string, unknown>) {
@@ -318,6 +328,7 @@ async function getParentPortalData(req: Request, schoolId: string, phoneInput: s
         parentPhone: String(student.parentPhone ?? student.parent_phone ?? ""),
         badges: Array.isArray(student.badges) ? student.badges.map(String) : [],
         subjects: Array.isArray(student.subjects) ? student.subjects.map(String) : [],
+        aLevel: enrolmentOf(student.aLevel),
         createdAt: new Date(),
         termKey,
       });
@@ -1139,6 +1150,8 @@ router.put("/schools/:schoolId/config", async (req, res) => {
   try {
     const { schoolId } = UpdateSchoolConfigParams.parse(req.params);
     const { data } = UpdateSchoolConfigBody.parse(req.body);
+    const aLevelIssue = subjectsProblem((data as SchoolConfig).subjects);
+    if (aLevelIssue) { res.status(400).json({ error: aLevelIssue }); return; }
     const savedData = await writeSchoolConfig(req, schoolId, data as SchoolConfig);
     const now = new Date().toISOString();
     res.json({
@@ -1298,6 +1311,212 @@ function trimHistory(entries: RescaleEntry[]) {
   // Keep the last five records; only the three newest keep the exact originals of rounded marks.
   return entries.slice(-5).map((entry, index, all) => index < all.length - 3 ? { ...entry, rounded: [] } : entry);
 }
+
+// ---- A-Level combinations (PCM, HEG, ...). Saving also refreshes the subjects of every student enrolled in one. ----
+const CombinationsBody = z.object({
+  combinations: z.array(z.object({
+    id: z.string().min(1).max(64).optional(),
+    name: z.string(),
+    stream: z.enum(["sciences", "arts"]),
+    subjects: z.array(z.string()),
+  }).strict()).max(60),
+}).strict();
+
+const ALevelGradingBody = z.object({
+  principal: z.array(z.object({ grade: z.string().trim().min(1).max(3), min: z.number().min(0).max(100), points: z.number().int().min(0).max(9) }).strict()).min(2).max(10),
+  subsidiaryPass: z.number().min(0).max(100),
+}).strict();
+
+router.patch("/schools/:schoolId/a-level-grading", requireSchoolAdmin, async (req, res) => {
+  try {
+    const { schoolId } = ListMarksParams.parse(req.params);
+    const body = ALevelGradingBody.parse(req.body);
+    const bands = body.principal;
+    const grades = new Set(bands.map((band) => band.grade.toUpperCase()));
+    let problem = "";
+    if (grades.size !== bands.length) problem = "Each grade letter can be used once.";
+    else if (new Set(bands.map((band) => band.min)).size !== bands.length) problem = "Each grade needs a different minimum mark.";
+    else if (Math.min(...bands.map((band) => band.min)) !== 0) problem = "The lowest grade must start at 0 so every mark gets a grade.";
+    else {
+      const sorted = [...bands].sort((a, b) => b.min - a.min);
+      if (sorted.some((band, index) => index > 0 && band.points > sorted[index - 1].points)) problem = "A higher mark can never earn fewer points than a lower one.";
+    }
+    if (problem) { res.status(400).json({ error: problem }); return; }
+    const config = await readSchoolConfig(req, schoolId);
+    const settings = config.settings && typeof config.settings === "object" ? (config.settings as Record<string, unknown>) : {};
+    const principal = [...bands].sort((a, b) => b.min - a.min).map((band) => ({ grade: band.grade.toUpperCase(), min: band.min, points: band.points }));
+    const saved = await writeSchoolConfig(req, schoolId, { ...config, settings: { ...settings, aLevelGrading: { principal, subsidiaryPass: body.subsidiaryPass } } });
+    res.json(GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+const ALEVEL_MARKS_MISSING = "A-Level marks storage is not set up yet. Ask the system administrator to run supabase/alevel-setup.sql once.";
+const alevelMarksTableMissing = (error: unknown) => /jsa_alevel_marks|relation .* does not exist|schema cache/i.test(error instanceof Error ? error.message : "");
+
+router.get("/schools/:schoolId/a-level/marks", async (req, res) => {
+  try {
+    const { schoolId } = ListMarksParams.parse(req.params);
+    const termKey = String(req.query.termKey ?? "").trim();
+    const subject = String(req.query.subject ?? "").trim();
+    if (!termKey) { res.status(400).json({ error: "termKey is required" }); return; }
+    const rows: Array<Record<string, unknown>> = [];
+    try {
+      for (let offset = 0; ; offset += 1000) {
+        const page = asRows(await supabaseRequest(req, "jsa_alevel_marks", {},
+          `?school_id=eq.${encodeURIComponent(schoolId)}&term_key=eq.${encodeURIComponent(termKey)}${subject ? `&subject=eq.${encodeURIComponent(subject)}` : ""}&select=student_id,subject,paper,score&order=student_id,subject,paper&limit=1000&offset=${offset}`));
+        rows.push(...page);
+        if (page.length < 1000) break;
+      }
+    } catch (error) {
+      if (alevelMarksTableMissing(error)) { res.status(503).json({ error: ALEVEL_MARKS_MISSING }); return; }
+      throw error;
+    }
+    res.json(rows.map((row) => ({ studentId: String(row.student_id), subject: String(row.subject ?? subject), paper: String(row.paper), score: Number(row.score) })));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+const ALevelMarkBody = z.object({
+  termKey: z.string().optional(),
+  studentId: z.string().min(1),
+  subject: z.string().min(1),
+  paper: z.string().min(1),
+  score: z.number().finite().nullable(),
+}).strict();
+
+router.put("/schools/:schoolId/a-level/marks", async (req, res) => {
+  try {
+    const { schoolId } = ListMarksParams.parse(req.params);
+    const body = ALevelMarkBody.parse(req.body);
+    const isTeacher = res.locals.jiibRole === "teacher";
+    const [config, teacherRows] = await Promise.all([
+      readSchoolConfig(req, schoolId),
+      isTeacher
+        ? supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(String(req.headers["x-verified-user-email"] ?? "").toLowerCase())}&select=subjects&limit=1`)
+        : Promise.resolve([]),
+    ]);
+    if (!isALevelEnabledOn(config)) { res.status(409).json({ error: "A-Level is switched off for this school." }); return; }
+    const termKey = body.termKey || String(config.activeTerm ?? "");
+    if (isTeacher && termKey !== String(config.activeTerm ?? "")) {
+      res.status(403).json({ error: "Teachers can enter marks only in the active term." });
+      return;
+    }
+    const termMap = config.terms && typeof config.terms === "object" ? (config.terms as Record<string, Record<string, unknown>>) : {};
+    const term = termMap[termKey];
+    if (config.marksLocked || term?.locked || term?.status === "closed") { res.status(423).json({ error: "Marks are locked for this term." }); return; }
+    const student = asRows(await supabaseRequest(req, "students", {},
+      `?id=eq.${encodeURIComponent(body.studentId)}&school_id=eq.${encodeURIComponent(schoolId)}&select=class,subjects&limit=1`).catch(() => []))[0]
+      ?? (Array.isArray(term?.students) ? (term.students as Array<Record<string, unknown>>).find((item) => String(item.id) === body.studentId) : undefined);
+    if (!student) { res.status(404).json({ error: "Student not found in this term." }); return; }
+    const className = String(student.class ?? student.className ?? "");
+    const papers = papersOf(config, className, body.subject);
+    if (!papers) { res.status(400).json({ error: `${body.subject} is not an A-Level subject for ${className || "this class"}.` }); return; }
+    const paper = papers.find((item) => item.name === body.paper);
+    if (!paper) { res.status(400).json({ error: `${body.subject} has no paper called ${body.paper}.` }); return; }
+    if (body.score !== null && (body.score < 0 || body.score > paper.max)) {
+      res.status(400).json({ error: `${body.paper} must be between 0 and ${paper.max}.` });
+      return;
+    }
+    if (isTeacher) {
+      const assigned = asRows(teacherRows)[0]?.subjects;
+      const list = Array.isArray(assigned) ? assigned : [];
+      const allowed = list.some((a) => typeof a === "string"
+        ? a === body.subject
+        : Boolean(a && typeof a === "object" && String((a as Record<string, unknown>).class ?? "") === className && String((a as Record<string, unknown>).subject ?? "") === body.subject));
+      if (!allowed) { res.status(403).json({ error: "You can enter marks only for subjects assigned to your class." }); return; }
+    }
+    const enc = encodeURIComponent;
+    const key = `school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&student_id=eq.${enc(body.studentId)}&subject=eq.${enc(body.subject)}&paper=eq.${enc(body.paper)}`;
+    try {
+      if (body.score === null) {
+        await supabaseRequest(req, "jsa_alevel_marks", { method: "DELETE", headers: { Prefer: "return=minimal" } }, `?${key}`);
+      } else {
+        await supabaseRequest(req, "jsa_alevel_marks", {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: jsonBody({ school_id: schoolId, term_key: termKey, student_id: body.studentId, subject: body.subject, paper: body.paper, score: body.score, updated_at: new Date().toISOString(), updated_by: req.header("x-user-email") ?? "app" }),
+        }, "?on_conflict=school_id,term_key,student_id,subject,paper");
+      }
+    } catch (error) {
+      if (alevelMarksTableMissing(error)) { res.status(503).json({ error: ALEVEL_MARKS_MISSING }); return; }
+      throw error;
+    }
+    if (isTeacher) await logTeacherActivity(req, String(req.headers["x-verified-user-email"] ?? ""), schoolId, "marks", [body.subject, className].filter(Boolean).join(" · "));
+    res.json({ studentId: body.studentId, subject: body.subject, paper: body.paper, score: body.score });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.put("/schools/:schoolId/a-level/combinations", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const body = CombinationsBody.parse(req.body);
+    const config = await readSchoolConfig(req, schoolId);
+    if (!isALevelEnabledOn(config)) { res.status(400).json({ error: "Switch A-Level on in School settings first." }); return; }
+    const problem = combinationsProblem(config, body.combinations);
+    if (problem) { res.status(400).json({ error: problem }); return; }
+
+    const next: Combination[] = body.combinations.map((item) => ({
+      id: item.id ?? randomUUID(),
+      name: item.name.trim(),
+      stream: item.stream,
+      subjects: item.subjects,
+    }));
+    const previous = combinationsOf(config);
+    const kept = new Set(next.map((item) => item.id));
+    const terms = config.terms && typeof config.terms === "object" ? config.terms as Record<string, Record<string, unknown>> : {};
+
+    // A combination that students are still enrolled in cannot be removed.
+    for (const old of previous) {
+      if (kept.has(old.id)) continue;
+      const count = Object.values(terms).reduce((sum, term) => sum + (Array.isArray(term.students)
+        ? (term.students as Array<Record<string, unknown>>).filter((student) => enrolmentOf(student.aLevel)?.combination === old.id).length : 0), 0);
+      if (count > 0) {
+        res.status(409).json({ error: `${count} ${count === 1 ? "student is" : "students are"} enrolled in ${old.name}. Move them to another combination before removing it.` });
+        return;
+      }
+    }
+
+    // Refresh enrolled students: their stream follows the combination and their subjects are re-derived.
+    const draft: SchoolConfig = { ...config, aLevel: { ...(config.aLevel as Record<string, unknown> | undefined), combinations: next } };
+    let refreshed = 0;
+    const nextTerms = Object.fromEntries(Object.entries(terms).map(([key, term]) => [key, Array.isArray(term.students) ? {
+      ...term,
+      students: (term.students as Array<Record<string, unknown>>).map((student) => {
+        const enrolment = enrolmentOf(student.aLevel);
+        const combination = enrolment ? next.find((item) => item.id === enrolment.combination) : undefined;
+        if (!enrolment || !combination) return student;
+        refreshed += 1;
+        return {
+          ...student,
+          aLevel: { ...enrolment, stream: combination.stream },
+          subjects: enrolmentSubjects(draft, combination, enrolment.subsidiary),
+        };
+      }),
+    } : term]));
+    const saved = await writeSchoolConfig(req, schoolId, { ...draft, terms: nextTerms });
+    res.json({ ...GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }), refreshedStudents: refreshed });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// ---- A-Level: the school-wide switch. Off by default; nothing A-Level is shown until an admin turns it on. ----
+router.patch("/schools/:schoolId/a-level-settings", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(req.body);
+    const current = await readSchoolConfig(req, schoolId);
+    const saved = await writeSchoolConfig(req, schoolId, { ...current, settings: { ...settingsOf(current), aLevelEnabled: enabled } });
+    res.json(GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
 
 router.post("/schools/:schoolId/assessment-settings/rescale", requireSchoolAdmin, async (req, res) => {
   try {
@@ -1655,6 +1874,7 @@ router.get("/schools/:schoolId/students", async (req, res) => {
         badges: student.badges.length ? student.badges : Array.isArray(legacy?.badges) ? legacy.badges.map(String) : [],
         // The saved-settings copy is what the edit page writes, so it wins; the table's own list is the fallback.
         subjects: Array.isArray(legacy?.subjects) ? legacy.subjects.map(String) : (student.subjects ?? []),
+        aLevel: enrolmentOf(legacy?.aLevel),
       });
     }
     for (const legacy of legacyStudents) {
@@ -1667,6 +1887,7 @@ router.get("/schools/:schoolId/students", async (req, res) => {
         parentPhone: String(legacy.parentPhone ?? legacy.parent_phone ?? "") || null,
         badges: Array.isArray(legacy.badges) ? legacy.badges.map(String) : [],
         subjects: Array.isArray(legacy.subjects) ? legacy.subjects.map(String) : [],
+        aLevel: enrolmentOf(legacy.aLevel),
         createdAt: new Date(String(legacy.createdAt ?? legacy.created_at ?? new Date().toISOString())),
       };
       if (student.id && !byId.has(student.id)) byId.set(student.id, student);
@@ -1686,8 +1907,16 @@ router.post("/schools/:schoolId/students", async (req, res) => {
   try {
     const { schoolId } = CreateStudentParams.parse(req.params);
     const body = CreateStudentBody.parse(req.body);
-    const subjects = Array.from(new Set((body.subjects ?? []).map((subject) => subject.trim()).filter(Boolean)));
+    let subjects = Array.from(new Set((body.subjects ?? []).map((subject) => subject.trim()).filter(Boolean)));
     const config = await readSchoolConfig(req, schoolId);
+    // An A-Level student's subjects come from their combination, subsidiary and the compulsory subject.
+    let enrolment: Enrolment | null = null;
+    if (body.aLevel) {
+      const resolved = resolveEnrolment(config, body.className, body.aLevel as Enrolment);
+      if ("problem" in resolved) { res.status(400).json({ error: resolved.problem }); return; }
+      enrolment = resolved.aLevel;
+      subjects = resolved.subjects;
+    }
     const termKey = String(config.activeTerm ?? "2026-T1");
     const studentId = randomUUID();
     const rows = asRows(
@@ -1722,6 +1951,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
       house: body.house,
       parentPhone: body.parentPhone ?? "",
       subjects,
+      ...(enrolment ? { aLevel: enrolment } : {}),
     };
     await writeSchoolConfig(req, schoolId, {
       ...config,
@@ -1739,7 +1969,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
         },
       },
     });
-    res.status(201).json({ ...mapStudent(rows[0]), subjects });
+    res.status(201).json({ ...mapStudent(rows[0]), subjects, aLevel: enrolment });
   } catch (error) {
     sendError(res, error);
   }
@@ -1751,9 +1981,20 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
     const body = UpdateStudentBody.parse(req.body);
     const config = await readSchoolConfig(req, schoolId);
     const termKey = String(config.activeTerm ?? "");
-    const newSubjects = body.subjects === undefined
+    let newSubjects = body.subjects === undefined
       ? undefined
       : Array.from(new Set(body.subjects.map((subject) => subject.trim()).filter(Boolean)));
+    // undefined = leave the enrolment alone, null = remove it, object = set it (and derive the subjects).
+    let enrolment: Enrolment | null | undefined;
+    if (body.aLevel === null) enrolment = null;
+    else if (body.aLevel) {
+      if (body.className === undefined) { res.status(400).json({ error: "Send the class together with the stream and combination." }); return; }
+      const resolved = resolveEnrolment(config, body.className, body.aLevel as Enrolment);
+      if ("problem" in resolved) { res.status(400).json({ error: resolved.problem }); return; }
+      enrolment = resolved.aLevel;
+      newSubjects = resolved.subjects;
+    }
+    if (enrolment === undefined && body.className !== undefined && !/^s(enior)?[\s.]*[56](?!\d)/i.test(body.className.trim())) enrolment = null;
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.name !== undefined) update.name = body.name;
     if (body.className !== undefined) update.class = body.className;
@@ -1824,18 +2065,19 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
                     ...(body.house !== undefined ? { house: body.house } : {}),
                     ...(body.parentPhone !== undefined ? { parentPhone: body.parentPhone ?? "" } : {}),
                     ...(newSubjects !== undefined ? { subjects: newSubjects } : {}),
+                    ...(enrolment !== undefined ? { aLevel: enrolment } : {}),
                   }
                 : student,
             ).concat(
-              newSubjects !== undefined && !students.some((student) => String(student.id) === studentId)
-                ? [{ id: studentId, name: String(rows[0].name ?? ""), class: String(rows[0].class ?? ""), house: String(rows[0].house ?? ""), parentPhone: String(rows[0].parent_phone ?? ""), subjects: newSubjects }]
+              (newSubjects !== undefined || enrolment) && !students.some((student) => String(student.id) === studentId)
+                ? [{ id: studentId, name: String(rows[0].name ?? ""), class: String(rows[0].class ?? ""), house: String(rows[0].house ?? ""), parentPhone: String(rows[0].parent_phone ?? ""), subjects: newSubjects ?? [], ...(enrolment ? { aLevel: enrolment } : {}) }]
                 : [],
             ),
           },
         },
       });
     }
-    res.json(newSubjects !== undefined ? { ...mapStudent(rows[0]), subjects: newSubjects } : mapStudent(rows[0]));
+    res.json({ ...mapStudent(rows[0]), ...(newSubjects !== undefined ? { subjects: newSubjects } : {}), ...(enrolment !== undefined ? { aLevel: enrolment } : {}) });
   } catch (error) {
     sendError(res, error);
   }

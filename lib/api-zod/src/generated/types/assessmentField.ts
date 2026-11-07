@@ -15,6 +15,10 @@ export interface AssessmentField {
   name: string;
   field: AssessmentFieldField;
   max: number;
-  /** What teachers type marks out of. Defaults to max. The converted score is mark / entryMax * max. */
+  /**
+     * What teachers type marks out of. Defaults to max. The converted score is mark / entryMax * max.
+     * @minimum 0.5
+     * @maximum 1000
+     */
   entryMax?: number;
 }

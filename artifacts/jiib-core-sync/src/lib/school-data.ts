@@ -1,4 +1,8 @@
-export type SubjectRecord = { name: string; teacher: string };
+export type PaperConfig = { name: string; max: number; weight?: number };
+export type ALevelCategory = "principal" | "subsidiary" | "compulsory";
+/** How an A-Level subject is examined: its category and the papers that make up its mark. */
+export type ALevelSubject = { category: ALevelCategory; papers: PaperConfig[]; combine: "average" | "weighted" };
+export type SubjectRecord = { name: string; teacher: string; aLevel?: ALevelSubject };
 export type TermRecord = Record<string, unknown> & { label?: string; locked?: boolean; status?: string };
 export type SchoolConfig = Record<string, unknown> & {
   activeTerm?: string;
@@ -110,16 +114,82 @@ export function subjectNames(config: SchoolConfig | null | undefined, className?
   )));
 }
 
+export const A_LEVEL_CATEGORY_LABELS: Record<ALevelCategory, string> = {
+  principal: "Principal subject",
+  subsidiary: "Subsidiary subject",
+  compulsory: "General Paper (compulsory)",
+};
+
+/** A-Level is off until the school switches it on in School settings. */
+export function isALevelEnabled(config: SchoolConfig | null | undefined) {
+  return Boolean(config?.settings && typeof config.settings === "object" && (config.settings as Record<string, unknown>).aLevelEnabled === true);
+}
+
+/** S.5 / S.6 style class names (S5, S.6, Senior 5, "S.5 Arts"). */
+export function isALevelClass(className: string) {
+  return /^s(enior)?[\s.]*[56](?!\d)/i.test(className.trim());
+}
+
+export function defaultALevel(category: ALevelCategory = "principal"): ALevelSubject {
+  const count = category === "subsidiary" ? 1 : 2;
+  return { category, papers: Array.from({ length: count }, (_, index) => ({ name: `Paper ${index + 1}`, max: 100 })), combine: "average" };
+}
+
+/** Why this paper set cannot be saved, or null when it is fine. */
+export function aLevelProblem(value: ALevelSubject): string | null {
+  if (!["principal", "subsidiary", "compulsory"].includes(value.category)) return "Choose a category.";
+  if (!Array.isArray(value.papers) || value.papers.length < 1 || value.papers.length > 4) return "A subject has 1 to 4 papers.";
+  const names = value.papers.map((paper) => String(paper.name ?? "").trim().toLowerCase());
+  if (names.some((name) => !name || name.length > 30)) return "Every paper needs a name (up to 30 characters).";
+  if (new Set(names).size !== names.length) return "Paper names must be different.";
+  if (value.papers.some((paper) => !Number.isFinite(paper.max) || paper.max <= 0 || paper.max > 1000)) return "Each paper needs an out-of mark between 1 and 1000.";
+  if (value.combine === "weighted") {
+    if (value.papers.some((paper) => !Number.isFinite(paper.weight) || (paper.weight as number) <= 0)) return "Give every paper a weight above 0.";
+    const total = value.papers.reduce((sum, paper) => sum + (paper.weight as number), 0);
+    if (Math.abs(total - 100) > 0.001) return `Paper weights must add up to 100% (now ${Math.round(total * 100) / 100}%).`;
+  } else if (value.combine !== "average") return "Choose how the papers combine.";
+  return null;
+}
+
+function normalizeALevel(raw: unknown): ALevelSubject | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Partial<ALevelSubject>;
+  const papers = Array.isArray(value.papers) ? value.papers.map((paper) => ({
+    name: String(paper?.name ?? ""),
+    max: Number(paper?.max),
+    ...(paper?.weight !== undefined && paper?.weight !== null ? { weight: Number(paper.weight) } : {}),
+  })) : [];
+  return { category: (value.category as ALevelCategory) ?? "principal", papers, combine: value.combine === "weighted" ? "weighted" : "average" };
+}
+
+/**
+ * Combines a student's paper marks into one subject mark out of 100. Each paper is first turned into a percentage of its own
+ * out-of mark, then averaged (or weighted). Papers not entered yet (null) are left out. Returns null if none are entered.
+ */
+export function combinePapers(scores: Array<number | null | undefined>, subject: ALevelSubject): number | null {
+  let weighted = 0;
+  let weights = 0;
+  subject.papers.forEach((paper, index) => {
+    const score = scores[index];
+    if (score === null || score === undefined || !Number.isFinite(score)) return;
+    const weight = subject.combine === "weighted" ? (paper.weight ?? 0) : 1;
+    weighted += (score / paper.max) * 100 * weight;
+    weights += weight;
+  });
+  return weights > 0 ? Math.round((weighted / weights) * 1e6) / 1e6 : null;
+}
+
 export function subjectRecords(config: SchoolConfig | null | undefined, className: string) {
   const raw = config?.subjects;
   if (!raw || Array.isArray(raw) || typeof raw !== "object") return [] as SubjectRecord[];
   const entries = (raw as Record<string, unknown>)[className];
   if (!Array.isArray(entries)) return [];
-  return entries.map((item) =>
-    typeof item === "string"
-      ? { name: item, teacher: "" }
-      : { name: String((item as SubjectRecord)?.name ?? ""), teacher: String((item as SubjectRecord)?.teacher ?? "") },
-  ).filter((item) => item.name);
+  return entries.map((item): SubjectRecord => {
+    if (typeof item === "string") return { name: item, teacher: "" };
+    const record = item as SubjectRecord;
+    const aLevel = normalizeALevel(record?.aLevel);
+    return { name: String(record?.name ?? ""), teacher: String(record?.teacher ?? ""), ...(aLevel ? { aLevel } : {}) };
+  }).filter((item) => item.name);
 }
 
 export function currentTerm(config: SchoolConfig | null | undefined) {
@@ -134,4 +204,133 @@ export function isTermLocked(config: SchoolConfig | null | undefined, termKey: s
 
 export function normalizePhone(value: string) {
   return value.replace(/\D/g, "").replace(/^0+/, "").slice(-9);
+}
+
+// ---- A-Level streams, combinations and student enrolment ----
+export type Stream = "sciences" | "arts";
+export const STREAM_LABELS: Record<Stream, string> = { sciences: "Sciences", arts: "Arts" };
+export type Combination = { id: string; name: string; stream: Stream; subjects: string[] };
+export type Enrolment = { stream: Stream; combination: string; subsidiary?: string };
+
+export function combinationsOf(config: SchoolConfig | null | undefined): Combination[] {
+  const block = config?.aLevel as { combinations?: unknown } | undefined;
+  return Array.isArray(block?.combinations) ? (block.combinations as Combination[]) : [];
+}
+
+function aLevelSubjects(config: SchoolConfig | null | undefined) {
+  const out: Array<{ name: string; category: string }> = [];
+  const map = config?.subjects;
+  if (!map || Array.isArray(map) || typeof map !== "object") return out;
+  for (const className of Object.keys(map)) {
+    if (!isALevelClass(className)) continue;
+    for (const record of subjectRecords(config, className)) if (record.aLevel) out.push({ name: record.name, category: record.aLevel.category });
+  }
+  return out;
+}
+const uniqueNames = (values: string[]) => Array.from(new Set(values));
+export const principalSubjectNames = (config: SchoolConfig | null | undefined) => uniqueNames(aLevelSubjects(config).filter((item) => item.category === "principal").map((item) => item.name));
+export const subsidiarySubjectNames = (config: SchoolConfig | null | undefined) => uniqueNames(aLevelSubjects(config).filter((item) => item.category === "subsidiary").map((item) => item.name));
+export const compulsorySubjectNames = (config: SchoolConfig | null | undefined) => {
+  const names = uniqueNames(aLevelSubjects(config).filter((item) => item.category === "compulsory").map((item) => item.name));
+  return names.length ? names : ["General Paper"];
+};
+
+/** The subjects an enrolled student takes: three principals, the chosen subsidiary and the compulsory subject(s). Matches the server. */
+export function enrolmentSubjects(config: SchoolConfig | null | undefined, combination: Combination | undefined, subsidiary?: string) {
+  if (!combination) return [] as string[];
+  return uniqueNames([...combination.subjects, ...(subsidiary ? [subsidiary] : []), ...compulsorySubjectNames(config)]);
+}
+
+/** "PCM · Sciences" style label for a student's enrolment, or null. */
+export function enrolmentLabel(config: SchoolConfig | null | undefined, enrolment: Enrolment | null | undefined) {
+  if (!enrolment) return null;
+  const combination = combinationsOf(config).find((item) => item.id === enrolment.combination);
+  return combination ? `${combination.name} · ${STREAM_LABELS[combination.stream]}` : STREAM_LABELS[enrolment.stream];
+}
+
+// ---- A-Level grading: each principal subject earns a grade and points from its combined mark; subsidiaries and General
+// Paper earn 1 point for a pass and 0 for a fail. Everything below is adjustable by the school (Settings → A-Level).
+export type PrincipalBand = { grade: string; min: number; points: number };
+export type ALevelGrading = { principal: PrincipalBand[]; subsidiaryPass: number };
+
+export const DEFAULT_ALEVEL_GRADING: ALevelGrading = {
+  principal: [
+    { grade: "A", min: 80, points: 6 }, { grade: "B", min: 70, points: 5 }, { grade: "C", min: 60, points: 4 },
+    { grade: "D", min: 50, points: 3 }, { grade: "E", min: 40, points: 2 }, { grade: "O", min: 35, points: 1 }, { grade: "F", min: 0, points: 0 },
+  ],
+  subsidiaryPass: 50,
+};
+
+export function aLevelGrading(config: SchoolConfig | null | undefined): ALevelGrading {
+  const raw = (config?.settings as Record<string, unknown> | undefined)?.aLevelGrading as Partial<ALevelGrading> | undefined;
+  const bands = Array.isArray(raw?.principal)
+    ? raw!.principal!.filter((band) => band && typeof band.grade === "string" && Number.isFinite(band.min) && Number.isFinite(band.points))
+    : [];
+  if (bands.length < 2) return DEFAULT_ALEVEL_GRADING;
+  const pass = Number(raw?.subsidiaryPass);
+  return { principal: [...bands].sort((a, b) => b.min - a.min), subsidiaryPass: Number.isFinite(pass) ? pass : DEFAULT_ALEVEL_GRADING.subsidiaryPass };
+}
+
+const EPS = 1e-9;
+/** Grade and points for a principal subject's combined mark (not rounded first), or null when nothing is entered. */
+export function principalResult(percent: number | null, grading: ALevelGrading) {
+  if (percent === null) return null;
+  const band = grading.principal.find((item) => percent + EPS >= item.min) ?? grading.principal[grading.principal.length - 1];
+  return { grade: band.grade, points: band.points };
+}
+
+export function subsidiaryResult(percent: number | null, grading: ALevelGrading) {
+  if (percent === null) return null;
+  const pass = percent + EPS >= grading.subsidiaryPass;
+  return { pass, points: pass ? 1 : 0 };
+}
+
+export type ALevelResultRow = {
+  subject: string;
+  category: ALevelCategory;
+  papers: Array<{ name: string; max: number; score: number | null }>;
+  percent: number | null;
+  grade: string | null; // principal: the grade letter; subsidiary / compulsory: "Pass" or "Fail"
+  points: number | null;
+};
+export type ALevelStudentResult = { rows: ALevelResultRow[]; totalPoints: number; maxPoints: number; complete: boolean };
+
+/** One student's A-Level results. `marks` is every paper mark of the term: subject → paper name → score. */
+export function aLevelStudentResult(
+  config: SchoolConfig | null | undefined,
+  student: { className: string; subjects: string[] },
+  marks: Map<string, Map<string, number>>,
+): ALevelStudentResult {
+  const grading = aLevelGrading(config);
+  const order: Record<ALevelCategory, number> = { principal: 0, subsidiary: 1, compulsory: 2 };
+  const records = subjectRecords(config, student.className)
+    .filter((record) => record.aLevel && student.subjects.includes(record.name))
+    .sort((a, b) => order[a.aLevel!.category] - order[b.aLevel!.category]);
+  const topPoints = Math.max(...grading.principal.map((band) => band.points));
+  let totalPoints = 0;
+  let maxPoints = 0;
+  let complete = records.length > 0;
+  const rows = records.map((record): ALevelResultRow => {
+    const subject = record.aLevel!;
+    const typed = marks.get(record.name);
+    const scores = subject.papers.map((paper) => typed?.get(paper.name) ?? null);
+    const percent = combinePapers(scores, subject);
+    let grade: string | null = null;
+    let points: number | null = null;
+    if (subject.category === "principal") {
+      const result = principalResult(percent, grading);
+      grade = result?.grade ?? null;
+      points = result?.points ?? null;
+      maxPoints += topPoints;
+    } else {
+      const result = subsidiaryResult(percent, grading);
+      grade = result ? (result.pass ? "Pass" : "Fail") : null;
+      points = result?.points ?? null;
+      maxPoints += 1;
+    }
+    if (points === null) complete = false;
+    else totalPoints += points;
+    return { subject: record.name, category: subject.category, papers: subject.papers.map((paper, index) => ({ name: paper.name, max: paper.max, score: scores[index] })), percent, grade, points };
+  });
+  return { rows, totalPoints, maxPoints, complete };
 }

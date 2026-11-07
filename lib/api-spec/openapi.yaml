@@ -1149,6 +1149,18 @@ components:
         createdAt:
           type: string
           format: date-time
+    ALevelEnrolment:
+      type: object
+      required: [stream, combination]
+      properties:
+        stream:
+          type: string
+          enum: [sciences, arts]
+        combination:
+          type: string
+          minLength: 1
+        subsidiary:
+          type: string
     Student:
       type: object
       required: [id, schoolId, name, className, house, parentPhone, badges, subjects, createdAt]
@@ -1175,6 +1187,10 @@ components:
           type: array
           items:
             type: string
+        aLevel:
+          oneOf:
+            - $ref: "#/components/schemas/ALevelEnrolment"
+            - type: "null"
         createdAt:
           type: string
           format: date-time
@@ -1201,6 +1217,10 @@ components:
           type: array
           items:
             type: string
+        aLevel:
+          oneOf:
+            - $ref: "#/components/schemas/ALevelEnrolment"
+            - type: "null"
     StudentUpdate:
       type: object
       properties:
@@ -1223,6 +1243,10 @@ components:
           type: array
           items:
             type: string
+        aLevel:
+          oneOf:
+            - $ref: "#/components/schemas/ALevelEnrolment"
+            - type: "null"
     Mark:
       type: object
       required: [id, schoolId, studentId, termKey, subject, aoi, midterm, end]
