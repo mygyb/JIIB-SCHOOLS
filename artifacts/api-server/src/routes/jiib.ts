@@ -49,7 +49,7 @@ import {
   valueOf,
 } from "../lib/supabase.js";
 import { listSchoolActivity, logTeacherActivity } from "../lib/activity.js";
-import { aLevelEnabled as isALevelEnabledOn, combinationsOf, combinationsProblem, enrolmentSubjects, resolveEnrolment, subjectsProblem, type Combination, type Enrolment } from "../lib/alevel.js";
+import { aLevelEnabled as isALevelEnabledOn, combinationsOf, combinationsProblem, papersOf, enrolmentSubjects, resolveEnrolment, subjectsProblem, type Combination, type Enrolment } from "../lib/alevel.js";
 import { cellKey, conversionsFor, convertConfigTerms, convertTable, planRescale, scaleMapper, scaleValue, type Conversion, type Mapper } from "../lib/rescale.js";
 import { accountIsBlocked, clientIp, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
@@ -1321,6 +1321,105 @@ const CombinationsBody = z.object({
     subjects: z.array(z.string()),
   }).strict()).max(60),
 }).strict();
+
+const ALEVEL_MARKS_MISSING = "A-Level marks storage is not set up yet. Ask the system administrator to run supabase/alevel-setup.sql once.";
+const alevelMarksTableMissing = (error: unknown) => /jsa_alevel_marks|relation .* does not exist|schema cache/i.test(error instanceof Error ? error.message : "");
+
+router.get("/schools/:schoolId/a-level/marks", async (req, res) => {
+  try {
+    const { schoolId } = ListMarksParams.parse(req.params);
+    const termKey = String(req.query.termKey ?? "").trim();
+    const subject = String(req.query.subject ?? "").trim();
+    if (!termKey || !subject) { res.status(400).json({ error: "termKey and subject are required" }); return; }
+    const rows: Array<Record<string, unknown>> = [];
+    try {
+      for (let offset = 0; ; offset += 1000) {
+        const page = asRows(await supabaseRequest(req, "jsa_alevel_marks", {},
+          `?school_id=eq.${encodeURIComponent(schoolId)}&term_key=eq.${encodeURIComponent(termKey)}&subject=eq.${encodeURIComponent(subject)}&select=student_id,paper,score&order=student_id,paper&limit=1000&offset=${offset}`));
+        rows.push(...page);
+        if (page.length < 1000) break;
+      }
+    } catch (error) {
+      if (alevelMarksTableMissing(error)) { res.status(503).json({ error: ALEVEL_MARKS_MISSING }); return; }
+      throw error;
+    }
+    res.json(rows.map((row) => ({ studentId: String(row.student_id), subject, paper: String(row.paper), score: Number(row.score) })));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+const ALevelMarkBody = z.object({
+  termKey: z.string().optional(),
+  studentId: z.string().min(1),
+  subject: z.string().min(1),
+  paper: z.string().min(1),
+  score: z.number().finite().nullable(),
+}).strict();
+
+router.put("/schools/:schoolId/a-level/marks", async (req, res) => {
+  try {
+    const { schoolId } = ListMarksParams.parse(req.params);
+    const body = ALevelMarkBody.parse(req.body);
+    const isTeacher = res.locals.jiibRole === "teacher";
+    const [config, teacherRows] = await Promise.all([
+      readSchoolConfig(req, schoolId),
+      isTeacher
+        ? supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(String(req.headers["x-verified-user-email"] ?? "").toLowerCase())}&select=subjects&limit=1`)
+        : Promise.resolve([]),
+    ]);
+    if (!isALevelEnabledOn(config)) { res.status(409).json({ error: "A-Level is switched off for this school." }); return; }
+    const termKey = body.termKey || String(config.activeTerm ?? "");
+    if (isTeacher && termKey !== String(config.activeTerm ?? "")) {
+      res.status(403).json({ error: "Teachers can enter marks only in the active term." });
+      return;
+    }
+    const termMap = config.terms && typeof config.terms === "object" ? (config.terms as Record<string, Record<string, unknown>>) : {};
+    const term = termMap[termKey];
+    if (config.marksLocked || term?.locked || term?.status === "closed") { res.status(423).json({ error: "Marks are locked for this term." }); return; }
+    const student = asRows(await supabaseRequest(req, "students", {},
+      `?id=eq.${encodeURIComponent(body.studentId)}&school_id=eq.${encodeURIComponent(schoolId)}&select=class,subjects&limit=1`).catch(() => []))[0]
+      ?? (Array.isArray(term?.students) ? (term.students as Array<Record<string, unknown>>).find((item) => String(item.id) === body.studentId) : undefined);
+    if (!student) { res.status(404).json({ error: "Student not found in this term." }); return; }
+    const className = String(student.class ?? student.className ?? "");
+    const papers = papersOf(config, className, body.subject);
+    if (!papers) { res.status(400).json({ error: `${body.subject} is not an A-Level subject for ${className || "this class"}.` }); return; }
+    const paper = papers.find((item) => item.name === body.paper);
+    if (!paper) { res.status(400).json({ error: `${body.subject} has no paper called ${body.paper}.` }); return; }
+    if (body.score !== null && (body.score < 0 || body.score > paper.max)) {
+      res.status(400).json({ error: `${body.paper} must be between 0 and ${paper.max}.` });
+      return;
+    }
+    if (isTeacher) {
+      const assigned = asRows(teacherRows)[0]?.subjects;
+      const list = Array.isArray(assigned) ? assigned : [];
+      const allowed = list.some((a) => typeof a === "string"
+        ? a === body.subject
+        : Boolean(a && typeof a === "object" && String((a as Record<string, unknown>).class ?? "") === className && String((a as Record<string, unknown>).subject ?? "") === body.subject));
+      if (!allowed) { res.status(403).json({ error: "You can enter marks only for subjects assigned to your class." }); return; }
+    }
+    const enc = encodeURIComponent;
+    const key = `school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&student_id=eq.${enc(body.studentId)}&subject=eq.${enc(body.subject)}&paper=eq.${enc(body.paper)}`;
+    try {
+      if (body.score === null) {
+        await supabaseRequest(req, "jsa_alevel_marks", { method: "DELETE", headers: { Prefer: "return=minimal" } }, `?${key}`);
+      } else {
+        await supabaseRequest(req, "jsa_alevel_marks", {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: jsonBody({ school_id: schoolId, term_key: termKey, student_id: body.studentId, subject: body.subject, paper: body.paper, score: body.score, updated_at: new Date().toISOString(), updated_by: req.header("x-user-email") ?? "app" }),
+        }, "?on_conflict=school_id,term_key,student_id,subject,paper");
+      }
+    } catch (error) {
+      if (alevelMarksTableMissing(error)) { res.status(503).json({ error: ALEVEL_MARKS_MISSING }); return; }
+      throw error;
+    }
+    if (isTeacher) await logTeacherActivity(req, String(req.headers["x-verified-user-email"] ?? ""), schoolId, "marks", [body.subject, className].filter(Boolean).join(" · "));
+    res.json({ studentId: body.studentId, subject: body.subject, paper: body.paper, score: body.score });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
 
 router.put("/schools/:schoolId/a-level/combinations", requireSchoolAdmin, async (req, res) => {
   try {

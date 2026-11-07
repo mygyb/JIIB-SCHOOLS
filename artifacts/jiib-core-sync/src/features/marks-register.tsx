@@ -1,3 +1,4 @@
+import { ALevelMarksTable } from "@/features/alevel-marks";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,7 +13,7 @@ import {
 } from "@workspace/api-client-react";
 import type { Mark, School, Student } from "@workspace/api-client-react";
 import { ArrowDownAZ, ArrowUpAZ, ArrowUpDown, CalendarDays, CircleAlert, ClipboardList, Loader2, LockKeyhole, RefreshCw, Search, Trash2, X } from "lucide-react";
-import { configuredHouses, currentTerm, entryMaxOf, finalTotal, getAssessmentFields, getTerms, isTermLocked, subjectNames, weightedScore, type AssessmentField, type SchoolConfig } from "@/lib/school-data";
+import { configuredHouses, currentTerm, entryMaxOf, finalTotal, getAssessmentFields, getTerms, isALevelClass, isALevelEnabled, isTermLocked, subjectNames, subjectRecords, weightedScore, type AssessmentField, type SchoolConfig } from "@/lib/school-data";
 import { getPendingMarks, queueMark } from "@/lib/offline-marks";
 import { jiibApi } from "@/lib/jiib-api";
 
@@ -172,6 +173,13 @@ export function MarksRegister({ school }: { school: School }) {
     subject: selectedSubject || undefined,
   });
   const upsert = useUpsertMark();
+  // A-Level subjects (S.5 / S.6) are entered paper by paper instead of AOI / Mid term / End.
+  const aLevelOn = isALevelEnabled(configData);
+  const aLevelConfig = aLevelOn && className && isALevelClass(className)
+    ? subjectRecords(configData, className).find((item) => item.name === selectedSubject)?.aLevel
+    : undefined;
+  const needsALevelClass = aLevelOn && !className && classes.some((item) => isALevelClass(item)) &&
+    classes.filter((item) => isALevelClass(item)).some((item) => subjectRecords(configData, item).some((record) => record.name === selectedSubject && record.aLevel));
   const students = (studentsQuery.data ?? []).filter((student) =>
     !usesOptionalSubjects || !selectedSubject || !student.subjects?.length ||
     student.subjects.includes(selectedSubject),
@@ -356,6 +364,8 @@ export function MarksRegister({ school }: { school: School }) {
       {configQuery.isLoading || studentsQuery.isLoading || marksQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <div key={item} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>
         : configQuery.isError || studentsQuery.isError || marksQuery.isError ? <div className="p-5 text-center"><CircleAlert className="mx-auto text-destructive" size={22} /><p className="mt-2 text-sm">Marks could not be loaded.</p><button onClick={retry} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><RefreshCw size={14} /> Retry</button></div>
         : !availableSubjects.length ? <div className="p-10 text-center"><ClipboardList className="mx-auto text-muted-foreground" size={25} /><p className="mt-3 font-semibold">No subjects assigned</p><p className="mt-1 text-sm text-muted-foreground">{isTeacher ? "Ask your school administrator to assign a class and subject to your account." : "Add subjects under Manage subjects before entering marks."}</p></div>
+        : needsALevelClass ? <div className="p-10 text-center"><p className="font-semibold">Choose an A-Level class</p><p className="mt-1 text-sm text-muted-foreground">Pick S.5 or S.6 above to enter {selectedSubject} marks paper by paper.</p></div>
+        : aLevelConfig ? <ALevelMarksTable schoolId={school.id} termKey={selectedTerm} subject={selectedSubject} config={aLevelConfig} students={students.map((student) => ({ id: student.id, name: student.name, className: student.className }))} locked={locked} />
         : !fields.length ? <div className="p-10 text-center text-sm text-muted-foreground">No assessment components are active for this school.</div>
         : !students.length ? <div className="p-10 text-center"><p className="font-semibold">No students match</p><p className="mt-1 text-sm text-muted-foreground">Choose another class or clear the student search.</p></div>
         : <div className="xl:overflow-x-auto"><table className="block w-full text-left xl:table xl:min-w-[700px]">

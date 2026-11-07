@@ -121,3 +121,11 @@ export function combinationsProblem(config: Config, list: Array<{ name: string; 
   }
   return null;
 }
+
+/** The papers a subject has in a class, or null when the subject is not an A-Level subject there. */
+export function papersOf(config: Config, className: string, subject: string): ALevelPaper[] | null {
+  const list = (config.subjects as Record<string, unknown> | undefined)?.[className];
+  if (!Array.isArray(list)) return null;
+  const found = list.find((item) => item && typeof item === "object" && (item as { name?: unknown }).name === subject) as { aLevel?: ALevelSubjectConfig } | undefined;
+  return found?.aLevel && Array.isArray(found.aLevel.papers) ? found.aLevel.papers : null;
+}
