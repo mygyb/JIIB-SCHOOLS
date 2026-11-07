@@ -26,7 +26,9 @@ import { ActivityLog } from '@/features/activity-log';
 import { previewRescale, RescaleHistory, RescalePanel, type RescalePreview } from '@/features/rescale-marks';
 import { supabase } from '@/lib/supabase';
 import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
+import { Link } from 'wouter';
 import { ALevelFields, aLevelSummary, defaultALevel } from '@/features/alevel-subject';
+import { ALevelSetup } from '@/features/alevel-setup';
 import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } from '@/lib/school-data';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
 
@@ -41,6 +43,7 @@ type Page =
   | 'reportStudio'
   | 'termManagement'
   | 'manageSubjects'
+  | 'aLevel'
   | 'gradingSystem'
   | 'publishDeadline'
   | 'schoolEvents'
@@ -826,6 +829,27 @@ function TermManagement({ school }: { school: School }) {
   </div>;
 }
 
+function ALevelPage({ school }: { school: School }) {
+  const config = useConfig(school.id);
+  const queryClient = useQueryClient();
+  const students = useListStudents(school.id, {});
+  const configData = config.data as SchoolConfig;
+  const enrolled: Record<string, number> = {};
+  for (const student of students.data ?? []) {
+    const id = (student as { aLevel?: { combination?: string } | null }).aLevel?.combination;
+    if (id) enrolled[id] = (enrolled[id] ?? 0) + 1;
+  }
+  return <div className="fade-up">
+    <SectionHeading eyebrow="Academics & marks" title="A-Level streams and combinations" body="Group S.5 and S.6 students into the Sciences and Arts streams and their subject combinations. Students pick one when you add or edit them." />
+    {isALevelEnabled(configData)
+      ? <ALevelSetup schoolId={school.id} config={configData} enrolledByCombination={enrolled} onChanged={(result) => {
+        queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), { schoolId: result.schoolId, data: result.data, updatedAt: result.updatedAt });
+        void queryClient.invalidateQueries({ queryKey: getListStudentsQueryKey(school.id) });
+      }} />
+      : <ShellCard><p className="text-sm text-muted-foreground">A-Level is switched off for this school. An administrator can switch it on in <Link href="/school-settings" className="font-semibold text-primary hover:underline">School settings</Link>.</p></ShellCard>}
+  </div>;
+}
+
 function ManageSubjects({ school }: { school: School }) {
   const config = useConfig(school.id);
   const students = useListStudents(school.id, {});
@@ -1206,6 +1230,7 @@ export function OperationsPage({ page, school }: { page: Page; school: School })
     case 'reportStudio': return <ReportStudio school={school} />;
     case 'termManagement': return <TermManagement school={school} />;
     case 'manageSubjects': return <ManageSubjects school={school} />;
+    case 'aLevel': return <ALevelPage school={school} />;
     case 'gradingSystem': return <GradingSystem school={school} />;
     case 'publishDeadline': return <PublishDeadline school={school} />;
     case 'schoolEvents': return <SchoolEvents school={school} />;

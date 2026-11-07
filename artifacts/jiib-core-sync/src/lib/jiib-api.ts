@@ -1,3 +1,4 @@
+import { retryFetch } from "./retry-fetch";
 import { supabase } from "@/lib/supabase";
 import { forceSignOut } from "@/lib/device";
 
@@ -19,7 +20,7 @@ export async function jiibApi<T>(
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, { ...init, headers });
+  const response = await retryFetch(path, { ...init, headers });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {

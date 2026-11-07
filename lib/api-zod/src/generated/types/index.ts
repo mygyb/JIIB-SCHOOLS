@@ -7,6 +7,8 @@
  */
 
 export * from './activityItem';
+export * from './aLevelEnrolment';
+export * from './aLevelEnrolmentStream';
 export * from './assessmentField';
 export * from './assessmentFieldField';
 export * from './dashboardEvent';

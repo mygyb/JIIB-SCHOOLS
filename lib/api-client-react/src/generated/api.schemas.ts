@@ -167,7 +167,11 @@ export interface AssessmentField {
   name: string;
   field: AssessmentFieldField;
   max: number;
-  /** What teachers type marks out of. Defaults to max. The converted score is mark / entryMax * max. */
+  /**
+     * What teachers type marks out of. Defaults to max. The converted score is mark / entryMax * max.
+     * @minimum 0.5
+     * @maximum 1000
+     */
   entryMax?: number;
 }
 
@@ -315,6 +319,21 @@ export interface DashboardSummary {
   events: DashboardEvent[];
 }
 
+export type ALevelEnrolmentStream = typeof ALevelEnrolmentStream[keyof typeof ALevelEnrolmentStream];
+
+
+export const ALevelEnrolmentStream = {
+  sciences: 'sciences',
+  arts: 'arts',
+} as const;
+
+export interface ALevelEnrolment {
+  stream: ALevelEnrolmentStream;
+  /** @minLength 1 */
+  combination: string;
+  subsidiary?: string;
+}
+
 export interface Student {
   /** @minLength 1 */
   id: string;
@@ -326,6 +345,7 @@ export interface Student {
   parentPhone: string | null;
   badges: string[];
   subjects: string[];
+  aLevel?: ALevelEnrolment | null;
   createdAt: string;
 }
 
@@ -340,6 +360,7 @@ export interface StudentInput {
   parentPhone?: string | null;
   badges?: string[];
   subjects?: string[];
+  aLevel?: ALevelEnrolment | null;
 }
 
 export interface StudentUpdate {
@@ -353,6 +374,7 @@ export interface StudentUpdate {
   parentPhone?: string | null;
   badges?: string[];
   subjects?: string[];
+  aLevel?: ALevelEnrolment | null;
 }
 
 export interface Mark {

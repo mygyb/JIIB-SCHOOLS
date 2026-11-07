@@ -205,3 +205,45 @@ export function isTermLocked(config: SchoolConfig | null | undefined, termKey: s
 export function normalizePhone(value: string) {
   return value.replace(/\D/g, "").replace(/^0+/, "").slice(-9);
 }
+
+// ---- A-Level streams, combinations and student enrolment ----
+export type Stream = "sciences" | "arts";
+export const STREAM_LABELS: Record<Stream, string> = { sciences: "Sciences", arts: "Arts" };
+export type Combination = { id: string; name: string; stream: Stream; subjects: string[] };
+export type Enrolment = { stream: Stream; combination: string; subsidiary?: string };
+
+export function combinationsOf(config: SchoolConfig | null | undefined): Combination[] {
+  const block = config?.aLevel as { combinations?: unknown } | undefined;
+  return Array.isArray(block?.combinations) ? (block.combinations as Combination[]) : [];
+}
+
+function aLevelSubjects(config: SchoolConfig | null | undefined) {
+  const out: Array<{ name: string; category: string }> = [];
+  const map = config?.subjects;
+  if (!map || Array.isArray(map) || typeof map !== "object") return out;
+  for (const className of Object.keys(map)) {
+    if (!isALevelClass(className)) continue;
+    for (const record of subjectRecords(config, className)) if (record.aLevel) out.push({ name: record.name, category: record.aLevel.category });
+  }
+  return out;
+}
+const uniqueNames = (values: string[]) => Array.from(new Set(values));
+export const principalSubjectNames = (config: SchoolConfig | null | undefined) => uniqueNames(aLevelSubjects(config).filter((item) => item.category === "principal").map((item) => item.name));
+export const subsidiarySubjectNames = (config: SchoolConfig | null | undefined) => uniqueNames(aLevelSubjects(config).filter((item) => item.category === "subsidiary").map((item) => item.name));
+export const compulsorySubjectNames = (config: SchoolConfig | null | undefined) => {
+  const names = uniqueNames(aLevelSubjects(config).filter((item) => item.category === "compulsory").map((item) => item.name));
+  return names.length ? names : ["General Paper"];
+};
+
+/** The subjects an enrolled student takes: three principals, the chosen subsidiary and the compulsory subject(s). Matches the server. */
+export function enrolmentSubjects(config: SchoolConfig | null | undefined, combination: Combination | undefined, subsidiary?: string) {
+  if (!combination) return [] as string[];
+  return uniqueNames([...combination.subjects, ...(subsidiary ? [subsidiary] : []), ...compulsorySubjectNames(config)]);
+}
+
+/** "PCM · Sciences" style label for a student's enrolment, or null. */
+export function enrolmentLabel(config: SchoolConfig | null | undefined, enrolment: Enrolment | null | undefined) {
+  if (!enrolment) return null;
+  const combination = combinationsOf(config).find((item) => item.id === enrolment.combination);
+  return combination ? `${combination.name} · ${STREAM_LABELS[combination.stream]}` : STREAM_LABELS[enrolment.stream];
+}

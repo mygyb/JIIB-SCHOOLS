@@ -127,7 +127,7 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
   const fieldValue = (mark: ReportMarkRow | undefined, field: AssessmentField): number | null => {
     if (!mark) return null;
     const value = mark[ALIAS[field.field]];
-    if (Array.isArray(mark.enteredFields) && mark.enteredFields.length) return mark.enteredFields.includes(field.field) ? Number(value ?? 0) : null;
+    if (Array.isArray(mark.enteredFields) && mark.enteredFields.includes(field.field)) return Number(value ?? 0);
     return value === undefined || value === null || Number(value) === 0 ? null : Number(value);
   };
 

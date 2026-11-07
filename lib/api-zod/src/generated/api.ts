@@ -47,6 +47,9 @@ export const createSchoolBodySlugMax = 40;
 export const createSchoolBodySlugRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)*$');
 export const createSchoolBodyAssessmentFieldsItemNameMax = 60;
 
+export const createSchoolBodyAssessmentFieldsItemEntryMaxMin = 0.5;
+export const createSchoolBodyAssessmentFieldsItemEntryMaxMax = 1000;
+
 
 
 export const CreateSchoolBody = zod.object({
@@ -60,7 +63,7 @@ export const CreateSchoolBody = zod.object({
   "name": zod.string().min(1).max(createSchoolBodyAssessmentFieldsItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
   "max": zod.number(),
-  "entryMax": zod.number().min(0.5).max(1000).optional()
+  "entryMax": zod.number().min(createSchoolBodyAssessmentFieldsItemEntryMaxMin).max(createSchoolBodyAssessmentFieldsItemEntryMaxMax).optional().describe('What teachers type marks out of. Defaults to max. The converted score is mark \/ entryMax \* max.')
 })).optional()
 })
 
@@ -250,6 +253,9 @@ export const UpdateSchoolAssessmentSettingsParams = zod.object({
 
 export const updateSchoolAssessmentSettingsBodyMarksSchemaItemNameMax = 60;
 
+export const updateSchoolAssessmentSettingsBodyMarksSchemaItemEntryMaxMin = 0.5;
+export const updateSchoolAssessmentSettingsBodyMarksSchemaItemEntryMaxMax = 1000;
+
 export const updateSchoolAssessmentSettingsBodyMarksSchemaMax = 3;
 
 
@@ -259,7 +265,7 @@ export const UpdateSchoolAssessmentSettingsBody = zod.object({
   "name": zod.string().min(1).max(updateSchoolAssessmentSettingsBodyMarksSchemaItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
   "max": zod.number(),
-  "entryMax": zod.number().min(0.5).max(1000).optional()
+  "entryMax": zod.number().min(updateSchoolAssessmentSettingsBodyMarksSchemaItemEntryMaxMin).max(updateSchoolAssessmentSettingsBodyMarksSchemaItemEntryMaxMax).optional().describe('What teachers type marks out of. Defaults to max. The converted score is mark \/ entryMax \* max.')
 })).min(1).max(updateSchoolAssessmentSettingsBodyMarksSchemaMax)
 })
 
@@ -457,6 +463,9 @@ export const GetDashboardSummaryParams = zod.object({
 
 export const getDashboardSummaryResponseAssessmentFieldsItemNameMax = 60;
 
+export const getDashboardSummaryResponseAssessmentFieldsItemEntryMaxMin = 0.5;
+export const getDashboardSummaryResponseAssessmentFieldsItemEntryMaxMax = 1000;
+
 
 
 export const GetDashboardSummaryResponse = zod.object({
@@ -480,7 +489,7 @@ export const GetDashboardSummaryResponse = zod.object({
   "name": zod.string().min(1).max(getDashboardSummaryResponseAssessmentFieldsItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
   "max": zod.number(),
-  "entryMax": zod.number().min(0.5).max(1000).optional()
+  "entryMax": zod.number().min(getDashboardSummaryResponseAssessmentFieldsItemEntryMaxMin).max(getDashboardSummaryResponseAssessmentFieldsItemEntryMaxMax).optional().describe('What teachers type marks out of. Defaults to max. The converted score is mark \/ entryMax \* max.')
 })),
   "subjectCompletion": zod.array(zod.object({
   "className": zod.string(),
@@ -515,6 +524,7 @@ export const ListStudentsQueryParams = zod.object({
 
 
 
+
 export const ListStudentsResponseItem = zod.object({
   "id": zod.string().min(1),
   "schoolId": zod.string().uuid(),
@@ -524,6 +534,11 @@ export const ListStudentsResponseItem = zod.object({
   "parentPhone": zod.string().nullable(),
   "badges": zod.array(zod.string()),
   "subjects": zod.array(zod.string()),
+  "aLevel": zod.union([zod.object({
+  "stream": zod.enum(['sciences', 'arts']),
+  "combination": zod.string().min(1),
+  "subsidiary": zod.string().optional()
+}),zod.null()]).optional(),
   "createdAt": zod.coerce.date()
 })
 export const ListStudentsResponse = zod.array(ListStudentsResponseItem)
@@ -541,14 +556,21 @@ export const CreateStudentParams = zod.object({
 
 
 
+
 export const CreateStudentBody = zod.object({
   "name": zod.string().min(1),
   "className": zod.string().min(1),
   "house": zod.string().min(1),
   "parentPhone": zod.string().nullish(),
   "badges": zod.array(zod.string()).optional(),
-  "subjects": zod.array(zod.string()).optional()
+  "subjects": zod.array(zod.string()).optional(),
+  "aLevel": zod.union([zod.object({
+  "stream": zod.enum(['sciences', 'arts']),
+  "combination": zod.string().min(1),
+  "subsidiary": zod.string().optional()
+}),zod.null()]).optional()
 })
+
 
 
 
@@ -562,6 +584,11 @@ export const CreateStudentResponse = zod.object({
   "parentPhone": zod.string().nullable(),
   "badges": zod.array(zod.string()),
   "subjects": zod.array(zod.string()),
+  "aLevel": zod.union([zod.object({
+  "stream": zod.enum(['sciences', 'arts']),
+  "combination": zod.string().min(1),
+  "subsidiary": zod.string().optional()
+}),zod.null()]).optional(),
   "createdAt": zod.coerce.date()
 })
 
@@ -579,14 +606,21 @@ export const UpdateStudentParams = zod.object({
 
 
 
+
 export const UpdateStudentBody = zod.object({
   "name": zod.string().min(1).optional(),
   "className": zod.string().min(1).optional(),
   "house": zod.string().min(1).optional(),
   "parentPhone": zod.string().nullish(),
   "badges": zod.array(zod.string()).optional(),
-  "subjects": zod.array(zod.string()).optional()
+  "subjects": zod.array(zod.string()).optional(),
+  "aLevel": zod.union([zod.object({
+  "stream": zod.enum(['sciences', 'arts']),
+  "combination": zod.string().min(1),
+  "subsidiary": zod.string().optional()
+}),zod.null()]).optional()
 })
+
 
 
 
@@ -600,6 +634,11 @@ export const UpdateStudentResponse = zod.object({
   "parentPhone": zod.string().nullable(),
   "badges": zod.array(zod.string()),
   "subjects": zod.array(zod.string()),
+  "aLevel": zod.union([zod.object({
+  "stream": zod.enum(['sciences', 'arts']),
+  "combination": zod.string().min(1),
+  "subsidiary": zod.string().optional()
+}),zod.null()]).optional(),
   "createdAt": zod.coerce.date()
 })
 

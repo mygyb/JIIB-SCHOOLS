@@ -49,7 +49,7 @@ import {
   valueOf,
 } from "../lib/supabase.js";
 import { listSchoolActivity, logTeacherActivity } from "../lib/activity.js";
-import { subjectsProblem } from "../lib/alevel.js";
+import { aLevelEnabled as isALevelEnabledOn, combinationsOf, combinationsProblem, enrolmentSubjects, resolveEnrolment, subjectsProblem, type Combination, type Enrolment } from "../lib/alevel.js";
 import { cellKey, conversionsFor, convertConfigTerms, convertTable, planRescale, scaleMapper, scaleValue, type Conversion, type Mapper } from "../lib/rescale.js";
 import { accountIsBlocked, clientIp, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
@@ -80,8 +80,17 @@ function mapStudent(row: Record<string, unknown>) {
     parentPhone: (row.parent_phone as string | null | undefined) ?? null,
     badges: Array.isArray(row.badges) ? row.badges.map(String) : [],
     subjects: Array.isArray(row.subjects) ? row.subjects.map(String) : [],
+    aLevel: null as Enrolment | null,
     createdAt: new Date(String(row.created_at ?? new Date().toISOString())),
   };
+}
+
+/** The stream / combination / subsidiary kept on a student's saved-settings copy, if any. */
+function enrolmentOf(value: unknown): Enrolment | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  if ((item.stream !== "sciences" && item.stream !== "arts") || typeof item.combination !== "string" || !item.combination) return null;
+  return { stream: item.stream, combination: item.combination, ...(typeof item.subsidiary === "string" && item.subsidiary ? { subsidiary: item.subsidiary } : {}) };
 }
 
 function mapMark(row: Record<string, unknown>) {
@@ -319,6 +328,7 @@ async function getParentPortalData(req: Request, schoolId: string, phoneInput: s
         parentPhone: String(student.parentPhone ?? student.parent_phone ?? ""),
         badges: Array.isArray(student.badges) ? student.badges.map(String) : [],
         subjects: Array.isArray(student.subjects) ? student.subjects.map(String) : [],
+        aLevel: enrolmentOf(student.aLevel),
         createdAt: new Date(),
         termKey,
       });
@@ -1302,6 +1312,70 @@ function trimHistory(entries: RescaleEntry[]) {
   return entries.slice(-5).map((entry, index, all) => index < all.length - 3 ? { ...entry, rounded: [] } : entry);
 }
 
+// ---- A-Level combinations (PCM, HEG, ...). Saving also refreshes the subjects of every student enrolled in one. ----
+const CombinationsBody = z.object({
+  combinations: z.array(z.object({
+    id: z.string().min(1).max(64).optional(),
+    name: z.string(),
+    stream: z.enum(["sciences", "arts"]),
+    subjects: z.array(z.string()),
+  }).strict()).max(60),
+}).strict();
+
+router.put("/schools/:schoolId/a-level/combinations", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const body = CombinationsBody.parse(req.body);
+    const config = await readSchoolConfig(req, schoolId);
+    if (!isALevelEnabledOn(config)) { res.status(400).json({ error: "Switch A-Level on in School settings first." }); return; }
+    const problem = combinationsProblem(config, body.combinations);
+    if (problem) { res.status(400).json({ error: problem }); return; }
+
+    const next: Combination[] = body.combinations.map((item) => ({
+      id: item.id ?? randomUUID(),
+      name: item.name.trim(),
+      stream: item.stream,
+      subjects: item.subjects,
+    }));
+    const previous = combinationsOf(config);
+    const kept = new Set(next.map((item) => item.id));
+    const terms = config.terms && typeof config.terms === "object" ? config.terms as Record<string, Record<string, unknown>> : {};
+
+    // A combination that students are still enrolled in cannot be removed.
+    for (const old of previous) {
+      if (kept.has(old.id)) continue;
+      const count = Object.values(terms).reduce((sum, term) => sum + (Array.isArray(term.students)
+        ? (term.students as Array<Record<string, unknown>>).filter((student) => enrolmentOf(student.aLevel)?.combination === old.id).length : 0), 0);
+      if (count > 0) {
+        res.status(409).json({ error: `${count} ${count === 1 ? "student is" : "students are"} enrolled in ${old.name}. Move them to another combination before removing it.` });
+        return;
+      }
+    }
+
+    // Refresh enrolled students: their stream follows the combination and their subjects are re-derived.
+    const draft: SchoolConfig = { ...config, aLevel: { ...(config.aLevel as Record<string, unknown> | undefined), combinations: next } };
+    let refreshed = 0;
+    const nextTerms = Object.fromEntries(Object.entries(terms).map(([key, term]) => [key, Array.isArray(term.students) ? {
+      ...term,
+      students: (term.students as Array<Record<string, unknown>>).map((student) => {
+        const enrolment = enrolmentOf(student.aLevel);
+        const combination = enrolment ? next.find((item) => item.id === enrolment.combination) : undefined;
+        if (!enrolment || !combination) return student;
+        refreshed += 1;
+        return {
+          ...student,
+          aLevel: { ...enrolment, stream: combination.stream },
+          subjects: enrolmentSubjects(draft, combination, enrolment.subsidiary),
+        };
+      }),
+    } : term]));
+    const saved = await writeSchoolConfig(req, schoolId, { ...draft, terms: nextTerms });
+    res.json({ ...GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }), refreshedStudents: refreshed });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 // ---- A-Level: the school-wide switch. Off by default; nothing A-Level is shown until an admin turns it on. ----
 router.patch("/schools/:schoolId/a-level-settings", requireSchoolAdmin, async (req, res) => {
   try {
@@ -1671,6 +1745,7 @@ router.get("/schools/:schoolId/students", async (req, res) => {
         badges: student.badges.length ? student.badges : Array.isArray(legacy?.badges) ? legacy.badges.map(String) : [],
         // The saved-settings copy is what the edit page writes, so it wins; the table's own list is the fallback.
         subjects: Array.isArray(legacy?.subjects) ? legacy.subjects.map(String) : (student.subjects ?? []),
+        aLevel: enrolmentOf(legacy?.aLevel),
       });
     }
     for (const legacy of legacyStudents) {
@@ -1683,6 +1758,7 @@ router.get("/schools/:schoolId/students", async (req, res) => {
         parentPhone: String(legacy.parentPhone ?? legacy.parent_phone ?? "") || null,
         badges: Array.isArray(legacy.badges) ? legacy.badges.map(String) : [],
         subjects: Array.isArray(legacy.subjects) ? legacy.subjects.map(String) : [],
+        aLevel: enrolmentOf(legacy.aLevel),
         createdAt: new Date(String(legacy.createdAt ?? legacy.created_at ?? new Date().toISOString())),
       };
       if (student.id && !byId.has(student.id)) byId.set(student.id, student);
@@ -1702,8 +1778,16 @@ router.post("/schools/:schoolId/students", async (req, res) => {
   try {
     const { schoolId } = CreateStudentParams.parse(req.params);
     const body = CreateStudentBody.parse(req.body);
-    const subjects = Array.from(new Set((body.subjects ?? []).map((subject) => subject.trim()).filter(Boolean)));
+    let subjects = Array.from(new Set((body.subjects ?? []).map((subject) => subject.trim()).filter(Boolean)));
     const config = await readSchoolConfig(req, schoolId);
+    // An A-Level student's subjects come from their combination, subsidiary and the compulsory subject.
+    let enrolment: Enrolment | null = null;
+    if (body.aLevel) {
+      const resolved = resolveEnrolment(config, body.className, body.aLevel as Enrolment);
+      if ("problem" in resolved) { res.status(400).json({ error: resolved.problem }); return; }
+      enrolment = resolved.aLevel;
+      subjects = resolved.subjects;
+    }
     const termKey = String(config.activeTerm ?? "2026-T1");
     const studentId = randomUUID();
     const rows = asRows(
@@ -1738,6 +1822,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
       house: body.house,
       parentPhone: body.parentPhone ?? "",
       subjects,
+      ...(enrolment ? { aLevel: enrolment } : {}),
     };
     await writeSchoolConfig(req, schoolId, {
       ...config,
@@ -1755,7 +1840,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
         },
       },
     });
-    res.status(201).json({ ...mapStudent(rows[0]), subjects });
+    res.status(201).json({ ...mapStudent(rows[0]), subjects, aLevel: enrolment });
   } catch (error) {
     sendError(res, error);
   }
@@ -1767,9 +1852,20 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
     const body = UpdateStudentBody.parse(req.body);
     const config = await readSchoolConfig(req, schoolId);
     const termKey = String(config.activeTerm ?? "");
-    const newSubjects = body.subjects === undefined
+    let newSubjects = body.subjects === undefined
       ? undefined
       : Array.from(new Set(body.subjects.map((subject) => subject.trim()).filter(Boolean)));
+    // undefined = leave the enrolment alone, null = remove it, object = set it (and derive the subjects).
+    let enrolment: Enrolment | null | undefined;
+    if (body.aLevel === null) enrolment = null;
+    else if (body.aLevel) {
+      if (body.className === undefined) { res.status(400).json({ error: "Send the class together with the stream and combination." }); return; }
+      const resolved = resolveEnrolment(config, body.className, body.aLevel as Enrolment);
+      if ("problem" in resolved) { res.status(400).json({ error: resolved.problem }); return; }
+      enrolment = resolved.aLevel;
+      newSubjects = resolved.subjects;
+    }
+    if (enrolment === undefined && body.className !== undefined && !/^s(enior)?[\s.]*[56](?!\d)/i.test(body.className.trim())) enrolment = null;
     const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.name !== undefined) update.name = body.name;
     if (body.className !== undefined) update.class = body.className;
@@ -1840,18 +1936,19 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
                     ...(body.house !== undefined ? { house: body.house } : {}),
                     ...(body.parentPhone !== undefined ? { parentPhone: body.parentPhone ?? "" } : {}),
                     ...(newSubjects !== undefined ? { subjects: newSubjects } : {}),
+                    ...(enrolment !== undefined ? { aLevel: enrolment } : {}),
                   }
                 : student,
             ).concat(
-              newSubjects !== undefined && !students.some((student) => String(student.id) === studentId)
-                ? [{ id: studentId, name: String(rows[0].name ?? ""), class: String(rows[0].class ?? ""), house: String(rows[0].house ?? ""), parentPhone: String(rows[0].parent_phone ?? ""), subjects: newSubjects }]
+              (newSubjects !== undefined || enrolment) && !students.some((student) => String(student.id) === studentId)
+                ? [{ id: studentId, name: String(rows[0].name ?? ""), class: String(rows[0].class ?? ""), house: String(rows[0].house ?? ""), parentPhone: String(rows[0].parent_phone ?? ""), subjects: newSubjects ?? [], ...(enrolment ? { aLevel: enrolment } : {}) }]
                 : [],
             ),
           },
         },
       });
     }
-    res.json(newSubjects !== undefined ? { ...mapStudent(rows[0]), subjects: newSubjects } : mapStudent(rows[0]));
+    res.json({ ...mapStudent(rows[0]), ...(newSubjects !== undefined ? { subjects: newSubjects } : {}), ...(enrolment !== undefined ? { aLevel: enrolment } : {}) });
   } catch (error) {
     sendError(res, error);
   }
@@ -1946,6 +2043,14 @@ router.get("/schools/:schoolId/marks", async (req, res) => {
         ...mark,
         ...(legacy?.enteredFields ? { enteredFields: legacy.enteredFields } : {}),
       });
+    }
+    // A box holding a value always counts as entered, even if the record of which boxes were typed was lost.
+    for (const mark of byKey.values()) {
+      const entered = new Set(mark.enteredFields ?? []);
+      if (mark.aoi > 0) entered.add("c1");
+      if (mark.midterm > 0) entered.add("c2");
+      if (mark.end > 0) entered.add("c3");
+      mark.enteredFields = [...entered];
     }
     const matching = Array.from(byKey.values()).filter((mark) =>
       (!subject || mark.subject === subject) &&
@@ -2131,6 +2236,11 @@ router.put("/schools/:schoolId/marks", async (req, res) => {
       else enteredFields.delete(field);
     }
     const saved = rows[0] ? mapMark(rows[0]) : null;
+    if (saved) {
+      if (saved.aoi > 0) enteredFields.add("c1");
+      if (saved.midterm > 0) enteredFields.add("c2");
+      if (saved.end > 0) enteredFields.add("c3");
+    }
     const valueFor = (key: (typeof SCORE_KEYS)[number]) =>
       saved?.[key] ?? (touched.includes(key) ? incoming[key] : Number(previous?.[key] ?? previous?.[FIELD_OF[key]] ?? 0));
     const nextMark = {
