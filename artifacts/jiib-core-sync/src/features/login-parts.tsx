@@ -1,4 +1,5 @@
 // Small pieces of the login page: remembered school, school search, staff/parent switch and the password box.
+import { retryFetch } from "@/lib/retry-fetch";
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff, Loader2, Search, School as SchoolIcon } from 'lucide-react';
 
@@ -87,7 +88,7 @@ export function SchoolPicker({ choice, text, onText, onChoose }: {
     setSearching(true);
     const timer = window.setTimeout(async () => {
       try {
-        const response = await fetch(`/api/schools/search?q=${encodeURIComponent(query)}`);
+        const response = await retryFetch(`/api/schools/search?q=${encodeURIComponent(query)}`);
         const rows = response.ok ? ((await response.json()) as SchoolChoice[]) : [];
         if (!cancelled) setResults(rows);
       } catch {

@@ -49,6 +49,11 @@ function scoreFor(mark: Partial<Mark> | undefined, field: AssessmentField) {
   return Number(values?.[alias] ?? values?.[field.field] ?? 0);
 }
 
+/** A box counts as filled when it was saved (even as 0) or holds a value; the total adds up exactly the values the boxes show. */
+function isEntered(mark: Partial<Mark> | undefined, field: AssessmentField) {
+  return Boolean(mark?.enteredFields?.includes(field.field)) || scoreFor(mark, field) > 0;
+}
+
 export function MarksRegister({ school }: { school: School }) {
   const queryClient = useQueryClient();
   const isTeacher = localStorage.getItem("jiib.role") === "Teacher";
@@ -222,10 +227,10 @@ export function MarksRegister({ school }: { school: School }) {
     if (value !== null && (!Number.isFinite(value) || value < 0 || value > entryMaxOf(field))) {
       window.alert(`${field.name} must be between 0 and ${entryMaxOf(field)}.`);
       const existing = getMark(student.id);
-      input.value = existing?.enteredFields?.includes(field.field) ? String(scoreFor(existing, field)) : "";
+      input.value = isEntered(existing, field) ? String(scoreFor(existing, field)) : "";
       setFieldSaveStates((current) => ({
         ...current,
-        [fieldKey]: existing?.enteredFields?.includes(field.field) || scoreFor(existing, field) > 0 ? "saved" : "unsaved",
+        [fieldKey]: isEntered(existing, field) ? "saved" : "unsaved",
       }));
       return;
     }
@@ -369,7 +374,7 @@ export function MarksRegister({ school }: { school: School }) {
                 </div>
               </td>
               {fields.map((field) => {
-                const entered = mark?.enteredFields?.includes(field.field) ?? scoreFor(mark, field) > 0;
+                const entered = isEntered(mark, field);
                 const fieldKey = `${school.id}|${selectedTerm}|${student.id}|${selectedSubject}|${field.field}`;
                 const isSaved = (fieldSaveStates[fieldKey] ?? (entered ? "saved" : "unsaved")) === "saved";
                 return <td key={field.field} className="flex min-w-0 flex-col justify-end gap-1 xl:table-cell xl:px-3 xl:py-3">

@@ -360,7 +360,18 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  // Reads are retried briefly on network hiccups / cold starts so a one-second blip never shows "Failed to fetch".
+  const RETRY_DELAYS = [500, 1500, 3000];
+  let response!: Response;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      response = await fetch(input, { ...init, method, headers });
+      if (!(method === "GET" || method === "HEAD") || ![502, 503, 504].includes(response.status) || attempt >= RETRY_DELAYS.length) break;
+    } catch (error) {
+      if (!(method === "GET" || method === "HEAD") || init.signal?.aborted || attempt >= RETRY_DELAYS.length) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+  }
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
