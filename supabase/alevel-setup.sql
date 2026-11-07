@@ -17,9 +17,20 @@ create index if not exists jsa_alevel_marks_lookup_idx on public.jsa_alevel_mark
 
 alter table public.jsa_alevel_marks enable row level security;
 
+-- Same rule as the other J-SCHOOLS tables: signed-in members of the school (listed in allowed_users) can read and write.
+-- The app itself still checks the role, the teacher's assigned subjects, the active term and locked terms.
 drop policy if exists jsa_alevel_marks_access on public.jsa_alevel_marks;
 create policy jsa_alevel_marks_access on public.jsa_alevel_marks
-  for all using (public.has_school_access(school_id))
-  with check (public.has_school_access(school_id));
+  for all
+  using (
+    exists (select 1 from public.allowed_users a
+            where a.school_id = jsa_alevel_marks.school_id and lower(a.email) = lower(coalesce(auth.email(), '')))
+    or lower(coalesce(auth.email(), '')) = 'mygjyb@gmail.com'
+  )
+  with check (
+    exists (select 1 from public.allowed_users a
+            where a.school_id = jsa_alevel_marks.school_id and lower(a.email) = lower(coalesce(auth.email(), '')))
+    or lower(coalesce(auth.email(), '')) = 'mygjyb@gmail.com'
+  );
 
 grant select, insert, update, delete on public.jsa_alevel_marks to authenticated;
