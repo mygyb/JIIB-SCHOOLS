@@ -28,6 +28,7 @@ import { supabase } from '@/lib/supabase';
 import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { Link } from 'wouter';
 import { ALevelFields, aLevelSummary, defaultALevel } from '@/features/alevel-subject';
+import { HousesCard } from '@/features/houses-card';
 import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
 import { ALevelSetup } from '@/features/alevel-setup';
@@ -1143,6 +1144,7 @@ function SchoolSettings({ school }: { school: School }) {
         </div>
         <button data-testid="button-save-school-profile" onClick={() => config.save({ ...config.data, settings: { ...settings, address, phone } })} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Check size={15} /> Save school profile</button>
       </ShellCard>
+      <HousesCard schoolId={school.id} />
       <ALevelToggleCard school={school} config={config.data as SchoolConfig} />
       <ShellCard>
         <div className="flex flex-wrap items-start justify-between gap-3">
