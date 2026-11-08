@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, Route, Switch, useLocation } from 'wouter';
+import { Link, Redirect, Route, Switch, useLocation } from 'wouter';
 import { EmailField, ModeSwitch, PasswordField, PhoneField, SchoolPicker, readRememberedSchool, rememberSchool, type SchoolChoice } from '@/features/login-parts';
 import {
   Activity, Archive, LogIn, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
@@ -57,7 +57,7 @@ const navItems = [
   { href: '/account-settings', label: 'Account settings', icon: Settings },
   { href: '/messages', label: 'Messages', icon: Inbox },
   { href: '/parent-messages', label: 'Parent conversations', icon: MessageSquare },
-  { href: '/overview', label: 'Directory & news', icon: House },
+  { href: '/promote', label: 'Promote students', icon: GraduationCap },
   { href: '/parents-portal', label: 'Parents portal', icon: UserRound },
   { href: '/user-management', label: 'User management', icon: UsersRound },
   { href: '/performance', label: 'Performance', icon: BarChart3 },
@@ -77,7 +77,7 @@ const navItems = [
 // Nav items / routes that belong to the school administrator workspace only.
 const ADMIN_ONLY_HREFS = [
   '/messages',
-  '/students', '/overview', '/parents-portal', '/user-management', '/performance',
+  '/students', '/promote', '/parents-portal', '/user-management', '/performance',
   '/report-studio', '/print-marksheets', '/term-management', '/manage-subjects', '/a-level', '/a-level-results',
   '/grading-system', '/publish-deadline', '/school-events', '/school-settings', '/system-settings',
   '/settings', '/parent-messages',
@@ -264,7 +264,8 @@ function Router() {
         <Route path="/parent-messages"><AppShell><OperationsRoute page="parentMessages" /></AppShell></Route>
         <Route path="/account-settings"><AppShell><OperationsRoute page="accountSettings" /></AppShell></Route>
         <Route path="/settings"><AppShell><OperationsRoute page="schoolSettings" /></AppShell></Route>
-        <Route path="/overview"><AppShell><OperationsRoute page="overview" /></AppShell></Route>
+        <Route path="/promote"><AppShell><OperationsRoute page="promote" /></AppShell></Route>
+        <Route path="/overview"><Redirect to="/promote" /></Route>
         <Route path="/parents-portal"><AppShell><OperationsRoute page="parentsPortal" /></AppShell></Route>
         <Route path="/user-management"><AppShell><OperationsRoute page="userManagement" /></AppShell></Route>
         <Route path="/performance"><AppShell><OperationsRoute page="performance" /></AppShell></Route>
@@ -632,7 +633,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const titleMap: Record<string, string> = {
     '/dashboard': 'Overview', '/students': 'Students', '/marks': 'Marks register', '/messages': 'Messages',
     '/settings': 'School settings', '/parent': 'Family view', '/parent-view': 'Family view', '/parent-messages': 'Parent conversations', '/super-admin': 'Portfolio',
-    '/overview': 'Directory & news', '/parents-portal': 'Parents portal', '/user-management': 'User management',
+    '/promote': 'Promote students', '/parents-portal': 'Parents portal', '/user-management': 'User management',
     '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
     '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/a-level': 'A-Level', '/a-level-results': 'A-Level results', '/grading-system': 'Grading system',
     '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',

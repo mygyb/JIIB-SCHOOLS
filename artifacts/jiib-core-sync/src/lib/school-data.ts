@@ -334,3 +334,13 @@ export function aLevelStudentResult(
   });
   return { rows, totalPoints, maxPoints, complete };
 }
+
+// ---- Classes and optional subjects ----
+/** The number in a class name: "S.3" -> 3. */
+export const classLevel = (value: string) => Number(String(value).match(/\d+/)?.[0] ?? 0);
+
+/** The class where students begin choosing optional subjects (S.3 unless the school changed it). */
+export function optionalSubjectsClassOf(config: SchoolConfig | null | undefined) {
+  const settings = config?.settings && typeof config.settings === "object" ? (config.settings as Record<string, unknown>) : {};
+  return String(settings.optionalSubjectsClass ?? "S.3");
+}

@@ -1585,6 +1585,20 @@ router.put("/schools/:schoolId/houses", requireSchoolAdmin, async (req, res) => 
   }
 });
 
+// ---- The class where students start choosing optional subjects (S.1 for schools whose S.1 already has electives). ----
+router.patch("/schools/:schoolId/optional-subjects-class", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const { className } = z.object({ className: z.string().trim().min(1).max(20) }).strict().parse(req.body);
+    if (!/\d/.test(className)) { res.status(400).json({ error: "Choose a class such as S.1 or S.3." }); return; }
+    const current = await readSchoolConfig(req, schoolId);
+    const saved = await writeSchoolConfig(req, schoolId, { ...current, settings: { ...settingsOf(current), optionalSubjectsClass: className } });
+    res.json(GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 router.post("/schools/:schoolId/assessment-settings/rescale", requireSchoolAdmin, async (req, res) => {
   try {
     const schoolId = String(req.params.schoolId);
@@ -3177,6 +3191,182 @@ router.delete("/schools/:schoolId/grades/:gradeId", async (req, res) => {
       ),
     });
     res.status(204).send();
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// ---- Year-end promotion wizard. Every batch is remembered for UNDO_DAYS so it can be undone. ----
+const UNDO_DAYS = 60;
+const PromotionBody = z.object({
+  fromClass: z.string().trim().min(1).max(40),
+  toClass: z.string().trim().min(1).max(40),
+  students: z.array(z.object({
+    id: z.string().min(1),
+    action: z.enum(["promote", "stay"]),
+    subjects: z.array(z.string().min(1)).max(40).optional(),
+    aLevel: z.object({ stream: z.enum(["sciences", "arts"]), combination: z.string().min(1), subsidiary: z.string().optional() }).strict().nullable().optional(),
+  }).strict()).min(1).max(2000),
+}).strict();
+
+type PromotionMove = { id: string; subjects?: string[]; aLevel?: Enrolment; created?: boolean };
+type PromotionBatch = {
+  id: string; at: string; by: string; termKey: string; fromClass: string; toClass: string; stayed: number;
+  moved?: PromotionMove[]; movedCount: number; undoneAt?: string; undoneBy?: string;
+};
+
+function promotionHistoryOf(config: SchoolConfig): PromotionBatch[] {
+  return Array.isArray(config.promotionHistory) ? (config.promotionHistory as PromotionBatch[]) : [];
+}
+const withinUndoWindow = (batch: PromotionBatch) => Date.now() - new Date(batch.at).getTime() <= UNDO_DAYS * 86_400_000;
+const classOfStudent = (student: Record<string, unknown>) => String(student.class ?? student.className ?? "");
+
+router.post("/schools/:schoolId/promotion", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const body = PromotionBody.parse(req.body);
+    if (body.fromClass === body.toClass) { res.status(400).json({ error: "Choose a different class to promote to." }); return; }
+    const config = await readSchoolConfig(req, schoolId);
+    const termKey = String(config.activeTerm ?? "");
+    if (!termKey) { res.status(409).json({ error: "There is no active term to promote students in." }); return; }
+    const terms = termsOf(config);
+    const term = terms[termKey] ?? {};
+    const legacyList = Array.isArray(term.students) ? (term.students as Array<Record<string, unknown>>) : [];
+    const encSchool = encodeURIComponent(schoolId);
+    const rows = asRows(await supabaseRequest(req, "students", {}, `?school_id=eq.${encSchool}&class=eq.${encodeURIComponent(body.fromClass)}&term_key=eq.${encodeURIComponent(termKey)}&select=*`));
+    const rowById = new Map(rows.map((row) => [String(row.id), row]));
+    const legacyById = new Map(legacyList.filter((student) => classOfStudent(student) === body.fromClass).map((student) => [String(student.id), student]));
+    const destinationSubjects = (() => {
+      const list = (config.subjects as Record<string, unknown> | undefined)?.[body.toClass];
+      return Array.isArray(list) ? list.map((item) => String((item as { name?: unknown })?.name ?? item)).filter(Boolean) : [];
+    })();
+    const aLevelDestination = isALevelEnabledOn(config) && /^s(enior)?[\s.]*[56](?!\d)/i.test(body.toClass);
+
+    type Change = {
+      id: string; name: string; house: string; parentPhone: string | null; row?: Record<string, unknown>;
+      prevSubjects: string[]; prevALevel: Enrolment | null; nextSubjects?: string[]; nextALevel: Enrolment | null;
+    };
+    const changes: Change[] = [];
+    for (const item of body.students) {
+      if (item.action !== "promote") continue;
+      const row = rowById.get(item.id);
+      const legacy = legacyById.get(item.id);
+      if (!row && !legacy) { res.status(409).json({ error: `A student you selected is no longer in ${body.fromClass}. Reload the page and try again.` }); return; }
+      const name = String(row?.name ?? legacy?.name ?? "");
+      const prevSubjects = Array.isArray(row?.subjects) ? (row!.subjects as unknown[]).map(String) : Array.isArray(legacy?.subjects) ? (legacy!.subjects as unknown[]).map(String) : [];
+      let nextSubjects = item.subjects;
+      let nextALevel: Enrolment | null = null;
+      if (aLevelDestination && item.aLevel) {
+        const resolved = resolveEnrolment(config, body.toClass, item.aLevel);
+        if ("problem" in resolved) { res.status(400).json({ error: `${name}: ${resolved.problem}` }); return; }
+        nextALevel = resolved.aLevel;
+        nextSubjects = resolved.subjects;
+      } else if (aLevelDestination) {
+        nextALevel = enrolmentOf(legacy?.aLevel);
+        if (nextALevel) nextSubjects = nextSubjects ?? prevSubjects;
+      }
+      if (nextSubjects && destinationSubjects.length) {
+        const unknown = nextSubjects.find((subject) => !destinationSubjects.includes(subject));
+        if (unknown) { res.status(400).json({ error: `${name}: ${unknown} is not a subject of ${body.toClass}.` }); return; }
+      }
+      changes.push({
+        id: item.id, name, house: String(row?.house ?? legacy?.house ?? ""), parentPhone: (row?.parent_phone as string | null | undefined) ?? (String(legacy?.parentPhone ?? legacy?.parent_phone ?? "") || null),
+        row, prevSubjects, prevALevel: enrolmentOf(legacy?.aLevel), nextSubjects, nextALevel,
+      });
+    }
+    if (!changes.length) { res.status(400).json({ error: "No students are set to be promoted." }); return; }
+
+    // Write the student rows one by one; if anything fails, put back what was already changed.
+    const applied: Change[] = [];
+    const rowKey = (id: string) => `?id=eq.${encodeURIComponent(id)}&school_id=eq.${encSchool}&term_key=eq.${encodeURIComponent(termKey)}`;
+    try {
+      for (const change of changes) {
+        if (change.row) {
+          await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: body.toClass, ...(change.nextSubjects ? { subjects: change.nextSubjects } : {}), updated_at: new Date().toISOString() }) }, rowKey(change.id));
+        } else {
+          await supabaseRequest(req, "students", {
+            method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: jsonBody({ school_id: schoolId, term_key: termKey, id: change.id, name: change.name, class: body.toClass, house: change.house, parent_phone: change.parentPhone, ...(change.nextSubjects ? { subjects: change.nextSubjects } : {}), updated_at: new Date().toISOString() }),
+          }, "?on_conflict=id,school_id,term_key");
+        }
+        applied.push(change);
+      }
+    } catch (error) {
+      for (const change of applied) {
+        try {
+          if (change.row) await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: body.fromClass, subjects: change.row.subjects ?? null }) }, rowKey(change.id));
+          else await supabaseRequest(req, "students", { method: "DELETE", headers: { Prefer: "return=minimal" } }, rowKey(change.id));
+        } catch { /* best effort */ }
+      }
+      throw error;
+    }
+
+    const byId = new Map(changes.map((change) => [change.id, change]));
+    // A-Level enrolment lives on the saved-settings copy of the student, so students that only have a database row get one.
+    const inCopy = new Set(legacyList.map((student) => String(student.id)));
+    const copies = changes
+      .filter((change) => change.nextALevel && !inCopy.has(change.id))
+      .map((change) => ({ id: change.id, name: change.name, class: body.toClass, house: change.house, parentPhone: change.parentPhone, subjects: change.nextSubjects ?? [], aLevel: change.nextALevel }));
+    const nextTerm = Array.isArray(term.students) || copies.length
+      ? { ...term, students: [...legacyList.map((student) => {
+          const change = byId.get(String(student.id));
+          if (!change) return student;
+          const { aLevel: _drop, ...rest } = student;
+          return { ...rest, class: body.toClass, ...(change.nextSubjects ? { subjects: change.nextSubjects } : {}), ...(change.nextALevel ? { aLevel: change.nextALevel } : {}) };
+        }), ...copies] }
+      : term;
+    const batch: PromotionBatch = {
+      id: randomUUID(), at: new Date().toISOString(), by: String(req.headers["x-verified-user-email"] ?? ""), termKey,
+      fromClass: body.fromClass, toClass: body.toClass, stayed: body.students.length - changes.length, movedCount: changes.length,
+      moved: changes.map((change) => ({
+        id: change.id,
+        ...(change.prevSubjects.length ? { subjects: change.prevSubjects } : {}),
+        ...(change.prevALevel ? { aLevel: change.prevALevel } : {}),
+        ...(change.row ? {} : { created: true }),
+      })),
+    };
+    const history = [batch, ...promotionHistoryOf(config)]
+      .map((item) => (withinUndoWindow(item) ? item : { ...item, moved: undefined }))
+      .filter((item) => withinUndoWindow(item) || Date.now() - new Date(item.at).getTime() <= 365 * 86_400_000)
+      .slice(0, 12);
+    const saved = await writeSchoolConfig(req, schoolId, { ...config, terms: { ...terms, [termKey]: nextTerm }, promotionHistory: history });
+    res.json({ promoted: changes.length, stayed: batch.stayed, batchId: batch.id, config: GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.post("/schools/:schoolId/promotion/:batchId/undo", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const config = await readSchoolConfig(req, schoolId);
+    const history = promotionHistoryOf(config);
+    const batch = history.find((item) => item.id === req.params.batchId);
+    if (!batch) { res.status(404).json({ error: "That promotion was not found." }); return; }
+    if (batch.undoneAt) { res.status(409).json({ error: "This promotion has already been undone." }); return; }
+    if (!withinUndoWindow(batch) || !batch.moved) { res.status(409).json({ error: `Promotions can be undone for ${UNDO_DAYS} days. This one is too old.` }); return; }
+    const encSchool = encodeURIComponent(schoolId);
+    const rows = asRows(await supabaseRequest(req, "students", {}, `?school_id=eq.${encSchool}&term_key=eq.${encodeURIComponent(batch.termKey)}&class=eq.${encodeURIComponent(batch.toClass)}&select=id`));
+    const present = new Set(rows.map((row) => String(row.id)));
+    const restorable = batch.moved.filter((move) => present.has(move.id));
+    for (const move of restorable) {
+      await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: batch.fromClass, subjects: move.subjects ?? [], updated_at: new Date().toISOString() }) },
+        `?id=eq.${encodeURIComponent(move.id)}&school_id=eq.${encSchool}&term_key=eq.${encodeURIComponent(batch.termKey)}`);
+    }
+    const terms = termsOf(config);
+    const term = terms[batch.termKey];
+    const restoredIds = new Map(restorable.map((move) => [move.id, move]));
+    const nextTerm = term && Array.isArray(term.students)
+      ? { ...term, students: (term.students as Array<Record<string, unknown>>).map((student) => {
+          const move = restoredIds.get(String(student.id));
+          if (!move || classOfStudent(student) !== batch.toClass) return student;
+          const { aLevel: _a, subjects: _s, ...rest } = student;
+          return { ...rest, class: batch.fromClass, ...(move.subjects ? { subjects: move.subjects } : {}), ...(move.aLevel ? { aLevel: move.aLevel } : {}) };
+        }) }
+      : term;
+    const nextHistory = history.map((item) => (item.id === batch.id ? { ...item, undoneAt: new Date().toISOString(), undoneBy: String(req.headers["x-verified-user-email"] ?? ""), moved: undefined } : item));
+    const saved = await writeSchoolConfig(req, schoolId, { ...config, ...(nextTerm ? { terms: { ...terms, [batch.termKey]: nextTerm } } : {}), promotionHistory: nextHistory });
+    res.json({ restored: restorable.length, skipped: batch.moved.length - restorable.length, config: GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }) });
   } catch (error) {
     sendError(res, error);
   }

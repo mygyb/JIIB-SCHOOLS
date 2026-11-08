@@ -28,6 +28,8 @@ import { supabase } from '@/lib/supabase';
 import { getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { Link } from 'wouter';
 import { ALevelFields, aLevelSummary, defaultALevel } from '@/features/alevel-subject';
+import { PromotionWizard } from '@/features/promotion-wizard';
+import { OptionalSubjectsCard } from '@/features/optional-subjects-card';
 import { HousesCard } from '@/features/houses-card';
 import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
@@ -36,7 +38,7 @@ import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } fro
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
 
 type Page =
-  | 'overview'
+  | 'promote'
   | 'parentsPortal'
   | 'parentMessages'
   | 'userManagement'
@@ -96,60 +98,6 @@ function LoadingOrError({ loading, error, retry }: { loading: boolean; error: bo
   if (loading) return <div className="rounded-xl bg-muted p-6 text-sm text-muted-foreground">Loading records…</div>;
   if (error) return <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive">This section could not load. <button className="ml-2 font-semibold underline" onClick={retry}>Retry</button></div>;
   return null;
-}
-
-function Overview({ school }: { school: School }) {
-  const config = useConfig(school.id);
-  const students = useListStudents(school.id, {});
-  const [newsTitle, setNewsTitle] = useState('');
-  const [newsBody, setNewsBody] = useState('');
-  const [eventTitle, setEventTitle] = useState('');
-  const [eventDate, setEventDate] = useState('');
-  const [saved, setSaved] = useState(false);
-  const schoolNews = config.data.schoolNews && typeof config.data.schoolNews === 'object'
-    ? config.data.schoolNews as Record<string, unknown>
-    : {};
-  const events = Array.isArray(config.data.events) ? config.data.events : [];
-  const eventViews = events.map((event, index) => typeof event === 'string'
-    ? { id: `legacy-${index}`, title: event, date: '' }
-    : {
-        id: String((event as Record<string, unknown>)?.id ?? `event-${index}`),
-        title: String((event as Record<string, unknown>)?.title ?? ''),
-        date: String((event as Record<string, unknown>)?.date ?? (event as Record<string, unknown>)?.eventDate ?? ''),
-      });
-  const publish = () => config.save({
-    ...config.data,
-    schoolNews: {
-      ...schoolNews,
-      title: newsTitle.trim() || String(schoolNews.title ?? ''),
-      body: newsBody.trim(),
-      updatedAt: new Date().toISOString(),
-    },
-  }, () => { setNewsTitle(''); setNewsBody(''); setSaved(true); setTimeout(() => setSaved(false), 1800); });
-  const addEvent = () => {
-    if (!eventTitle.trim()) return;
-    config.save({
-      ...config.data,
-      events: [...events, { id: crypto.randomUUID(), title: eventTitle.trim(), date: eventDate, createdAt: new Date().toISOString() }],
-    }, () => { setEventTitle(''); setEventDate(''); });
-  };
-  return <div className="fade-up">
-    <SectionHeading eyebrow="Directory & news" title="Keep the school visible." body={`Publish a family-facing update and keep ${school.name}'s directory ready for the team.`} />
-    <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
-      <ShellCard>
-        <div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">School news</h3><p className="mt-1 text-sm text-muted-foreground">The latest message shown to families.</p></div><Megaphone size={18} className="text-primary" /></div>
-        <input data-testid="input-school-news-title" value={newsTitle || String(schoolNews.title ?? '')} onChange={(e) => setNewsTitle(e.target.value)} placeholder="News headline" className="mt-5 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" />
-        <textarea data-testid="textarea-school-news" value={newsBody || String(schoolNews.body ?? '')} onChange={(e) => setNewsBody(e.target.value)} rows={5} className="mt-3 w-full resize-none rounded-xl border border-input bg-background p-3 text-sm leading-6 outline-none focus:ring-2 focus:ring-ring" placeholder="Share a clear update with families…" />
-        <button data-testid="button-publish-news" onClick={publish} disabled={config.saving} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60">{saved ? <Check size={15} /> : <Megaphone size={15} />} {saved ? 'Published' : 'Publish news'}</button>
-      </ShellCard>
-      <ShellCard>
-        <div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">School events</h3><p className="mt-1 text-sm text-muted-foreground">Visible dates and reminders.</p></div><CalendarDays size={18} className="text-primary" /></div>
-        <div className="mt-5 space-y-2">{eventViews.length ? eventViews.map((item, index) => <div key={item.id} className="flex items-center gap-2 rounded-lg bg-muted/50 p-3 text-sm"><CalendarDays size={14} className="text-primary" /><span className="flex-1">{item.title}{item.date ? ` · ${item.date}` : ''}</span><button aria-label={`Remove ${item.title}`} onClick={() => config.save({ ...config.data, events: events.filter((_, eventIndex) => eventIndex !== index) })} className="text-muted-foreground hover:text-destructive"><X size={14} /></button></div>) : <p className="text-sm text-muted-foreground">No events published yet.</p>}</div>
-        <div className="mt-4 grid gap-2"><input data-testid="input-school-event" value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="Event title" className="h-10 rounded-lg border border-input bg-background px-3 text-sm" /><div className="flex gap-2"><input data-testid="input-school-event-date" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="h-10 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-school-event" onClick={addEvent} disabled={!eventTitle.trim() || config.saving} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-input hover:bg-muted disabled:opacity-50"><Plus size={16} /></button></div></div>
-      </ShellCard>
-    </div>
-    <ShellCard className="mt-5"><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Student directory</h3><p className="mt-1 text-sm text-muted-foreground">A live view of the school register.</p></div><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{students.data?.length ?? 0} students</span></div><LoadingOrError loading={students.isLoading} error={students.isError} retry={() => students.refetch()} />{students.data?.length ? <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{students.data.slice(0, 12).map((student) => <div key={student.id} className="rounded-xl border border-border p-3"><p className="text-sm font-semibold">{student.name}</p><p className="mt-1 text-xs text-muted-foreground">{student.className} · {student.house}</p></div>)}</div> : null}</ShellCard>
-  </div>;
 }
 
 function SchoolEvents({ school }: { school: School }) {
@@ -1145,6 +1093,7 @@ function SchoolSettings({ school }: { school: School }) {
         <button data-testid="button-save-school-profile" onClick={() => config.save({ ...config.data, settings: { ...settings, address, phone } })} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Check size={15} /> Save school profile</button>
       </ShellCard>
       <HousesCard schoolId={school.id} />
+      <OptionalSubjectsCard schoolId={school.id} config={config.data as SchoolConfig} />
       <ALevelToggleCard school={school} config={config.data as SchoolConfig} />
       <ShellCard>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1226,7 +1175,7 @@ function SystemSettings({ school }: { school: School }) {
 
 export function OperationsPage({ page, school }: { page: Page; school: School }) {
   switch (page) {
-    case 'overview': return <Overview school={school} />;
+    case 'promote': return <PromotionWizard school={school} />;
     case 'parentsPortal': return <ParentsPortal school={school} />;
     case 'parentMessages': return <ParentMessages school={school} />;
     case 'userManagement': return <UserManagement school={school} />;
