@@ -1518,6 +1518,73 @@ router.patch("/schools/:schoolId/a-level-settings", requireSchoolAdmin, async (r
   }
 });
 
+// ---- Houses: add and remove from School settings. A house that still has students cannot be removed. ----
+const houseKey = (value: unknown) => String(value ?? "").trim().toLowerCase();
+const houseNameOf = (house: unknown) => typeof house === "string" ? house.trim() : String((house as Record<string, unknown>)?.name ?? "").trim();
+
+async function houseUsage(req: Request, schoolId: string, config: Record<string, unknown>) {
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  const rows = asRows(await supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id,house,term_key`).catch(() => []));
+  const bump = (id: unknown, term: unknown, house: unknown) => {
+    const key = houseKey(house);
+    const unique = `${term ?? ""}|${id}`;
+    if (!key || seen.has(unique)) return;
+    seen.add(unique);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  };
+  for (const row of rows) bump(row.id, row.term_key, row.house);
+  const terms = config.terms && typeof config.terms === "object" ? (config.terms as Record<string, Record<string, unknown>>) : {};
+  for (const [termKey, term] of Object.entries(terms)) {
+    if (Array.isArray(term?.students)) for (const student of term.students as Array<Record<string, unknown>>) bump(student.id, termKey, student.house);
+  }
+  return counts;
+}
+
+router.get("/schools/:schoolId/houses", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const config = await readSchoolConfig(req, schoolId);
+    const settings = settingsOf(config);
+    const raw = Array.isArray(settings.houses) ? settings.houses : Array.isArray(config.houses) ? config.houses : [];
+    const usage = await houseUsage(req, schoolId, config);
+    res.json(Array.from(new Set(raw.map(houseNameOf).filter(Boolean))).map((name) => ({ name, students: usage.get(houseKey(name)) ?? 0 })));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.put("/schools/:schoolId/houses", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const { houses } = z.object({ houses: z.array(z.string()).max(20) }).strict().parse(req.body);
+    const names = houses.map((name) => name.trim().replace(/\s+/g, " ")).filter(Boolean);
+    if (names.some((name) => name.length > 30)) { res.status(400).json({ error: "Keep each house name to 30 characters or fewer." }); return; }
+    if (new Set(names.map(houseKey)).size !== names.length) { res.status(400).json({ error: "Each house name can be used once." }); return; }
+    const config = await readSchoolConfig(req, schoolId);
+    const settings = settingsOf(config);
+    const raw = Array.isArray(settings.houses) ? settings.houses : Array.isArray(config.houses) ? config.houses : [];
+    const existing = new Map(raw.map((house) => [houseKey(houseNameOf(house)), house]));
+    const keep = new Set(names.map(houseKey));
+    const removed = Array.from(existing.keys()).filter((key) => key && !keep.has(key));
+    if (removed.length) {
+      const usage = await houseUsage(req, schoolId, config);
+      const blocked = removed.filter((key) => (usage.get(key) ?? 0) > 0);
+      if (blocked.length) {
+        const label = (key: string) => `${houseNameOf(existing.get(key))} (${usage.get(key)} ${usage.get(key) === 1 ? "student" : "students"})`;
+        res.status(409).json({ error: `Move the students out of ${blocked.map(label).join(", ")} before removing ${blocked.length === 1 ? "it" : "them"}.` });
+        return;
+      }
+    }
+    // Keep any extra details (such as a colour) saved for houses that stay.
+    const next = names.map((name) => existing.get(houseKey(name)) ?? name);
+    const saved = await writeSchoolConfig(req, schoolId, { ...config, settings: { ...settings, houses: next } });
+    res.json(GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 router.post("/schools/:schoolId/assessment-settings/rescale", requireSchoolAdmin, async (req, res) => {
   try {
     const schoolId = String(req.params.schoolId);
