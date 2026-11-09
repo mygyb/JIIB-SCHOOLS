@@ -816,7 +816,7 @@ components:
           type: ["string", "null"]
         role:
           type: string
-          enum: [admin, teacher]
+          enum: [admin, teacher, headteacher, bursar]
         subjects:
           type: array
           items:
@@ -844,7 +844,7 @@ components:
           maxLength: 160
         role:
           type: string
-          enum: [admin, teacher]
+          enum: [admin, teacher, headteacher, bursar]
         initialPassword:
           type: string
           minLength: 8
@@ -870,7 +870,7 @@ components:
           maxLength: 160
         role:
           type: string
-          enum: [admin, teacher]
+          enum: [admin, teacher, headteacher, bursar]
         subjects:
           type: array
           items:

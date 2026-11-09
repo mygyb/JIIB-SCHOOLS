@@ -130,6 +130,13 @@ function mapEvent(row: Record<string, unknown>) {
   };
 }
 
+export type StaffRole = "admin" | "teacher" | "headteacher" | "bursar";
+const STAFF_ROLES: StaffRole[] = ["admin", "teacher", "headteacher", "bursar"];
+/** Unknown values fall back to the least-privileged staff role. */
+function staffRole(value: unknown): StaffRole {
+  return STAFF_ROLES.includes(value as StaffRole) ? (value as StaffRole) : "teacher";
+}
+
 // Source of truth for who may sign in to this school as admin/teacher,
 // and what role they hold. Matches the original system's `allowed_users` table.
 function mapAllowedUser(row: Record<string, unknown>) {
@@ -137,7 +144,7 @@ function mapAllowedUser(row: Record<string, unknown>) {
     schoolId: String(row.school_id),
     email: String(row.email ?? ""),
     displayName: (row.display_name as string | null | undefined) ?? null,
-    role: row.role === "admin" ? "admin" : "teacher",
+    role: staffRole(row.role),
     subjects: Array.isArray(row.subjects)
       ? row.subjects.map((entry) => {
           if (typeof entry === "string") return entry;
@@ -203,14 +210,14 @@ const SubjectAssignmentBody = z.object({
 const AllowedUserBody = z.object({
   email: z.string().trim().email(),
   displayName: z.string().trim().min(1).max(160),
-  role: z.enum(["admin", "teacher"]),
+  role: z.enum(["admin", "teacher", "headteacher", "bursar"]),
   initialPassword: z.string().min(8).max(128),
   subjects: z.array(z.union([z.string(), SubjectAssignmentBody])).optional(),
 }).strict();
 const AllowedUserUpdateBody = z.object({
   email: z.string().trim().email().optional(),
   displayName: z.string().trim().min(1).max(160).optional(),
-  role: z.enum(["admin", "teacher"]).optional(),
+  role: z.enum(["admin", "teacher", "headteacher", "bursar"]).optional(),
   subjects: z.array(z.union([z.string(), SubjectAssignmentBody])).optional(),
 }).strict();
 const SchoolProfileBody = z.object({
@@ -388,6 +395,15 @@ async function getParentPortalData(req: Request, schoolId: string, phoneInput: s
     events,
     schoolName: "",
   };
+}
+
+/** Administrators and head teachers (who may look but not change) can read these. */
+function requireSchoolViewer(req: Request, res: Response, next: () => void) {
+  if (res.locals.jiibRole !== "admin" && res.locals.jiibRole !== "super_admin" && res.locals.jiibRole !== "headteacher") {
+    res.status(403).json({ error: "A school administrator or head teacher account is required." });
+    return;
+  }
+  next();
 }
 
 function requireSchoolAdmin(req: Request, res: Response, next: () => void) {
@@ -1014,7 +1030,21 @@ router.use("/schools/:schoolId", async (req, res, next) => {
         )[0]
       : undefined;
     if (allowed) {
-      res.locals.jiibRole = allowed.role === "admin" ? "admin" : "teacher";
+      res.locals.jiibRole = staffRole(allowed.role);
+      const sub = req.path.replace(/\/+$/, "");
+      // Head teachers can look at every department but change nothing. Bursars only reach the Finance workspace
+      // (plus the read-only lists it needs). Neither may use the teacher-or-admin write routes below.
+      if (res.locals.jiibRole === "headteacher" && req.method !== "GET") {
+        res.status(403).json({ error: "Head teacher accounts can view school records but not change them." });
+        return;
+      }
+      if (res.locals.jiibRole === "bursar") {
+        const readable = req.method === "GET" && /^\/(config|students|terms|users\/[^/]+)$/.test(sub);
+        if (!readable && !/^\/finance(\/|$)/.test(sub)) {
+          res.status(403).json({ error: "Bursar accounts can only use the Finance workspace." });
+          return;
+        }
+      }
     } else {
       if (!await verifySuperAdmin(req, user)) {
         res.status(403).json({ error: "This account is not registered for this school." });
@@ -1030,7 +1060,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
 });
 
 // Teacher logins and marks entries for the school's System settings page (administrators only).
-router.get("/schools/:schoolId/activity", requireSchoolAdmin, async (req, res) => {
+router.get("/schools/:schoolId/activity", requireSchoolViewer, async (req, res) => {
   try {
     res.json(await listSchoolActivity(req, String(req.params.schoolId), {
       kind: req.query.kind === "login" || req.query.kind === "marks" ? req.query.kind : undefined,
@@ -1041,7 +1071,7 @@ router.get("/schools/:schoolId/activity", requireSchoolAdmin, async (req, res) =
   }
 });
 
-router.get("/schools/:schoolId/parent-chat", requireSchoolAdmin, async (req, res) => {
+router.get("/schools/:schoolId/parent-chat", requireSchoolViewer, async (req, res) => {
   try {
     const rows = asRows(
       await supabaseRequest(
@@ -2681,6 +2711,10 @@ function sendStaffManagementError(res: Response, error: unknown) {
     res.status(409).json({ error: "A Supabase sign-in account already uses that email address." });
     return;
   }
+  if (/allowed_users_role_check|violates check constraint/i.test(message)) {
+    res.status(503).json({ error: "Head teacher and Bursar accounts need a one-time database update. Ask the system administrator to run supabase/roles-setup.sql." });
+    return;
+  }
   if (/not found/i.test(message)) {
     res.status(404).json({ error: message });
     return;
@@ -2802,7 +2836,7 @@ router.patch("/schools/:schoolId/users/:email", async (req, res) => {
     }
 
     const nextEmail = (body.email ?? oldEmail).toLowerCase();
-    const nextRole = body.role ?? (current.role === "admin" ? "admin" : "teacher");
+    const nextRole = body.role ?? staffRole(current.role);
     const currentSubjects = Array.isArray(current.subjects)
       ? current.subjects as Array<string | { class: string; subject: string }>
       : [];

@@ -291,7 +291,7 @@ export const ListSchoolUsersResponseItem = zod.object({
   "schoolId": zod.string(),
   "email": zod.string().email(),
   "displayName": zod.string().nullable(),
-  "role": zod.enum(['admin', 'teacher']),
+  "role": zod.enum(['admin', 'teacher', 'headteacher', 'bursar']),
   "subjects": zod.array(zod.union([zod.string(),zod.object({
   "class": zod.string().min(1),
   "subject": zod.string().min(1)
@@ -320,7 +320,7 @@ export const createSchoolUserBodyInitialPasswordMax = 128;
 export const CreateSchoolUserBody = zod.object({
   "email": zod.string().email(),
   "displayName": zod.string().min(1).max(createSchoolUserBodyDisplayNameMax),
-  "role": zod.enum(['admin', 'teacher']),
+  "role": zod.enum(['admin', 'teacher', 'headteacher', 'bursar']),
   "initialPassword": zod.string().min(createSchoolUserBodyInitialPasswordMin).max(createSchoolUserBodyInitialPasswordMax),
   "subjects": zod.array(zod.union([zod.string(),zod.object({
   "class": zod.string().min(1),
@@ -336,7 +336,7 @@ export const CreateSchoolUserResponse = zod.object({
   "schoolId": zod.string(),
   "email": zod.string().email(),
   "displayName": zod.string().nullable(),
-  "role": zod.enum(['admin', 'teacher']),
+  "role": zod.enum(['admin', 'teacher', 'headteacher', 'bursar']),
   "subjects": zod.array(zod.union([zod.string(),zod.object({
   "class": zod.string().min(1),
   "subject": zod.string().min(1)
@@ -361,7 +361,7 @@ export const GetSchoolUserResponse = zod.object({
   "schoolId": zod.string(),
   "email": zod.string().email(),
   "displayName": zod.string().nullable(),
-  "role": zod.enum(['admin', 'teacher']),
+  "role": zod.enum(['admin', 'teacher', 'headteacher', 'bursar']),
   "subjects": zod.array(zod.union([zod.string(),zod.object({
   "class": zod.string().min(1),
   "subject": zod.string().min(1)
@@ -387,7 +387,7 @@ export const updateSchoolUserBodyDisplayNameMax = 160;
 export const UpdateSchoolUserBody = zod.object({
   "email": zod.string().email().optional(),
   "displayName": zod.string().min(1).max(updateSchoolUserBodyDisplayNameMax).optional(),
-  "role": zod.enum(['admin', 'teacher']).optional(),
+  "role": zod.enum(['admin', 'teacher', 'headteacher', 'bursar']).optional(),
   "subjects": zod.array(zod.union([zod.string(),zod.object({
   "class": zod.string().min(1),
   "subject": zod.string().min(1)
@@ -402,7 +402,7 @@ export const UpdateSchoolUserResponse = zod.object({
   "schoolId": zod.string(),
   "email": zod.string().email(),
   "displayName": zod.string().nullable(),
-  "role": zod.enum(['admin', 'teacher']),
+  "role": zod.enum(['admin', 'teacher', 'headteacher', 'bursar']),
   "subjects": zod.array(zod.union([zod.string(),zod.object({
   "class": zod.string().min(1),
   "subject": zod.string().min(1)
@@ -445,7 +445,7 @@ export const UpdateMySchoolProfileResponse = zod.object({
   "schoolId": zod.string(),
   "email": zod.string().email(),
   "displayName": zod.string().nullable(),
-  "role": zod.enum(['admin', 'teacher']),
+  "role": zod.enum(['admin', 'teacher', 'headteacher', 'bursar']),
   "subjects": zod.array(zod.union([zod.string(),zod.object({
   "class": zod.string().min(1),
   "subject": zod.string().min(1)

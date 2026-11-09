@@ -386,3 +386,51 @@
     inset: -1px;
   }
 }
+
+/* ---- Role workspaces ---------------------------------------------------------------------------------------------
+   Bursar: an accountant's ledger — ink green on warm paper, tabular figures.
+   Head teacher: a calm, view-only school overview — indigo on cool white.
+   Both only change colour tokens, so every component keeps working in light and dark mode. */
+.theme-ledger {
+  --background: 44 28% 95%; --foreground: 165 28% 11%; --border: 40 18% 84%;
+  --card: 45 40% 99%; --card-foreground: 165 28% 11%; --card-border: 40 18% 84%;
+  --primary: 164 64% 21%; --primary-foreground: 0 0% 100%;
+  --muted: 44 22% 91%; --muted-foreground: 165 9% 38%;
+  --accent: 36 78% 50%; --accent-foreground: 165 28% 11%; --ring: 164 64% 28%;
+  --sidebar: 165 52% 11%; --sidebar-foreground: 150 18% 92%; --sidebar-border: 165 32% 19%;
+  --sidebar-primary: 40 88% 60%; --sidebar-primary-foreground: 165 52% 11%;
+  --sidebar-accent: 165 38% 17%; --sidebar-accent-foreground: 150 18% 96%; --sidebar-ring: 40 88% 60%;
+}
+.dark .theme-ledger {
+  --background: 165 30% 7%; --foreground: 45 22% 92%; --border: 165 18% 18%;
+  --card: 165 28% 10%; --card-foreground: 45 22% 92%; --card-border: 165 18% 18%;
+  --primary: 160 52% 46%; --primary-foreground: 165 52% 7%;
+  --muted: 165 22% 14%; --muted-foreground: 150 10% 62%;
+  --accent: 38 80% 56%; --accent-foreground: 165 52% 7%; --ring: 160 52% 46%;
+  --sidebar: 165 40% 6%; --sidebar-border: 165 28% 14%; --sidebar-accent: 165 30% 12%;
+}
+.theme-head {
+  --background: 230 30% 97%; --foreground: 234 30% 15%; --border: 229 22% 89%;
+  --card: 0 0% 100%; --card-foreground: 234 30% 15%; --card-border: 229 22% 89%;
+  --primary: 243 52% 38%; --primary-foreground: 0 0% 100%;
+  --muted: 230 26% 94%; --muted-foreground: 232 13% 45%;
+  --accent: 262 60% 94%; --accent-foreground: 243 52% 30%; --ring: 243 52% 45%;
+}
+.dark .theme-head {
+  --background: 235 28% 8%; --foreground: 230 30% 94%; --border: 234 20% 19%;
+  --card: 235 26% 11%; --card-foreground: 230 30% 94%; --card-border: 234 20% 19%;
+  --primary: 243 80% 72%; --primary-foreground: 235 28% 8%;
+  --muted: 235 22% 15%; --muted-foreground: 231 14% 62%;
+  --accent: 243 30% 22%; --accent-foreground: 243 80% 85%; --ring: 243 80% 72%;
+}
+.ledger-figure { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: -0.01em; }
+
+/* Students list for view-only roles (head teacher, bursar): no add, edit, delete or selection controls. */
+.readonly-students [data-testid="button-add-student"],
+.readonly-students [data-testid="button-empty-add-student"],
+.readonly-students [data-testid="button-delete-selected-students"],
+.readonly-students [data-testid^="button-edit-student"],
+.readonly-students [data-testid^="button-delete-student"],
+.readonly-students input[type="checkbox"],
+.readonly-students th:last-child,
+.readonly-students td:last-child { display: none; }
