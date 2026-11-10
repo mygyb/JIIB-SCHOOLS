@@ -205,6 +205,14 @@ function ParentsPortal({ school }: { school: School }) {
   return <div className="fade-up"><SectionHeading eyebrow="People & roles" title="Parents portal" body="Find a family record, review access, and block a phone number when needed." /><ShellCard><div className="flex flex-col gap-3 sm:flex-row"><input data-testid="input-parent-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by student or phone" className="h-11 flex-1 rounded-xl border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring" /><span className="inline-flex items-center gap-2 rounded-lg bg-muted px-3 text-xs font-semibold"><UsersRound size={15} /> {filtered.length} matches</span></div><LoadingOrError loading={students.isLoading} error={students.isError} retry={() => students.refetch()} /><div className="mt-5 divide-y divide-border">{filtered.map((student) => { const phone = student.parentPhone ?? ''; const isBlocked = blocked.includes(normalizePhone(phone)); return <div key={student.id} className="flex items-center gap-3 py-4"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-xs font-bold text-primary">{student.name.slice(0, 2).toUpperCase()}</span><div className="flex-1"><p className="text-sm font-semibold">{student.name}</p><p className="mt-1 text-xs text-muted-foreground">{student.className} · {phone || 'No phone on file'}</p></div><button data-testid={`button-block-parent-${student.id}`} onClick={() => toggle(phone)} disabled={!normalizePhone(phone) || config.saving} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${isBlocked ? 'border-destructive/30 bg-destructive/5 text-destructive' : 'border-border hover:bg-muted'} disabled:opacity-40`}>{isBlocked ? 'Unblock' : 'Block access'}</button></div>; })}</div></ShellCard></div>;
 }
 
+type StaffRole = 'teacher' | 'admin' | 'headteacher' | 'bursar';
+const ROLE_NOTES: Record<string, string> = {
+  admin: 'School administrators manage the whole school, so they have no class subjects.',
+  headteacher: 'Head teachers can view every department of the school, including a finance summary, but cannot change anything.',
+  bursar: 'Bursars see only the Finance workspace (fees, payments and defaulters). School administrators cannot open it.',
+};
+const ROLE_LABELS: Record<string, string> = { admin: 'School administrator', teacher: 'Teacher', headteacher: 'Head teacher', bursar: 'Bursar' };
+
 function UserManagement({ school }: { school: School }) {
   const config = useConfig(school.id);
   const queryClient = useQueryClient();
@@ -218,14 +226,14 @@ function UserManagement({ school }: { school: School }) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [initialPassword, setInitialPassword] = useState('');
-  const [role, setRole] = useState<'teacher' | 'admin'>('teacher');
+  const [role, setRole] = useState<StaffRole>('teacher');
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [editing, setEditing] = useState<StaffAccount | null>(null);
   const [editEmail, setEditEmail] = useState('');
   const [editName, setEditName] = useState('');
-  const [editRole, setEditRole] = useState<'teacher' | 'admin'>('teacher');
+  const [editRole, setEditRole] = useState<StaffRole>('teacher');
   const [editSubjects, setEditSubjects] = useState<string[]>([]);
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -238,7 +246,7 @@ function UserManagement({ school }: { school: School }) {
   const pairKey = (className: string, subject: string) => `${className}::${subject}`;
   const ownerFor = (className: string, subject: string, excludedEmails: string[] = [email.trim().toLowerCase()]) => users.find((user) =>
     !excludedEmails.map((item) => item.toLowerCase()).includes(user.email.toLowerCase()) &&
-    user.role !== 'admin' &&
+    user.role === 'teacher' &&
     (user.subjects ?? []).some((item) => typeof item === 'object'
       ? item.class === className && item.subject === subject
       : item === subject),
@@ -280,7 +288,7 @@ function UserManagement({ school }: { school: School }) {
     setEditing(user);
     setEditEmail(user.email);
     setEditName(user.displayName || '');
-    setEditRole(user.role === 'admin' ? 'admin' : 'teacher');
+    setEditRole((user.role as StaffRole) || 'teacher');
     const keys = (user.subjects ?? []).flatMap((item) => {
       if (typeof item === 'string') {
         const match = subjectOptions.find((option) => option.subject === item);
@@ -341,8 +349,8 @@ function UserManagement({ school }: { school: School }) {
           <div className="mt-5 grid gap-3">
             <input aria-label="Staff name" value={editName} onChange={(event) => setEditName(event.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
             <input aria-label="Staff email" type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} placeholder="Email" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
-            <select aria-label="Edit staff role" value={editRole} onChange={(event) => { setEditRole(event.target.value as 'teacher' | 'admin'); setEditSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
-              <option value="teacher">Teacher</option><option value="admin">School administrator</option>
+            <select aria-label="Edit staff role" value={editRole} onChange={(event) => { setEditRole(event.target.value as StaffRole); setEditSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
+              <option value="teacher">Teacher</option><option value="admin">School administrator</option><option value="headteacher">Head teacher</option><option value="bursar">Bursar</option>
             </select>
           </div>
           {editError && <p role="alert" className="mt-3 text-sm text-destructive">{editError}</p>}
@@ -362,7 +370,7 @@ function UserManagement({ school }: { school: School }) {
               <span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span>
             </label>;
           })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects first.</p>}
-        </div> : <div className="mt-4 rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">School administrators manage the whole school, so they have no class subjects.</div>}
+        </div> : <div className="mt-4 rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">{ROLE_NOTES[role] ?? ROLE_NOTES.admin}</div>}
         </ShellCard>
       </div>
     </div>;
@@ -376,8 +384,8 @@ function UserManagement({ school }: { school: School }) {
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <input data-testid="input-teacher-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
           <input data-testid="input-teacher-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="teacher@school.org" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
-          <select aria-label="Staff role" value={role} onChange={(event) => { setRole(event.target.value as 'teacher' | 'admin'); setSelectedSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
-            <option value="teacher">Teacher</option><option value="admin">School administrator</option>
+          <select aria-label="Staff role" value={role} onChange={(event) => { setRole(event.target.value as StaffRole); setSelectedSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
+            <option value="teacher">Teacher</option><option value="admin">School administrator</option><option value="headteacher">Head teacher</option><option value="bursar">Bursar</option>
           </select>
           <input data-testid="input-teacher-initial-password" type="password" autoComplete="new-password" minLength={8} value={initialPassword} onChange={(event) => setInitialPassword(event.target.value)} placeholder="Initial password (8+ characters)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
         </div>
@@ -412,7 +420,7 @@ function UserManagement({ school }: { school: School }) {
         const assigned = (user.subjects ?? []).map((item) => typeof item === 'string' ? item : `${item.class ?? 'Class'}: ${item.subject ?? ''}`).join(', ');
         return <div key={user.email} className="flex items-center gap-3 py-4">
           <span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{(user.displayName || user.email).slice(0, 2).toUpperCase()}</span>
-          <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="truncate text-xs text-muted-foreground">{user.email} · {user.role}{assigned ? ` · ${assigned}` : ''}</p></div>
+          <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="truncate text-xs text-muted-foreground">{user.email} · {ROLE_LABELS[user.role] ?? user.role}{assigned ? ` · ${assigned}` : ''}</p></div>
           <button aria-label={`Edit ${user.email}`} data-testid={`button-edit-user-${user.email}`} onClick={() => openEdit(user)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil size={15} /></button>
           <button aria-label={`Remove ${user.email}`} onClick={() => void remove(user.email)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button>
         </div>;

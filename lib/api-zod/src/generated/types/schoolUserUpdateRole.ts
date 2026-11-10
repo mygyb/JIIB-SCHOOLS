@@ -12,4 +12,6 @@ export type SchoolUserUpdateRole = typeof SchoolUserUpdateRole[keyof typeof Scho
 export const SchoolUserUpdateRole = {
   admin: 'admin',
   teacher: 'teacher',
+  headteacher: 'headteacher',
+  bursar: 'bursar',
 } as const;

@@ -12,4 +12,6 @@ export type SchoolUserInputRole = typeof SchoolUserInputRole[keyof typeof School
 export const SchoolUserInputRole = {
   admin: 'admin',
   teacher: 'teacher',
+  headteacher: 'headteacher',
+  bursar: 'bursar',
 } as const;

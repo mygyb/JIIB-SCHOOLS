@@ -40,6 +40,13 @@ import { enableNotifications, isStandalone, notificationPermission, notification
 import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
+import { BursarShell, HEAD_TABS, HeadTeacherShell } from '@/features/role-shells';
+import { FinanceHome } from '@/features/finance/finance-home';
+import { FeeStructures } from '@/features/finance/fee-structures';
+import { StudentFees } from '@/features/finance/student-fees';
+import { RecordPayment } from '@/features/finance/record-payment';
+import { Defaulters } from '@/features/finance/defaulters';
+import { Reports } from '@/features/finance/reports';
 import { clearAccountTheme, getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { combinationsOf, enrolmentLabel, enrolmentSubjects, isALevelClass, isALevelEnabled, STREAM_LABELS, subsidiarySubjectNames, type Enrolment, type Stream } from '@/lib/school-data';
 import { configuredHouses, currentTerm, DEFAULT_ASSESSMENT_FIELDS, finalTotal, getAssessmentFields, markTotal, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from '@/lib/school-data';
@@ -82,6 +89,10 @@ const ADMIN_ONLY_HREFS = [
   '/grading-system', '/publish-deadline', '/school-events', '/school-settings', '/system-settings',
   '/settings', '/parent-messages',
 ];
+
+// Pages each of the other staff roles may open (the server enforces the same limits).
+const HEAD_HREFS = [...HEAD_TABS.map((tab) => tab.href), '/finance/fees', '/finance/accounts', '/finance/defaulters', '/finance/reports', '/account-settings'];
+const BURSAR_HREFS = ['/finance', '/finance/fees', '/finance/accounts', '/finance/payments', '/finance/defaulters', '/finance/reports', '/students', '/account-settings'];
 
 // Nav items / routes that belong to the teacher workspace only.
 const TEACHER_ONLY_HREFS = ['/marks'];
@@ -240,7 +251,7 @@ function usePwaLaunch() {
     if (location === '/login' && !sessionStorage.getItem('jiib.launched')) {
       sessionStorage.setItem('jiib.launched', '1');
       const role = localStorage.getItem('jiib.role');
-      if (localStorage.getItem('jiib.school') && role) setLocation(role === 'Parent / guardian' ? '/parent' : role === 'Super administrator' ? '/super-admin' : '/dashboard', { replace: true });
+      if (localStorage.getItem('jiib.school') && role) setLocation(role === 'Parent / guardian' ? '/parent' : role === 'Super administrator' ? '/super-admin' : role === 'Bursar' ? '/finance' : '/dashboard', { replace: true });
     }
   }, [location, setLocation]);
 }
@@ -264,6 +275,12 @@ function Router() {
         <Route path="/parent-messages"><AppShell><OperationsRoute page="parentMessages" /></AppShell></Route>
         <Route path="/account-settings"><AppShell><OperationsRoute page="accountSettings" /></AppShell></Route>
         <Route path="/settings"><AppShell><OperationsRoute page="schoolSettings" /></AppShell></Route>
+        <Route path="/finance"><AppShell><FinanceHome /></AppShell></Route>
+        <Route path="/finance/fees"><AppShell><FeeStructures /></AppShell></Route>
+        <Route path="/finance/accounts"><AppShell><StudentFees /></AppShell></Route>
+        <Route path="/finance/payments"><AppShell><RecordPayment /></AppShell></Route>
+        <Route path="/finance/defaulters"><AppShell><Defaulters /></AppShell></Route>
+        <Route path="/finance/reports"><AppShell><Reports /></AppShell></Route>
         <Route path="/promote"><AppShell><OperationsRoute page="promote" /></AppShell></Route>
         <Route path="/overview"><Redirect to="/promote" /></Route>
         <Route path="/parents-portal"><AppShell><OperationsRoute page="parentsPortal" /></AppShell></Route>
@@ -435,7 +452,7 @@ function SignIn() {
         const allowed = await jiibApi<{ role: string; displayName?: string | null; subjects?: string[] }>(
           `/api/schools/${encodeURIComponent(school.id)}/users/${encodeURIComponent(email.trim().toLowerCase())}`,
         );
-        const actualRole: 'School administrator' | 'Teacher' = allowed.role === 'admin' ? 'School administrator' : 'Teacher';
+        const actualRole = allowed.role === 'admin' ? 'School administrator' : allowed.role === 'headteacher' ? 'Head teacher' : allowed.role === 'bursar' ? 'Bursar' : 'Teacher';
 
         rememberSchool({ slug: school.slug, name: school.name });
         localStorage.setItem('jiib.school', JSON.stringify(school));
@@ -443,7 +460,7 @@ function SignIn() {
         localStorage.setItem('jiib.userName', allowed.displayName || email.trim().split('@')[0]);
         localStorage.setItem('jiib.email', email.trim().toLowerCase());
         localStorage.setItem('jiib.subjects', JSON.stringify(allowed.subjects ?? []));
-        setLocation('/dashboard');
+        setLocation(actualRole === 'Bursar' ? '/finance' : '/dashboard');
       } catch (error) {
         setAuthError(error instanceof Error ? error.message : 'Could not verify your account. Please check your connection and try again.');
         await supabase?.auth.signOut();
@@ -526,6 +543,8 @@ function AppShell({ children }: { children: ReactNode }) {
   const isTeacher = role === 'Teacher';
   const isParent = role === 'Parent / guardian';
   const isSuperAdmin = role === 'Super administrator';
+  const isHead = role === 'Head teacher';
+  const isBursar = role === 'Bursar';
   const [authReady, setAuthReady] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [syncRevision, setSyncRevision] = useState(0);
@@ -618,9 +637,12 @@ function AppShell({ children }: { children: ReactNode }) {
     else if (isSuperAdmin && location !== '/super-admin') setLocation('/super-admin');
     else if (!isSuperAdmin && location === '/super-admin') setLocation('/dashboard');
     else if (!isParent && location === '/parent') setLocation('/dashboard');
+    else if (isBursar && !BURSAR_HREFS.includes(location)) setLocation('/finance');
+    else if (isHead && !HEAD_HREFS.includes(location)) setLocation('/dashboard');
+    else if (!isBursar && !isHead && !isParent && !isSuperAdmin && location.startsWith('/finance')) setLocation('/dashboard');
     else if (!isParent && !isSuperAdmin && isTeacher && ADMIN_ONLY_HREFS.includes(location)) setLocation('/dashboard');
     else if (!isParent && !isSuperAdmin && !isTeacher && TEACHER_ONLY_HREFS.includes(location)) setLocation('/dashboard');
-  }, [location, isParent, isSuperAdmin, isTeacher, setLocation]);
+  }, [location, isParent, isSuperAdmin, isTeacher, isHead, isBursar, setLocation]);
 
   const visibleNavItems = navItems.filter((item) =>
     isParent || isSuperAdmin
@@ -641,6 +663,17 @@ function AppShell({ children }: { children: ReactNode }) {
   };
   const title = titleMap[location] ?? 'Portfolio';
   if (!authReady) return <main className="grid min-h-[100dvh] place-items-center bg-background text-sm text-muted-foreground">Checking account access…</main>;
+  if (isHead || isBursar) {
+    const activeTermLabel = getTerms((config.data?.data ?? {}) as SchoolConfig).find((item) => item.key === activeTerm)?.label ?? activeTerm;
+    const Shell = isBursar ? BursarShell : HeadTeacherShell;
+    const signOut = async () => {
+      await supabase?.auth.signOut();
+      ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key));
+      clearAccountTheme();
+      setLocation('/');
+    };
+    return <Shell schoolName={school.name} logoUrl={school.logoUrl} userName={userName} email={accountEmail} term={activeTermLabel} dark={dark} online={online} location={location} onToggleDark={() => setDark((value) => !value)} onSignOut={() => void signOut()}>{children}</Shell>;
+  }
   return (
     <div className="flex min-h-[100dvh] bg-background">
       {open && <button aria-label="Close navigation" data-testid="button-close-mobile-nav" className="fixed inset-0 z-30 bg-[#172b43]/40 lg:hidden" onClick={() => setOpen(false)} />}
@@ -924,6 +957,7 @@ function SupportPage() {
 
 function Students() {
   const school = useActiveSchool();
+  const readOnly = ['Head teacher', 'Bursar'].includes(localStorage.getItem('jiib.role') ?? '');
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [house, setHouse] = useState('');
@@ -1017,7 +1051,7 @@ function Students() {
       onSave={createStudent}
     />;
   }
-  return <div className="fade-up"><PageHeader eyebrow="School register" title="Students" description="Keep the school register accurate, searchable, and ready for every team." action={<div className="flex flex-wrap gap-2">{selectedIds.length > 0 && <button data-testid="button-delete-selected-students" onClick={() => void bulkDelete()} disabled={bulkPending} className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 px-4 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50"><Trash2 size={15} /> {bulkPending ? 'Deleting…' : `Delete selected (${selectedIds.length})`}</button>}<button data-testid="button-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={16} /> Add student</button></div>} />
+  return <div className={`fade-up ${readOnly ? 'readonly-students' : ''}`}><PageHeader eyebrow="School register" title="Students" description="Keep the school register accurate, searchable, and ready for every team." action={<div className="flex flex-wrap gap-2">{selectedIds.length > 0 && <button data-testid="button-delete-selected-students" onClick={() => void bulkDelete()} disabled={bulkPending} className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 px-4 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50"><Trash2 size={15} /> {bulkPending ? 'Deleting…' : `Delete selected (${selectedIds.length})`}</button>}<button data-testid="button-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><Plus size={16} /> Add student</button></div>} />
     <div className="mb-5 flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={17} className="absolute left-3 top-3.5 text-muted-foreground" /><input data-testid="input-student-search" value={search} onChange={(e) => { setSearch(e.target.value); setSelectedIds([]); }} placeholder="Search by student name" className="h-11 w-full rounded-xl border border-input bg-card pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring" /></div><select data-testid="select-student-class" value={className} onChange={(e) => { setClassName(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select><select data-testid="select-student-house" value={house} onChange={(e) => { setHouse(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All houses</option>{houses.map((item) => <option key={item} value={item}>{item}</option>)}</select>{aLevelOn && <select data-testid="select-student-alevel" value={aLevelFilter} onChange={(e) => { setALevelFilter(e.target.value); setSelectedIds([]); }} className="h-11 rounded-xl border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"><option value="">All streams</option><option value="sciences">Sciences</option><option value="arts">Arts</option>{combinationsOf(configData).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}<button data-testid="button-filter-students" onClick={() => { setSearch(''); setClassName(''); setHouse(''); setALevelFilter(''); setSelectedIds([]); }} disabled={!search && !className && !house && !aLevelFilter} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-input bg-card px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50"><SlidersHorizontal size={15} /> Clear filters</button></div>
     {bulkError && <p role="alert" className="mb-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{bulkError}</p>}
     <div className="overflow-hidden rounded-2xl border border-border bg-card">{query.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <SkeletonBlock key={item} className="h-14" />)}</div> : query.isError ? <div className="p-5"><ErrorState retry={() => query.refetch()} /></div> : students.length === 0 ? <EmptyState icon={UsersRound} title="No students match" body={search || className || house ? 'Try a different search or clear the filters.' : 'Your register is ready for its first student.'} action={!search && !className && !house ? <button data-testid="button-empty-add-student" onClick={() => { setEditing(null); setShowForm(true); }} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Add first student</button> : undefined} /> : <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left"><thead className="border-b border-border bg-muted/45 text-[10px] uppercase tracking-[.16em] text-muted-foreground"><tr><th className="px-4 py-4"><input aria-label="Select all visible students" type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedIds(allVisibleSelected ? [] : students.map((student) => student.id))} /></th><th className="px-5 py-4 font-bold">Student</th><th className="px-5 py-4 font-bold">Class</th><th className="px-5 py-4 font-bold">House</th><th className="px-5 py-4 font-bold">Optional subjects</th><th className="px-5 py-4 font-bold">Parent contact</th><th className="px-5 py-4 text-right font-bold">Actions</th></tr></thead><tbody className="divide-y divide-border">{students.map((student) => <tr key={student.id} data-testid={`row-student-${student.id}`} className="group transition hover:bg-muted/25"><td className="px-4 py-4"><input aria-label={`Select ${student.name}`} type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} /></td><td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">{initials(student.name)}</span><div><p data-testid={`text-student-${student.id}`} className="text-sm font-semibold uppercase">{student.name}</p><p className="mt-0.5 text-xs text-muted-foreground">Joined {fmtDate(student.createdAt)}</p></div></div></td><td className="px-5 py-4 text-sm">{student.className}{enrolmentLabel(configData, student.aLevel) && <span data-testid={`badge-alevel-${student.id}`} className="mt-1 block text-[11px] font-semibold text-primary">{enrolmentLabel(configData, student.aLevel)}</span>}</td><td className="px-5 py-4"><span className="rounded-full bg-[#f7edcf] px-2.5 py-1 text-xs font-semibold text-[#87631c]">{student.house}</span></td><td className="px-5 py-4"><div className="flex flex-wrap gap-1.5">{student.subjects?.length ? student.subjects.map((item) => <span key={item} className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary">{item}</span>) : <span className="text-sm text-muted-foreground">None</span>}</div></td><td className="px-5 py-4 text-sm text-muted-foreground">{student.parentPhone || 'Not provided'}</td><td className="px-5 py-4"><div className="flex justify-end gap-1 opacity-70 group-hover:opacity-100"><button data-testid={`button-edit-student-${student.id}`} onClick={() => { setEditing(student); setShowForm(true); }} className="rounded-lg p-2 hover:bg-muted"><Pencil size={15} /></button><button data-testid={`button-delete-student-${student.id}`} onClick={() => deleteStudent(student)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button></div></td></tr>)}</tbody></table></div>}</div>

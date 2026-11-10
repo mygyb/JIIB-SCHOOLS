@@ -35,6 +35,8 @@ export type SchoolUserRole = typeof SchoolUserRole[keyof typeof SchoolUserRole];
 export const SchoolUserRole = {
   admin: 'admin',
   teacher: 'teacher',
+  headteacher: 'headteacher',
+  bursar: 'bursar',
 } as const;
 
 export interface SchoolUser {
@@ -55,6 +57,8 @@ export type SchoolUserInputRole = typeof SchoolUserInputRole[keyof typeof School
 export const SchoolUserInputRole = {
   admin: 'admin',
   teacher: 'teacher',
+  headteacher: 'headteacher',
+  bursar: 'bursar',
 } as const;
 
 export interface SchoolUserInput {
@@ -79,6 +83,8 @@ export type SchoolUserUpdateRole = typeof SchoolUserUpdateRole[keyof typeof Scho
 export const SchoolUserUpdateRole = {
   admin: 'admin',
   teacher: 'teacher',
+  headteacher: 'headteacher',
+  bursar: 'bursar',
 } as const;
 
 export interface SchoolUserUpdate {
