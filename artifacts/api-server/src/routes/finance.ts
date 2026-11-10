@@ -141,6 +141,30 @@ async function buildAccounts(deps: FinanceDeps, req: Request, schoolId: string, 
   });
 }
 
+
+/** Every term the school has, oldest first. */
+async function allTermKeys(deps: FinanceDeps, req: Request, schoolId: string): Promise<string[]> {
+  const config = await deps.readSchoolConfig(req, schoolId);
+  return (config.terms && typeof config.terms === "object" ? Object.keys(config.terms) : []).sort();
+}
+
+/** What each student still owes from terms before `termKey` (only unpaid balances count; advance payments are not carried back). */
+async function previousArrears(deps: FinanceDeps, req: Request, schoolId: string, termKey: string) {
+  const earlier = (await allTermKeys(deps, req, schoolId)).filter((key) => key < termKey);
+  const perTerm = await Promise.all(earlier.map(async (key) => ({ key, accounts: await buildAccounts(deps, req, schoolId, key) })));
+  const out = new Map<string, { total: number; terms: Array<{ termKey: string; balance: number }> }>();
+  for (const { key, accounts } of perTerm) {
+    for (const account of accounts) {
+      if (account.balance <= 0) continue;
+      const entry = out.get(account.studentId) ?? { total: 0, terms: [] };
+      entry.total += account.balance;
+      entry.terms.push({ termKey: key, balance: account.balance });
+      out.set(account.studentId, entry);
+    }
+  }
+  return out;
+}
+
 function totalsOf(accounts: Account[]) {
   const billed = accounts.filter((account) => !account.noStructure || account.paid > 0);
   const expected = sum(billed.map((account) => ({ amount: account.expected })));
@@ -337,6 +361,94 @@ export function registerFinanceRoutes(router: IRouter, deps: FinanceDeps) {
       if (status === "nostructure") accounts = accounts.filter((account) => account.noStructure);
       if (minBalance) accounts = accounts.filter((account) => account.balance >= minBalance);
       res.json({ termKey, totals: totalsOf(accounts), accounts });
+    } catch (error) {
+      fail(res, error);
+    }
+  });
+
+  // ---- Defaulters (this term, unpaid fees from earlier terms, or both) ----
+  router.get(`${base}/defaulters`, async (req, res) => {
+    try {
+      const schoolId = String(req.params.schoolId);
+      const termKey = await activeTermKey(deps, req, schoolId, req.query.termKey);
+      const basis = req.query.basis === "previous" ? "previous" : req.query.basis === "all" ? "all" : "term";
+      const [accounts, arrears] = await Promise.all([
+        buildAccounts(deps, req, schoolId, termKey),
+        basis === "term" ? Promise.resolve(new Map<string, { total: number; terms: Array<{ termKey: string; balance: number }> }>()) : previousArrears(deps, req, schoolId, termKey),
+      ]);
+      const className = key(req.query.className);
+      const type = String(req.query.studentType ?? "");
+      const search = key(req.query.search);
+      const minOwed = Math.max(1, Math.round(Number(req.query.minBalance ?? 0)) || 0);
+      const rows = accounts
+        .map((account) => {
+          const previous = arrears.get(account.studentId);
+          const thisTerm = Math.max(0, account.balance);
+          const previousBalance = previous?.total ?? 0;
+          const owed = basis === "term" ? thisTerm : basis === "previous" ? previousBalance : thisTerm + previousBalance;
+          return { ...account, thisTerm, previousBalance, previousTerms: previous?.terms ?? [], owed };
+        })
+        .filter((row) => row.owed >= minOwed)
+        .filter((row) => !className || key(row.className) === className)
+        .filter((row) => (type === "day" || type === "boarding" ? row.studentType === type : true))
+        .filter((row) => !search || key(row.name).includes(search))
+        .sort((a, b) => b.owed - a.owed || a.name.localeCompare(b.name));
+      res.json({
+        termKey, basis,
+        totals: { count: rows.length, owed: rows.reduce((t, r) => t + r.owed, 0), thisTerm: rows.reduce((t, r) => t + r.thisTerm, 0), previous: rows.reduce((t, r) => t + r.previousBalance, 0) },
+        defaulters: rows,
+      });
+    } catch (error) {
+      fail(res, error);
+    }
+  });
+
+  // ---- Review of every term: expected, collected, outstanding and defaulters, newest first ----
+  router.get(`${base}/terms`, async (req, res) => {
+    try {
+      const schoolId = String(req.params.schoolId);
+      const keys = (await allTermKeys(deps, req, schoolId)).reverse();
+      const terms = await Promise.all(keys.map(async (termKey) => ({ termKey, ...totalsOf(await buildAccounts(deps, req, schoolId, termKey)) })));
+      res.json({ terms });
+    } catch (error) {
+      fail(res, error);
+    }
+  });
+
+  // ---- Collections report: money received in a term (optionally between two dates) by day, method and class ----
+  router.get(`${base}/reports/collections`, async (req, res) => {
+    try {
+      const schoolId = String(req.params.schoolId);
+      const termKey = await activeTermKey(deps, req, schoolId, req.query.termKey);
+      const from = String(req.query.from ?? "").trim();
+      const to = String(req.query.to ?? "").trim();
+      if ((from && !isDate(from)) || (to && !isDate(to))) { res.status(400).json({ error: "Enter dates as YYYY-MM-DD." }); return; }
+      const filters = [`school_id=eq.${enc(schoolId)}`, `term_key=eq.${enc(termKey)}`];
+      if (from) filters.push(`paid_on=gte.${from}`);
+      if (to) filters.push(`paid_on=lte.${to}`);
+      const rows = asRows(await supabaseRequest(req, "jsa_fee_payments", {}, `?${filters.join("&")}&select=*&order=seq.asc&limit=100000`));
+      const valid = rows.filter((row) => row.status !== "cancelled");
+      const group = (pick: (row: Row) => string) => {
+        const map = new Map<string, { count: number; total: number }>();
+        for (const row of valid) {
+          const name = pick(row);
+          const entry = map.get(name) ?? { count: 0, total: 0 };
+          entry.count += 1;
+          entry.total += Number(row.amount ?? 0);
+          map.set(name, entry);
+        }
+        return Array.from(map.entries()).map(([name, value]) => ({ name, ...value }));
+      };
+      res.json({
+        termKey, from: from || null, to: to || null,
+        total: valid.reduce((t, row) => t + Number(row.amount ?? 0), 0),
+        count: valid.length,
+        cancelled: rows.length - valid.length,
+        cancelledTotal: rows.filter((row) => row.status === "cancelled").reduce((t, row) => t + Number(row.amount ?? 0), 0),
+        byDay: group((row) => String(row.paid_on)).sort((a, b) => a.name.localeCompare(b.name)).map((item) => ({ date: item.name, count: item.count, total: item.total })),
+        byMethod: group((row) => String(row.method)).sort((a, b) => b.total - a.total).map((item) => ({ method: item.name, count: item.count, total: item.total })),
+        byClass: group((row) => String(row.class_name ?? "")).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).map((item) => ({ className: item.name, count: item.count, total: item.total })),
+      });
     } catch (error) {
       fail(res, error);
     }

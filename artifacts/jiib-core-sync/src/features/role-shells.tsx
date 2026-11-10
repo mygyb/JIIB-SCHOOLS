@@ -79,8 +79,8 @@ const BURSAR_NAV: Array<{ href: string; label: string; icon: typeof Wallet; soon
   { href: '/finance/fees', label: 'Fee structures', icon: FileBarChart },
   { href: '/finance/accounts', label: 'Student fees', icon: Users },
   { href: '/finance/payments', label: 'Record payment', icon: Banknote },
-  { href: '/finance/defaulters', label: 'Defaulters', icon: AlertTriangle, soon: true },
-  { href: '/finance/reports', label: 'Reports', icon: Receipt, soon: true },
+  { href: '/finance/defaulters', label: 'Defaulters', icon: AlertTriangle },
+  { href: '/finance/reports', label: 'Reports', icon: Receipt },
   { href: '/students', label: 'Students (view)', icon: UsersRound },
 ];
 

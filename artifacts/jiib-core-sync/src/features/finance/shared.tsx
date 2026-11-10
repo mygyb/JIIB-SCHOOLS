@@ -42,6 +42,8 @@ export function FinanceTabs({ location, canEdit }: { location: string; canEdit: 
     { href: '/finance/fees', label: 'Fee structures' },
     { href: '/finance/accounts', label: 'Student fees' },
     ...(canEdit ? [{ href: '/finance/payments', label: 'Record payment' }] : []),
+    { href: '/finance/defaulters', label: 'Defaulters' },
+    { href: '/finance/reports', label: 'Reports' },
   ];
   return <nav aria-label="Finance sections" className="-mx-4 mb-5 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
     {tabs.map((tab) => <Link key={tab.href} href={tab.href} aria-current={location === tab.href ? 'page' : undefined}
