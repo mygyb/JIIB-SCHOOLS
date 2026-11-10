@@ -41,7 +41,10 @@ import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/page
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
 import { BursarShell, HEAD_TABS, HeadTeacherShell } from '@/features/role-shells';
-import { FinanceHome } from '@/features/finance-home';
+import { FinanceHome } from '@/features/finance/finance-home';
+import { FeeStructures } from '@/features/finance/fee-structures';
+import { StudentFees } from '@/features/finance/student-fees';
+import { RecordPayment } from '@/features/finance/record-payment';
 import { clearAccountTheme, getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { combinationsOf, enrolmentLabel, enrolmentSubjects, isALevelClass, isALevelEnabled, STREAM_LABELS, subsidiarySubjectNames, type Enrolment, type Stream } from '@/lib/school-data';
 import { configuredHouses, currentTerm, DEFAULT_ASSESSMENT_FIELDS, finalTotal, getAssessmentFields, markTotal, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from '@/lib/school-data';
@@ -86,8 +89,8 @@ const ADMIN_ONLY_HREFS = [
 ];
 
 // Pages each of the other staff roles may open (the server enforces the same limits).
-const HEAD_HREFS = [...HEAD_TABS.map((tab) => tab.href), '/account-settings'];
-const BURSAR_HREFS = ['/finance', '/students', '/account-settings'];
+const HEAD_HREFS = [...HEAD_TABS.map((tab) => tab.href), '/finance/fees', '/finance/accounts', '/account-settings'];
+const BURSAR_HREFS = ['/finance', '/finance/fees', '/finance/accounts', '/finance/payments', '/students', '/account-settings'];
 
 // Nav items / routes that belong to the teacher workspace only.
 const TEACHER_ONLY_HREFS = ['/marks'];
@@ -271,6 +274,9 @@ function Router() {
         <Route path="/account-settings"><AppShell><OperationsRoute page="accountSettings" /></AppShell></Route>
         <Route path="/settings"><AppShell><OperationsRoute page="schoolSettings" /></AppShell></Route>
         <Route path="/finance"><AppShell><FinanceHome /></AppShell></Route>
+        <Route path="/finance/fees"><AppShell><FeeStructures /></AppShell></Route>
+        <Route path="/finance/accounts"><AppShell><StudentFees /></AppShell></Route>
+        <Route path="/finance/payments"><AppShell><RecordPayment /></AppShell></Route>
         <Route path="/promote"><AppShell><OperationsRoute page="promote" /></AppShell></Route>
         <Route path="/overview"><Redirect to="/promote" /></Route>
         <Route path="/parents-portal"><AppShell><OperationsRoute page="parentsPortal" /></AppShell></Route>

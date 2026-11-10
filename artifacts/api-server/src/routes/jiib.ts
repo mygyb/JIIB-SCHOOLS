@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { registerFinanceRoutes } from "./finance.js";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -1058,6 +1059,9 @@ router.use("/schools/:schoolId", async (req, res, next) => {
     sendError(res, error);
   }
 });
+
+// Finance (Bursar full access, Head teacher read-only; administrators and teachers are refused inside the gate).
+registerFinanceRoutes(router, { readSchoolConfig });
 
 // Teacher logins and marks entries for the school's System settings page (administrators only).
 router.get("/schools/:schoolId/activity", requireSchoolViewer, async (req, res) => {

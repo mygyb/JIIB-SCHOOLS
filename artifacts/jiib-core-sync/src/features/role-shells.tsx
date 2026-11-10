@@ -63,7 +63,7 @@ export function HeadTeacherShell({ schoolName, logoUrl, userName, email, term, d
       <nav aria-label="Departments" className="mx-auto max-w-6xl overflow-x-auto px-4 sm:px-6">
         <ul className="flex min-w-max gap-1 pb-2">
           {HEAD_TABS.map(({ href, label, icon: Icon }) => {
-            const active = location === href;
+            const active = location === href || (href === '/finance' && location.startsWith('/finance/'));
             return <li key={href}><Link href={href} data-testid={`tab-${label.toLowerCase().replaceAll(' ', '-')}`} aria-current={active ? 'page' : undefined} className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><Icon size={15} />{label}</Link></li>;
           })}
         </ul>
@@ -76,9 +76,9 @@ export function HeadTeacherShell({ schoolName, logoUrl, userName, email, term, d
 /* -------------------------------------------------- Bursar ---------------------------------------------------- */
 const BURSAR_NAV: Array<{ href: string; label: string; icon: typeof Wallet; soon?: boolean }> = [
   { href: '/finance', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/finance/fees', label: 'Fee structures', icon: FileBarChart, soon: true },
-  { href: '/finance/accounts', label: 'Student fees', icon: Users, soon: true },
-  { href: '/finance/payments', label: 'Record payment', icon: Banknote, soon: true },
+  { href: '/finance/fees', label: 'Fee structures', icon: FileBarChart },
+  { href: '/finance/accounts', label: 'Student fees', icon: Users },
+  { href: '/finance/payments', label: 'Record payment', icon: Banknote },
   { href: '/finance/defaulters', label: 'Defaulters', icon: AlertTriangle, soon: true },
   { href: '/finance/reports', label: 'Reports', icon: Receipt, soon: true },
   { href: '/students', label: 'Students (view)', icon: UsersRound },
@@ -101,7 +101,7 @@ export function BursarShell({ schoolName, logoUrl, userName, email, term, dark, 
     </aside>
     <div className="flex min-w-0 flex-1 flex-col">
       <header className="sticky top-0 z-30 flex h-[64px] items-center gap-3 border-b border-border bg-card/95 px-4 backdrop-blur-md sm:px-8">
-        <div className="min-w-0 flex-1"><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-muted-foreground lg:hidden">{schoolName} · Bursar</p><h1 className="truncate font-display text-lg font-semibold">{current?.label ?? 'Finance'}</h1></div>
+        <div className="min-w-0 flex-1"><p className="truncate text-[10px] font-semibold uppercase tracking-[.2em] text-muted-foreground lg:hidden">{schoolName} · Bursar</p><h1 className="truncate font-display text-lg font-semibold">{current?.label ?? 'Finance'}</h1></div>
         <span className="hidden rounded border border-border bg-muted px-2.5 py-1 text-[11px] font-semibold ledger-figure sm:inline">UGX</span>
         <span className={`h-2 w-2 rounded-full ${online ? 'bg-[#2f9e6f]' : 'bg-[#e6a23c]'}`} title={online ? 'Online' : 'Offline'} />
         <ThemeButton dark={dark} onToggle={onToggleDark} />
