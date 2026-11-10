@@ -370,3 +370,97 @@
   .footer-main:has(.install-chip--footer) { flex-wrap: wrap; }
   .install-chip--footer { margin-left: 0; }
 }
+
+/* ---- Product showcase (features, screens, report cards, roles) ---- */
+.site-nav { gap: 26px; }
+@media (max-width: 1060px) {
+  .site-header-inner { width: calc(100% - 36px); }
+  .mobile-menu-toggle { display: grid; place-items: center; padding: 8px; }
+  .site-nav { display: none; position: absolute; top: 81px; left: 0; right: 0; padding: 18px 22px 22px; flex-direction: column; align-items: stretch; gap: 0; background: var(--paper); border-bottom: 1px solid var(--line); box-shadow: 0 14px 28px rgba(32, 51, 47, .1); z-index: 20; }
+  .site-nav--open { display: flex; }
+  .site-nav > a:not(.button) { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .nav-actions { display: flex; justify-content: space-between; margin: 15px 0 0; }
+}
+@media (max-width: 700px) { .site-nav { top: 69px; } }
+
+.hero-product { position: relative; min-height: 470px; margin-left: 6px; animation: jiib-rise .78s .1s both; }
+.device-laptop, .showcase-frame { background: #1c2b27; border-radius: 14px; padding: 0 0 7px; box-shadow: 0 24px 60px rgba(32, 51, 47, .22); overflow: hidden; margin: 0; }
+.device-bar { height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 12px; background: #1c2b27; }
+.device-bar i { width: 8px; height: 8px; border-radius: 50%; background: #5d6f69; }
+.device-bar i:first-child { background: #bd684e; } .device-bar i:nth-child(2) { background: #e9b95c; } .device-bar i:nth-child(3) { background: #7a927d; }
+.device-laptop img, .showcase-frame img { display: block; width: 100%; height: auto; background: #f4f6f8; }
+.device-phone { position: absolute; right: -6px; bottom: -22px; width: 29%; min-width: 130px; padding: 6px; border-radius: 22px; background: #1c2b27; box-shadow: 0 18px 44px rgba(32, 51, 47, .3); }
+.device-phone img { display: block; width: 100%; height: auto; border-radius: 17px; }
+.photo-note--product { right: auto; left: -14px; top: auto; bottom: 36px; }
+
+.features-section { padding-top: 110px; padding-bottom: 100px; }
+.feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.feature-card { padding: 26px 26px 24px; border: 1px solid var(--line); background: #fbf9f3; transition: transform .25s ease, box-shadow .25s ease; }
+.feature-card:hover { transform: translateY(-4px); box-shadow: 0 14px 28px rgba(32, 51, 47, .08); }
+.feature-card .item-icon { background: #e5e9df; }
+.feature-card h3 { margin: 0 0 8px; font: 500 20px 'Fraunces', Georgia, serif; letter-spacing: -.02em; }
+.feature-card p { margin: 0; color: #5e6b64; font-size: 13px; line-height: 1.7; }
+
+.showcase-section { background: var(--cream); padding: 96px max(24px, calc((100vw - 1120px) / 2)) 100px; }
+.showcase-head { max-width: 640px; }
+.showcase-head h2, .designs-section .section-heading h2, .roles-section .section-heading h2 { margin: 0; font-family: 'Fraunces', Georgia, serif; font-weight: 500; letter-spacing: -.045em; line-height: 1.05; font-size: clamp(38px, 4.8vw, 58px); }
+.showcase-head > p:last-child { margin: 16px 0 0; color: var(--muted); font-size: 14px; }
+.showcase-tabs { display: flex; gap: 8px; margin: 34px 0 24px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.showcase-tabs button { flex: 0 0 auto; border: 1px solid #cdd3c6; background: transparent; color: var(--forest); border-radius: 999px; padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background .2s ease, color .2s ease; }
+.showcase-tabs button:hover { background: rgba(36, 70, 62, .08); }
+.showcase-tabs button.is-active { background: var(--forest); border-color: var(--forest); color: #fbf8f0; }
+.showcase-stage { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 40px; align-items: center; }
+.showcase-frame img { animation: jiib-rise .4s both; }
+.showcase-caption h3 { margin: 0 0 12px; font: 500 28px/1.15 'Fraunces', Georgia, serif; letter-spacing: -.03em; }
+.showcase-caption > p { margin: 0; color: #55645c; font-size: 14px; line-height: 1.8; }
+.showcase-phones { display: flex; align-items: flex-end; gap: 12px; margin-top: 30px; }
+.showcase-phones img { width: 92px; height: auto; padding: 4px; border-radius: 16px; background: #1c2b27; box-shadow: 0 10px 26px rgba(32, 51, 47, .22); }
+.showcase-phones span { color: var(--forest); font-size: 12px; font-weight: 700; padding-bottom: 6px; }
+
+.designs-section { width: min(1120px, calc(100% - 80px)); margin: 0 auto; padding: 110px 0 96px; }
+.design-row { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+.design-card { width: 100%; padding: 0; border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: zoom-in; text-align: left; overflow: hidden; box-shadow: 0 10px 26px rgba(32, 51, 47, .08); transition: transform .25s ease, box-shadow .25s ease; }
+.design-card:hover { transform: translateY(-6px); box-shadow: 0 18px 38px rgba(32, 51, 47, .16); }
+.design-card img { display: block; width: 100%; height: auto; border-bottom: 1px solid var(--line); }
+.design-card span { display: block; padding: 12px 14px 14px; }
+.design-card strong, .design-card small { display: block; }
+.design-card strong { font-size: 13px; } .design-card small { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.check-list--row { display: flex; flex-wrap: wrap; gap: 14px 30px; margin: 34px 0 0; font-size: 13px; }
+.designs-note { margin: 14px 0 0; color: var(--muted); font-size: 11px; }
+.lightbox { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; background: rgba(16, 28, 24, .86); }
+.lightbox img { max-height: calc(100dvh - 90px); max-width: min(100%, 760px); width: auto; height: auto; border-radius: 4px; background: #fff; box-shadow: 0 24px 80px rgba(0, 0, 0, .5); }
+.lightbox p { margin: 0; color: #e8e2d2; font-size: 12px; }
+.lightbox-close { position: absolute; top: 16px; right: 16px; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .14); color: #fff; cursor: pointer; }
+
+.roles-section { width: min(1120px, calc(100% - 80px)); margin: 0 auto; padding: 20px 0 110px; }
+.roles-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.role-card { position: relative; padding: 26px 20px 24px; border: 1px solid var(--line); background: #edede4; min-height: 210px; }
+.role-card:nth-child(odd) { background: #d8dfd2; border-color: #d8dfd2; }
+.role-card:nth-child(3) { background: var(--forest); border-color: var(--forest); color: var(--paper); }
+.role-card:nth-child(3) .item-number { color: #b5c5b9; } .role-card:nth-child(3) p { color: #d0d9d0; }
+.role-card .item-number { top: 18px; right: 18px; }
+.role-card h3 { margin: 28px 0 8px; font: 500 20px 'Fraunces', Georgia, serif; letter-spacing: -.02em; }
+.role-card p { margin: 0; color: #5e6b64; font-size: 12px; line-height: 1.7; }
+
+@media (max-width: 1000px) {
+  .feature-grid { grid-template-columns: repeat(2, 1fr); }
+  .showcase-stage { grid-template-columns: 1fr; gap: 26px; }
+  .design-row { grid-template-columns: repeat(2, 1fr); }
+  .roles-grid { grid-template-columns: repeat(2, 1fr); }
+  .designs-section, .roles-section { width: calc(100% - 56px); }
+}
+@media (max-width: 900px) { .hero-product { min-height: 0; margin: 0; } .hero { align-items: center; } }
+@media (max-width: 700px) {
+  .hero-product { margin: 6px 10px 26px 0; min-height: 0; }
+  .device-phone { right: -8px; bottom: -24px; width: 31%; min-width: 96px; }
+  .photo-note--product { left: -4px; bottom: -14px; }
+  .features-section { padding-top: 72px; padding-bottom: 64px; }
+  .feature-grid { grid-template-columns: 1fr; }
+  .showcase-section { padding: 64px 20px 70px; }
+  .showcase-caption h3 { font-size: 24px; }
+  .designs-section { width: calc(100% - 40px); padding: 70px 0 60px; }
+  .design-row { gap: 12px; }
+  .roles-section { width: calc(100% - 40px); padding-bottom: 72px; }
+  .roles-grid { grid-template-columns: 1fr; }
+  .role-card { min-height: 0; }
+}
