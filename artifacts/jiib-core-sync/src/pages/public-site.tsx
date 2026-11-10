@@ -1,19 +1,25 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
+  AlertTriangle,
   ArrowDownRight,
   ArrowRight,
+  Award,
+  BarChart3,
   BookOpenCheck,
-  CalendarDays,
+  Building2,
   Check,
   CheckCircle2,
   ChevronDown,
   ClipboardList,
+  FileText,
   GraduationCap,
   Menu,
   MessageCircle,
   ShieldCheck,
+  Smartphone,
   UsersRound,
+  Wallet,
   X,
 } from 'lucide-react';
 import { InstallButton } from '@/components/pwa-ui';
@@ -27,9 +33,6 @@ export type PortalRequestValues = {
   schoolSlug: string;
   requestedRole: 'admin' | 'teacher';
 };
-
-const schoolPhoto =
-  'https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=1800&q=85';
 
 function Brand({ light = false }: { light?: boolean }) {
   return (
@@ -58,8 +61,10 @@ function SiteHeader() {
           data-testid="button-menu-toggle"
         >{menuOpen ? <X size={21} /> : <Menu size={21} />}</button>
         <nav className={`site-nav${menuOpen ? ' site-nav--open' : ''}`} aria-label="Main navigation">
-          <a href={sectionHref('how-it-works')} onClick={() => setMenuOpen(false)}>How it works</a>
-          <a href={sectionHref('school-day')} onClick={() => setMenuOpen(false)}>For your school</a>
+          <a href={sectionHref('features')} onClick={() => setMenuOpen(false)}>Features</a>
+          <a href={sectionHref('screens')} onClick={() => setMenuOpen(false)}>Screens</a>
+          <a href={sectionHref('report-cards')} onClick={() => setMenuOpen(false)}>Report cards</a>
+          <a href={sectionHref('roles')} onClick={() => setMenuOpen(false)}>Roles</a>
           <a href={sectionHref('questions')} onClick={() => setMenuOpen(false)}>Questions</a>
           <span className="nav-actions">
             <Link href="/login" className="nav-login" data-testid="link-login">Log in</Link>
@@ -77,10 +82,12 @@ function Footer() {
     <footer className="site-footer">
       <div className="footer-main">
         <Link href="/" className="brand-link" aria-label="J-SCHOOLS home" data-testid="link-footer-brand"><Brand light /></Link>
-        <p>More time for the work that matters at school.</p>
+        <p>School management system for Uganda: students, marks, report cards, A-Level, fees and parents.</p>
         <InstallButton className="install-chip--footer" testId="button-install-bottom" />
         <div className="footer-links">
-          <a href="#how-it-works">How it works</a>
+          <a href="#features">Features</a>
+          <a href="#report-cards">Report cards</a>
+          <a href="#questions">Questions</a>
           <Link href="/login" data-testid="link-footer-login">Log in</Link>
           <Link href="/signup" data-testid="link-footer-signup">Sign up</Link>
         </div>
@@ -94,9 +101,53 @@ function SectionEyebrow({ children }: { children: string }) {
   return <p className="section-eyebrow"><span />{children}</p>;
 }
 
+const SHOWCASE = [
+  { id: 'marks', tab: 'Marks register', title: 'Enter marks once, totals work themselves out', text: 'Teachers type AOI, midterm and end-of-term marks by class and subject. Totals, grades and progress update as they go, and the assessment columns are set by your school.', src: '/showcase/marks-register.webp', alt: 'J-SCHOOLS marks register showing a class list with AOI, midterm and end of term marks and totals' },
+  { id: 'reports', tab: 'Report studio', title: 'Pick a design, preview, print the whole class', text: 'Choose one of four report card designs, preview any learner, then print or save PDFs for one student, a class or the whole school.', src: '/showcase/report-studio.webp', alt: 'J-SCHOOLS report studio with template choices and a live end of term report card preview' },
+  { id: 'fees', tab: 'Fees dashboard', title: 'See the money at a glance, in UGX', text: 'The bursar sees what is expected, collected and still owed, split by Day and Boarding and by class, with the latest receipts alongside.', src: '/showcase/bursar-dashboard.webp', alt: 'J-SCHOOLS bursar fees dashboard with expected, collected, outstanding and defaulters in Uganda shillings' },
+  { id: 'structures', tab: 'Fee structures', title: 'Fees set per class, for Day and Boarding', text: 'Each class has its own fee items for day scholars and boarders. Copy a term forward, and give any student their own fees when they need them.', src: '/showcase/fee-structures.webp', alt: 'J-SCHOOLS fee structures per class for day and boarding students' },
+  { id: 'defaulters', tab: 'Defaulters', title: 'Know who owes, and follow up', text: 'Filter by class, Day or Boarding and amount owed. Include unpaid fees from earlier terms, print or download the list, and send a ready-made reminder to the parent.', src: '/showcase/defaulters.webp', alt: 'J-SCHOOLS defaulters list with filters, earlier term balances and reminder buttons' },
+  { id: 'head', tab: 'Head teacher view', title: 'The head teacher sees everything, changes nothing', text: 'A calm, view-only workspace across every department, with the finance summary, totals and defaulter counts a head teacher needs.', src: '/showcase/head-teacher.webp', alt: 'J-SCHOOLS head teacher view-only finance summary' },
+];
+
+const FEATURES = [
+  { icon: UsersRound, title: 'Students & classes', text: 'Enrol learners, organise them by class and house, and keep every record in one place from Nursery to A-Level.' },
+  { icon: ClipboardList, title: 'Marks register', text: 'Enter AOI, midterm and end-of-term marks by class and subject. Totals add up for you, and teachers see only their own classes.' },
+  { icon: FileText, title: 'Report cards', text: 'Print end-of-term report cards in four designs, plus midterm slips, with grades, descriptors, rank, comments and a QR code.' },
+  { icon: Award, title: 'A-Level', text: 'Subject combinations, per-paper marks, points and results, with A-Level report cards for your Senior 5 and Senior 6 learners.' },
+  { icon: BarChart3, title: 'Grading & performance', text: 'Set your own grading scale, follow class and subject performance, and print marksheets for any class.' },
+  { icon: Wallet, title: 'Fees & receipts in UGX', text: 'Fee structures per class for Day and Boarding, custom fees for individual students, numbered receipts and optional Transaction IDs.' },
+  { icon: AlertTriangle, title: 'Defaulters & reports', text: 'See who owes this term or from earlier terms, filter, print or download, and review collections term by term.' },
+  { icon: GraduationCap, title: 'End-of-year promotion', text: 'Promote whole classes in one guided step, choose optional subjects, and undo within a month if something was wrong.' },
+  { icon: Building2, title: 'Houses & terms', text: 'Manage houses, academic terms and publish deadlines without spreadsheets.' },
+  { icon: MessageCircle, title: 'Parents portal', text: 'Parents sign in with phone verification to see their children’s results and talk with the school.' },
+  { icon: ShieldCheck, title: 'Roles & access', text: 'Administrator, teacher, head teacher, bursar and parent each get the screens and permissions they need, and nothing more.' },
+  { icon: Smartphone, title: 'Works on every phone', text: 'Use it in the browser or install it as an app on Android. Built to stay quick on ordinary mobile connections.' },
+];
+
+const ROLES = [
+  { name: 'School administrator', text: 'Runs the school: students, subjects, terms, staff accounts, settings and promotion.' },
+  { name: 'Teacher', text: 'Enters marks for their own classes and subjects, and sees only what they need.' },
+  { name: 'Head teacher', text: 'A view-only window across every department, including the finance summary.' },
+  { name: 'Bursar', text: 'A focused accounts workspace: fee structures, payments, receipts, defaulters and reports.' },
+  { name: 'Parent', text: 'Signs in with a verified phone number to follow their child’s results.' },
+];
+
+const DESIGNS = [
+  { id: 'classic', name: 'Classic Navy', note: 'Traditional navy and red', src: '/showcase/report-classic.webp' },
+  { id: 'elegant', name: 'Elegant Ledger', note: 'Ivory, burgundy and gold', src: '/showcase/report-elegant.webp' },
+  { id: 'modern', name: 'Modern Minimal', note: 'Clean indigo and teal', src: '/showcase/report-modern.webp' },
+  { id: 'bold', name: 'Bold Contemporary', note: 'Charcoal and electric blue', src: '/showcase/report-bold.webp' },
+];
+
 export function LandingPage() {
+  const [shot, setShot] = useState(SHOWCASE[0].id);
+  const [zoom, setZoom] = useState<string | null>(null);
+  const active = SHOWCASE.find((item) => item.id === shot) ?? SHOWCASE[0];
+  const zoomed = DESIGNS.find((item) => item.id === zoom) ?? null;
+
   useEffect(() => {
-    document.title = 'J-SCHOOLS | A school day in sync';
+    document.title = 'J-SCHOOLS | School Management System for Uganda';
 
     const sections = document.querySelectorAll<HTMLElement>('[data-reveal]');
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) {
@@ -117,66 +168,112 @@ export function LandingPage() {
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    if (!zoom) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setZoom(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoom]);
+
   return (
     <main className="jiib-public">
       <SiteHeader />
       <section className="hero">
         <div className="hero-copy">
-          <SectionEyebrow>One shared school workspace</SectionEyebrow>
-          <h1>Good school days<br />start <em>in sync.</em></h1>
-          <p className="hero-intro">From Nursery to A-Level, bring the people, information and everyday decisions of your school into one clear place.</p>
+          <SectionEyebrow>School management system for Uganda</SectionEyebrow>
+          <h1>One system for your <em>whole school.</em></h1>
+          <p className="hero-intro">J-SCHOOLS brings students, marks, report cards, A-Level, fees in UGX and parents into one clear place, from Nursery to Senior 6.</p>
           <div className="hero-actions">
             <Link href="/signup" className="button" data-testid="link-hero-signup">Sign up for portal access <ArrowRight size={17} /></Link>
             <Link href="/login" className="text-link" data-testid="link-hero-login">Already have an account? Log in</Link>
           </div>
           <div className="hero-note"><span className="hero-note-icon"><ShieldCheck size={17} /></span><span>School access is approved by your system administrator.</span></div>
         </div>
-        <div className="hero-visual">
-          <img src={schoolPhoto} alt="Students learning together in a bright classroom" />
-          <div className="hero-image-shade" />
-          <div className="hero-photo-caption"><span className="caption-dot" /> Made for the rhythm of a real school day</div>
-          <div className="photo-note">
-            <span className="photo-note-icon"><MessageCircle size={18} /></span>
-            <span><strong>Everyone in the loop</strong><small>School and family, kept connected</small></span>
+        <div className="hero-product" aria-label="J-SCHOOLS on a laptop and a phone">
+          <div className="device-laptop">
+            <div className="device-bar" aria-hidden="true"><i /><i /><i /></div>
+            <img src="/showcase/marks-register.webp" width={1400} height={827} alt="J-SCHOOLS marks register on a laptop, with sample learners and their marks" />
           </div>
-          <span className="hero-image-index">01 / 04</span>
+          <div className="device-phone">
+            <img src="/showcase/phone-defaulters.webp" width={520} height={1125} alt="J-SCHOOLS defaulters list on a phone" />
+          </div>
+          <div className="photo-note photo-note--product"><span className="photo-note-icon"><FileText size={18} /></span><span><strong>Report cards in a click</strong><small>Four designs, print a whole class</small></span></div>
         </div>
-        <div className="hero-bottomline"><span>ENROLMENT · MARKS · TERMS · FAMILIES</span><a href="#how-it-works">Explore the workspace <ArrowDownRight size={16} /></a></div>
+        <div className="hero-bottomline"><span>STUDENTS · MARKS · REPORT CARDS · A-LEVEL · FEES · PARENTS</span><a href="#features">Explore the system <ArrowDownRight size={16} /></a></div>
       </section>
 
       <section className="intro-strip" aria-label="Platform overview">
         <p>One school. Many moving parts.</p>
-        <div><span><UsersRound size={17} /> People</span><b>+</b><span><BookOpenCheck size={17} /> Learning</span><b>+</b><span><MessageCircle size={17} /> Families</span><b>=</b><strong>One shared picture</strong></div>
+        <div><span><UsersRound size={17} /> People</span><b>+</b><span><BookOpenCheck size={17} /> Learning</span><b>+</b><span><Wallet size={17} /> Fees</span><b>+</b><span><MessageCircle size={17} /> Families</span><b>=</b><strong>One shared picture</strong></div>
       </section>
 
-      <section className="section workspace-section" id="how-it-works" data-reveal>
+      <section className="section features-section" id="features" data-reveal>
         <div className="section-heading">
-          <SectionEyebrow>Everything has its place</SectionEyebrow>
-          <h2>Less chasing.<br /><em>More teaching.</em></h2>
-          <p>School information is most useful when it is where the team expects it. J-SCHOOLS gives staff a steady, shared view of the work across the term.</p>
+          <SectionEyebrow>Everything your school runs on</SectionEyebrow>
+          <h2>All the work,<br /><em>in one place.</em></h2>
+          <p>From the first enrolment to the last report card, and from fee structures to defaulters, J-SCHOOLS covers the daily work of a Ugandan secondary school.</p>
         </div>
-        <div className="workspace-grid">
-          <article className="workspace-item workspace-item--wide" data-reveal>
-            <span className="item-number">01</span><span className="item-icon"><UsersRound size={21} /></span>
-            <h3>Know your learners</h3><p>Keep enrolment details and student records together, organised by class and house.</p>
-            <span className="item-foot">STUDENT RECORDS <ArrowRight size={14} /></span>
-          </article>
-          <article className="workspace-item workspace-item--accent" data-reveal>
-            <span className="item-number">02</span><span className="item-icon"><ClipboardList size={21} /></span>
-            <h3>Bring marks into view</h3><p>Give teachers a practical place to enter assessments and help leaders follow progress.</p>
-            <span className="item-foot">MARKS & PROGRESS <ArrowRight size={14} /></span>
-          </article>
-          <article className="workspace-item workspace-item--dark" data-reveal>
-            <span className="item-number">03</span><span className="item-icon"><CalendarDays size={21} /></span>
-            <h3>Keep the term moving</h3><p>Coordinate academic terms, important dates and the routines that keep school life on track.</p>
-            <span className="item-foot">TERMS & OPERATIONS <ArrowRight size={14} /></span>
-          </article>
-          <article className="workspace-item workspace-item--wide workspace-item--soft" data-reveal>
-            <span className="item-number">04</span><span className="item-icon"><MessageCircle size={21} /></span>
-            <h3>Make family communication feel closer</h3><p>Share school updates and support more consistent conversations between school teams and families.</p>
-            <span className="item-foot">FAMILY CONNECTIONS <ArrowRight size={14} /></span>
-          </article>
+        <div className="feature-grid">
+          {FEATURES.map(({ icon: Icon, title, text }) => (
+            <article className="feature-card" key={title}>
+              <span className="item-icon"><Icon size={21} /></span>
+              <h3>{title}</h3>
+              <p>{text}</p>
+            </article>
+          ))}
         </div>
+      </section>
+
+      <section className="showcase-section" id="screens" data-reveal>
+        <div className="showcase-head">
+          <SectionEyebrow>See it in action</SectionEyebrow>
+          <h2>This is what your team <em>will use.</em></h2>
+          <p>Real screens from J-SCHOOLS, shown with sample school data.</p>
+        </div>
+        <div className="showcase-tabs" role="tablist" aria-label="Screens">
+          {SHOWCASE.map((item) => (
+            <button key={item.id} type="button" role="tab" aria-selected={shot === item.id} className={shot === item.id ? 'is-active' : ''} onClick={() => setShot(item.id)} data-testid={`tab-shot-${item.id}`}>{item.tab}</button>
+          ))}
+        </div>
+        <div className="showcase-stage">
+          <figure className="showcase-frame">
+            <div className="device-bar" aria-hidden="true"><i /><i /><i /></div>
+            <img key={active.id} src={active.src} alt={active.alt} loading="lazy" />
+          </figure>
+          <div className="showcase-caption">
+            <h3 data-testid="text-shot-title">{active.title}</h3>
+            <p>{active.text}</p>
+            <div className="showcase-phones">
+              <img src="/showcase/phone-fees.webp" width={520} height={1125} alt="J-SCHOOLS student fees on a phone, with tick boxes to mark students as Day or Boarding" loading="lazy" />
+              <img src="/showcase/phone-defaulters.webp" width={520} height={1125} alt="J-SCHOOLS defaulters on a phone" loading="lazy" />
+              <span>Made to work on phones too</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="designs-section" id="report-cards" data-reveal>
+        <div className="section-heading">
+          <SectionEyebrow>Report cards</SectionEyebrow>
+          <h2>Report cards your school<br /><em>will be proud of.</em></h2>
+          <p>Choose from four professional designs. Your school name, logo, motto and stamp go on every card, and the grading follows your own scale. Tap a card to look closer.</p>
+        </div>
+        <ul className="design-row">
+          {DESIGNS.map((design) => (
+            <li key={design.id}>
+              <button type="button" className="design-card" onClick={() => setZoom(design.id)} data-testid={`button-design-${design.id}`} aria-label={`View the ${design.name} report card larger`}>
+                <img src={design.src} width={900} height={1272} alt={`${design.name} end of term report card with a sample learner`} loading="lazy" />
+                <span><strong>{design.name}</strong><small>{design.note}</small></span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <ul className="check-list check-list--row">
+          <li><Check size={17} /> End-of-term report cards and midterm slips</li>
+          <li><Check size={17} /> Class position, grades, descriptors and teacher comments</li>
+          <li><Check size={17} /> QR code, printable A4, PDF for one learner or a whole class</li>
+        </ul>
+        <p className="designs-note">Sample cards use made-up school and learner details.</p>
       </section>
 
       <section className="story-section" id="school-day" data-reveal>
@@ -187,14 +284,27 @@ export function LandingPage() {
         <div className="story-copy">
           <SectionEyebrow>One day, one shared record</SectionEyebrow>
           <h2>From the first bell to the last update.</h2>
-          <p className="story-lead">A teacher records marks. An administrator checks how the term is shaping up. A family gets a school message. The work connects—without every detail living in a different place.</p>
+          <p className="story-lead">A teacher records marks. The bursar records a payment. The head teacher checks how the term is shaping up. A parent follows their child’s results. The work connects, without every detail living in a different place.</p>
           <ul className="check-list">
             <li><Check size={17} /> Staff have a clearer view of what needs attention.</li>
             <li><Check size={17} /> Student information stays organised across school levels.</li>
-            <li><Check size={17} /> Families can stay informed through school communication.</li>
+            <li><Check size={17} /> Money, marks and records are kept safely together.</li>
           </ul>
           <Link href="/signup" className="text-link text-link--arrow" data-testid="link-story-signup">See how your school can get started <ArrowRight size={16} /></Link>
         </div>
+      </section>
+
+      <section className="roles-section" id="roles" data-reveal>
+        <div className="section-heading">
+          <SectionEyebrow>The right view for everyone</SectionEyebrow>
+          <h2>Everyone gets<br /><em>their own workspace.</em></h2>
+          <p>Each person sees the screens that match their job. An administrator cannot open the bursar’s accounts, and a head teacher can look at everything without changing a thing.</p>
+        </div>
+        <ul className="roles-grid">
+          {ROLES.map((role, index) => (
+            <li key={role.name} className="role-card"><span className="item-number">0{index + 1}</span><h3>{role.name}</h3><p>{role.text}</p></li>
+          ))}
+        </ul>
       </section>
 
       <section className="stages-section" data-reveal>
@@ -222,7 +332,7 @@ export function LandingPage() {
         <div className="access-text">
           <SectionEyebrow>Carefully managed access</SectionEyebrow>
           <h2>Your school workspace,<br /><em>with the right people.</em></h2>
-          <p>Staff request an account for their school. A system administrator reviews each request before access is approved—so a request is never an automatic login.</p>
+          <p>Staff request an account for their school. A system administrator reviews each request before access is approved, so a request is never an automatic login.</p>
           <Link href="/signup" className="button button--light" data-testid="link-access-signup">Request staff access <ArrowRight size={17} /></Link>
         </div>
         <div className="access-steps">
@@ -235,10 +345,14 @@ export function LandingPage() {
       <section className="faq-section" id="questions" data-reveal>
         <div className="faq-heading"><SectionEyebrow>A few useful answers</SectionEyebrow><h2>Before you<br /><em>step inside.</em></h2><p>Not sure where to begin? Here are the essentials.</p></div>
         <div className="faq-list">
-          <details><summary>Who can request a staff account?<ChevronDown size={18} /></summary><p>Teachers and school administrators can request access using their school portal name. A system administrator must approve the request before the account can be used.</p></details>
+          <details><summary>What is J-SCHOOLS?<ChevronDown size={18} /></summary><p>J-SCHOOLS is a school management system built for secondary schools in Uganda. It covers student records, marks, report cards, A-Level, fees and receipts in Uganda shillings, defaulters, end-of-year promotion and a parents portal.</p></details>
+          <details><summary>Can it print report cards?<ChevronDown size={18} /></summary><p>Yes. Choose from four report card designs, preview any learner, then print or save a PDF for one student, a class or the whole school. Midterm slips are included.</p></details>
+          <details><summary>Does it handle school fees?<ChevronDown size={18} /></summary><p>Yes. The bursar sets fee structures per class for Day and Boarding students, gives individual students custom fees when needed, records payments with numbered receipts and an optional Transaction ID, and follows up defaulters from this term or earlier terms. Everything is in UGX.</p></details>
+          <details><summary>Does it support A-Level?<ChevronDown size={18} /></summary><p>Yes. A-Level has subject combinations, per-paper marks, points and results, and report cards.</p></details>
+          <details><summary>Who can request a staff account?<ChevronDown size={18} /></summary><p>Teachers and school administrators can request access using their school portal name. A system administrator must approve the request before the account can be used. Head teacher and bursar accounts are created by the school administrator.</p></details>
           <details><summary>How do I find my school portal name?<ChevronDown size={18} /></summary><p>Ask your school administrator for the portal name, also called the school slug. It identifies the correct school workspace.</p></details>
           <details><summary>Can parents sign up here?<ChevronDown size={18} /></summary><p>This request form is for school staff only. The parent portal uses phone verification provided by the school.</p></details>
-          <details><summary>What does J-SCHOOLS help a school coordinate?<ChevronDown size={18} /></summary><p>Student enrolment, marks, family communication, academic terms and school operations—all in one shared workspace.</p></details>
+          <details><summary>Does it work on a phone?<ChevronDown size={18} /></summary><p>Yes. J-SCHOOLS works in any modern phone browser and can be installed as an app on Android.</p></details>
         </div>
       </section>
 
@@ -250,6 +364,14 @@ export function LandingPage() {
         <p className="final-login">Already on J-SCHOOLS? <Link href="/login" data-testid="link-final-login">Log in here</Link></p>
       </section>
       <Footer />
+
+      {zoomed && (
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label={`${zoomed.name} report card`} onMouseDown={(event) => { if (event.target === event.currentTarget) setZoom(null); }} data-testid="lightbox">
+          <button type="button" className="lightbox-close" aria-label="Close" onClick={() => setZoom(null)}><X size={22} /></button>
+          <img src={zoomed.src} alt={`${zoomed.name} end of term report card with a sample learner`} />
+          <p>{zoomed.name} · sample learner</p>
+        </div>
+      )}
     </main>
   );
 }
