@@ -33,6 +33,7 @@ import { OptionalSubjectsCard } from '@/features/optional-subjects-card';
 import { HousesCard } from '@/features/houses-card';
 import { TeacherNotifications, describePush, pushStatusKey, sendDeadlineNotice } from '@/features/push-admin';
 import { SchoolBadgeField } from '@/features/school-badge';
+import { PerformanceView } from '@/features/performance/performance-page';
 import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
 import { ALevelSetup } from '@/features/alevel-setup';
@@ -607,52 +608,13 @@ function ParentMessages({ school }: { school: School }) {
 function Performance({ school }: { school: School }) {
   const config = useConfig(school.id);
   const students = useListStudents(school.id, {});
-  const termKey = currentTerm(config.data as SchoolConfig);
+  const activeTerm = currentTerm(config.data as SchoolConfig);
+  const [chosenTerm, setChosenTerm] = useState('');
+  const termKey = chosenTerm || activeTerm;
   const marks = useListMarks(school.id, { termKey });
-  const configData = config.data as SchoolConfig;
-  const fields = getAssessmentFields(configData);
-  const maxTotal = Math.max(1, fields.reduce((total, field) => total + field.max, 0));
-  const [className, setClassName] = useState('');
-  const classOptions = Array.from(new Set((students.data ?? []).map((student) => student.className))).filter(Boolean).sort();
-  const classStudents = (students.data ?? []).filter((student) => !className || student.className === className);
-  const rows = useMemo(() => classStudents.map((student) => {
-    const items = (marks.data ?? []).filter((mark) => mark.studentId === student.id);
-    const average = items.length
-      ? Math.round(items.reduce((sum, mark) => sum + markTotal(mark, fields), 0) / items.length / maxTotal * 100)
-      : 0;
-    return { id: student.id, name: student.name, className: student.className, average, subjects: items.length };
-  }).filter((row) => row.subjects > 0).sort((a, b) => b.average - a.average), [classStudents, marks.data, maxTotal, fields]);
-  const subjectRows = useMemo(() => {
-    const names = className ? [className] : classOptions;
-    return names.flatMap((name) => {
-      const classIds = new Set((students.data ?? []).filter((student) => student.className === name).map((student) => student.id));
-      const bySubject = new Map<string, { total: number; count: number }>();
-      for (const mark of marks.data ?? []) {
-        if (!classIds.has(mark.studentId)) continue;
-        const current = bySubject.get(mark.subject) ?? { total: 0, count: 0 };
-        current.total += markTotal(mark, fields);
-        current.count += 1;
-        bySubject.set(mark.subject, current);
-      }
-      return Array.from(bySubject, ([subject, value]) => ({
-        className: name,
-        subject,
-        average: Math.round(value.total / Math.max(1, value.count) / maxTotal * 100),
-      }));
-    }).sort((a, b) => b.average - a.average);
-  }, [className, classOptions.join('|'), students.data, marks.data, maxTotal, fields]);
-  const highPerformers = rows.filter((row) => row.average >= 80).length;
-  const supportNeeded = rows.filter((row) => row.average < 50).length;
-  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Performance" body={`Review ${termKey} results, compare class averages, and identify students and subjects needing support.`} />
-    <div className="mb-5 flex flex-col gap-3 sm:flex-row"><label className="flex-1"><span className="mb-1.5 block text-xs font-semibold text-muted-foreground">Class</span><select data-testid="select-performance-class" value={className} onChange={(event) => setClassName(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-card px-3 text-sm"><option value="">All classes</option>{classOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><button data-testid="button-export-performance" onClick={() => window.print()} className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-lg border border-border bg-card px-4 text-sm font-semibold hover:bg-muted print:hidden"><Download size={15} /> Export PDF</button></div>
-    <LoadingOrError loading={students.isLoading || marks.isLoading} error={students.isError || marks.isError} retry={() => { void students.refetch(); void marks.refetch(); }} />
-    <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[{ label: 'Class average', value: rows.length ? `${Math.round(rows.reduce((sum, row) => sum + row.average, 0) / rows.length)}%` : '—' }, { label: 'Students with marks', value: rows.length }, { label: 'Giants · 80%+', value: highPerformers }, { label: 'Dwarfs · below 50%', value: supportNeeded }].map((item) => <div key={item.label} className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{item.label}</p><p className="mt-2 font-display text-2xl font-semibold">{item.value}</p></div>)}</div>
-    <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-      <ShellCard><div className="flex items-center justify-between"><div><h3 className="font-display text-lg font-semibold">Student averages</h3><p className="mt-1 text-sm text-muted-foreground">{className || 'All classes'} · {rows.length} students</p></div><Archive size={18} className="text-primary" /></div>{rows.length ? <div className="mt-6 h-80"><Bar data={{ labels: rows.slice(0, 15).map((row) => row.name.toUpperCase()), datasets: [{ label: 'Average', data: rows.slice(0, 15).map((row) => row.average), backgroundColor: '#284e80', borderRadius: 7 }] }} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: (value) => `${value}%` } } } }} /></div> : <p className="mt-6 text-sm text-muted-foreground">Enter marks to see performance analytics.</p>}</ShellCard>
-      <ShellCard><h3 className="font-display text-lg font-semibold">Best subjects</h3><p className="mt-1 text-sm text-muted-foreground">Average score by subject.</p>{subjectRows.length ? <div className="mt-4 space-y-3">{subjectRows.slice(0, 8).map((item) => <div key={`${item.className}-${item.subject}`}><div className="flex justify-between gap-2 text-sm"><span>{item.subject}{!className && <span className="text-muted-foreground"> · {item.className}</span>}</span><span className="font-semibold">{item.average}%</span></div><div className="mt-1.5 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-[#2e8c72]" style={{ width: `${item.average}%` }} /></div></div>)}</div> : <p className="mt-4 text-sm text-muted-foreground">No subject results yet.</p>}</ShellCard>
-    </div>
-    <ShellCard className="mt-5"><h3 className="font-display text-lg font-semibold">Students needing support</h3><p className="mt-1 text-sm text-muted-foreground">Students with an average below 50% for the selected term.</p>{rows.filter((row) => row.average < 50).length ? <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{rows.filter((row) => row.average < 50).map((row) => <div key={row.id} className="rounded-xl border border-border p-3"><p className="text-sm font-semibold uppercase">{row.name}</p><p className="mt-1 text-xs text-muted-foreground">{row.className} · {row.average}%</p></div>)}</div> : <p className="mt-4 text-sm text-muted-foreground">No students currently fall below 50%.</p>}</ShellCard>
-  </div>;
+  return <PerformanceView school={school} config={config.data as SchoolConfig} students={students.data ?? []} marks={marks.data ?? []}
+    loading={config.isLoading || students.isLoading || marks.isLoading} error={config.isError || students.isError || marks.isError}
+    retry={() => { void config.refetch(); void students.refetch(); void marks.refetch(); }} termKey={termKey} onTermChange={(key) => setChosenTerm(key === activeTerm ? '' : key)} />;
 }
 
 function PrintMarksheets({ school, report = false }: { school: School; report?: boolean }) {
