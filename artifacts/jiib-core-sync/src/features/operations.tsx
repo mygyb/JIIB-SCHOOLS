@@ -32,6 +32,7 @@ import { PromotionWizard } from '@/features/promotion-wizard';
 import { OptionalSubjectsCard } from '@/features/optional-subjects-card';
 import { HousesCard } from '@/features/houses-card';
 import { TeacherNotifications, describePush, pushStatusKey, sendDeadlineNotice } from '@/features/push-admin';
+import { SchoolBadgeField } from '@/features/school-badge';
 import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
 import { ALevelSetup } from '@/features/alevel-setup';
@@ -1106,6 +1107,7 @@ function SchoolSettings({ school }: { school: School }) {
     <SectionHeading eyebrow="Settings" title="School settings" body="Manage the school's identity and the assessment structure shared by its staff." />
     <div className="grid gap-5">
       <ShellCard className="max-w-2xl">
+        <SchoolBadgeField school={school} />
         <div className="grid gap-4 sm:grid-cols-2">
           <label><span className="mb-2 block text-xs font-semibold text-muted-foreground">School name</span><input value={school.name} readOnly className="h-11 w-full rounded-lg border border-input bg-muted px-3 text-sm" /></label>
           <label><span className="mb-2 block text-xs font-semibold text-muted-foreground">Workspace slug</span><input value={school.slug} readOnly className="h-11 w-full rounded-lg border border-input bg-muted px-3 text-sm" /></label>

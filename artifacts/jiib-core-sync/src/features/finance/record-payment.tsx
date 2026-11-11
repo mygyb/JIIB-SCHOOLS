@@ -57,7 +57,7 @@ export function RecordPayment() {
   };
 
   const over = student && parsed !== null && student.expected > 0 && parsed > Math.max(0, student.balance);
-  const print = (payment: Payment, balance?: number, expected?: number) => { if (!printReceipt(payment, { schoolName: fin.schoolName, termLabel: fin.termLabel, balance, expected })) window.alert('Allow pop-ups for this site to print receipts.'); };
+  const print = (payment: Payment, balance?: number, expected?: number) => { if (!printReceipt(payment, { schoolName: fin.schoolName, logoUrl: fin.logoUrl, termLabel: fin.termLabel, balance, expected })) window.alert('Allow pop-ups for this site to print receipts.'); };
 
   return <div data-testid="record-payment" className="fade-up">
     <PageHeader fin={fin} eyebrow="Fees" title="Record payment" intro="Every payment gets a numbered receipt. A Transaction ID is optional." />
