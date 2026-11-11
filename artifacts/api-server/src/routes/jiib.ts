@@ -1039,7 +1039,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
       const sub = req.path.replace(/\/+$/, "");
       // Head teachers can look at every department but change nothing. Bursars only reach the Finance workspace
       // (plus the read-only lists it needs). Neither may use the teacher-or-admin write routes below.
-      const ownPushDevice = /^\/push\/(un)?subscribe$/.test(sub); // any staff member may turn notifications on or off for their own phone
+      const ownPushDevice = /^\/push\/((un)?subscribe|notices)$/.test(sub); // any staff member may turn notifications on or off for their own phone
       if (res.locals.jiibRole === "headteacher" && req.method !== "GET" && !ownPushDevice) {
         res.status(403).json({ error: "Head teacher accounts can view school records but not change them." });
         return;

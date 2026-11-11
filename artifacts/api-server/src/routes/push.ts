@@ -266,6 +266,25 @@ export function registerPushRoutes(router: IRouter, deps: PushDeps, sendError: (
     } catch (error) { sendError(res, error); }
   });
 
+  // The in-app copy of recent messages. Anyone who has not allowed phone notifications still sees them as soon as they open the app.
+  router.get("/schools/:schoolId/push/notices", async (req, res) => {
+    try {
+      const role = String(res.locals.jiibRole ?? "");
+      if (role === "admin" || role === "super_admin") { res.json({ notices: [] }); return; } // administrators see their own history on the Publish page
+      const audiences = role === "teacher" ? "teachers,staff" : "staff";
+      const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
+      const rows = asRows(await db(`/rest/v1/jsa_push_log?school_id=eq.${enc(String(req.params.schoolId))}&kind=in.(message,deadline,reminder)&audience=in.(${audiences})&created_at=gte.${enc(since)}&select=id,kind,title,body,created_at&order=created_at.desc&limit=12`));
+      let sawReminder = false;
+      const notices = rows.filter((row) => {
+        if (String(row.kind) !== "reminder") return true;
+        if (sawReminder) return false; // daily reminders repeat: only the latest one is useful
+        sawReminder = true;
+        return true;
+      }).slice(0, 8).map((row) => ({ id: String(row.id), kind: String(row.kind), title: String(row.title), body: String(row.body), createdAt: String(row.created_at) }));
+      res.json({ notices });
+    } catch (error) { sendError(res, error); }
+  });
+
   router.get("/schools/:schoolId/push/status", deps.requireSchoolAdmin, async (req, res) => {
     try {
       const schoolId = String(req.params.schoolId);
