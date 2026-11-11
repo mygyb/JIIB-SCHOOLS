@@ -40,6 +40,7 @@ import { enableNotifications, isStandalone, notificationPermission, notification
 import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
+import { SCHOOL_BADGE_EVENT, refreshActiveSchoolBadge } from '@/lib/school-badge';
 import { BursarShell, HEAD_TABS, HeadTeacherShell } from '@/features/role-shells';
 import { FinanceHome } from '@/features/finance/finance-home';
 import { FeeStructures } from '@/features/finance/fee-structures';
@@ -139,9 +140,18 @@ async function submitPortalRequest(values: PortalRequestValues) {
 }
 
 function useActiveSchool() {
-  const [school] = useState<School>(() => {
+  const [school, setSchool] = useState<School>(() => {
     try { return JSON.parse(localStorage.getItem('jiib.school') || 'null') || DEFAULT_SCHOOL; } catch { return DEFAULT_SCHOOL; }
   });
+  useEffect(() => {
+    const onBadge = (event: Event) => {
+      const logoUrl = (event as CustomEvent<{ logoUrl: string | null }>).detail?.logoUrl ?? null;
+      setSchool((current) => ({ ...current, logoUrl }));
+    };
+    window.addEventListener(SCHOOL_BADGE_EVENT, onBadge);
+    refreshActiveSchoolBadge();
+    return () => window.removeEventListener(SCHOOL_BADGE_EVENT, onBadge);
+  }, []);
   return school;
 }
 
@@ -679,7 +689,7 @@ function AppShell({ children }: { children: ReactNode }) {
       {open && <button aria-label="Close navigation" data-testid="button-close-mobile-nav" className="fixed inset-0 z-30 bg-[#172b43]/40 lg:hidden" onClick={() => setOpen(false)} />}
       <aside className={`${open ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-[76px]' : 'lg:w-[248px]'} fixed inset-y-0 left-0 z-40 flex w-[280px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-200 lg:relative lg:translate-x-0`}>
         <div className="flex h-[78px] items-center justify-between border-b border-sidebar-border px-5">
-          <Link href={isParent ? '/parent' : isSuperAdmin ? '/super-admin' : '/dashboard'} data-testid="link-brand" className={`flex items-center gap-3 ${collapsed ? 'lg:mx-auto' : ''}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"><GraduationCap size={21} /></span>{!collapsed && <span><span className="block font-display text-lg font-semibold tracking-tight">J-SCHOOLS</span><span className="block text-[9px] uppercase tracking-[.22em] text-sidebar-foreground/60">School system</span></span>}</Link>
+          <Link href={isParent ? '/parent' : isSuperAdmin ? '/super-admin' : '/dashboard'} data-testid="link-brand" className={`flex items-center gap-3 ${collapsed ? 'lg:mx-auto' : ''}`}>{school.logoUrl && !isSuperAdmin ? <img data-testid="img-sidebar-badge" src={school.logoUrl} alt={`${school.name} badge`} className="h-9 w-9 shrink-0 rounded-lg bg-white/90 object-contain p-0.5" /> : <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"><GraduationCap size={21} /></span>}{!collapsed && <span><span className="block font-display text-lg font-semibold tracking-tight">J-SCHOOLS</span><span className="block text-[9px] uppercase tracking-[.22em] text-sidebar-foreground/60">School system</span></span>}</Link>
           <button data-testid="button-close-nav" onClick={() => { setCollapsed(!collapsed); setOpen(false); }} className="hidden rounded-lg p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:block">{collapsed ? <Menu size={17} /> : <PanelLeftClose size={17} />}</button>
         </div>
         <div className={`mx-3 mt-5 rounded-xl bg-sidebar-accent/70 p-3 ${collapsed ? 'lg:p-2' : ''}`}><div className="flex items-center gap-2.5"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary/15 text-xs font-bold text-sidebar-primary">{initials(school.name)}</span>{!collapsed && <div className="min-w-0"><p data-testid="text-active-school" className="truncate text-sm font-semibold">{school.name}</p><p className="mt-0.5 text-[10px] uppercase tracking-widest text-sidebar-foreground/50">Active school</p></div>}</div></div>

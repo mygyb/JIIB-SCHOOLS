@@ -10,7 +10,7 @@ import { getTerms, type SchoolConfig } from '@/lib/school-data';
 let rememberedTerm = '';
 
 export function useFinance() {
-  let school: { id?: string; name?: string } = {};
+  let school: { id?: string; name?: string; logoUrl?: string | null } = {};
   try { school = JSON.parse(localStorage.getItem('jiib.school') || 'null') ?? {}; } catch { /* no saved school */ }
   const schoolId = String(school.id ?? '');
   const canEdit = localStorage.getItem('jiib.role') === 'Bursar';
@@ -22,7 +22,7 @@ export function useFinance() {
   const queryClient = useQueryClient();
   const base = `/api/schools/${encodeURIComponent(schoolId)}/finance`;
   return {
-    schoolId, schoolName: String(school.name ?? 'School'), canEdit, terms, termKey, base,
+    schoolId, schoolName: String(school.name ?? 'School'), logoUrl: school.logoUrl ?? null, canEdit, terms, termKey, base,
     termLabel: terms.find((term) => term.key === termKey)?.label ?? termKey,
     ready: Boolean(schoolId && termKey),
     setTermKey: (key: string) => { rememberedTerm = key; setPicked(key); },

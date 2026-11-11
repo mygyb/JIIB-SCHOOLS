@@ -1575,6 +1575,34 @@ async function houseUsage(req: Request, schoolId: string, config: Record<string,
   return counts;
 }
 
+// School badge. The browser shrinks the picture to a small square-ish image and sends it as a data URL, which is stored
+// in schools.logo_url (already used by report cards, receipts-style headers and the app shells). Only this school's
+// administrator (checked by the middleware above) can change it. Admins have no UPDATE policy on `schools`, so the
+// write goes through the service-role helper, scoped to exactly this school id.
+const BADGE_MAX_CHARS = 250_000;
+router.put("/schools/:schoolId/logo", requireSchoolAdmin, async (req, res) => {
+  try {
+    const schoolId = String(req.params.schoolId);
+    const { logoUrl } = z.object({ logoUrl: z.string().max(3_000_000).nullable() }).strict().parse(req.body);
+    if (logoUrl !== null) {
+      if (logoUrl.length > BADGE_MAX_CHARS) { res.status(413).json({ error: "That picture is too large. Please choose a smaller image." }); return; }
+      if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(logoUrl)) {
+        res.status(400).json({ error: "The badge must be a PNG, JPG or WebP image." });
+        return;
+      }
+    }
+    const rows = asRows(await supabaseAdminRequest(`/rest/v1/schools?id=eq.${encodeURIComponent(schoolId)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ logo_url: logoUrl }),
+    }));
+    if (!rows[0]) { res.status(404).json({ error: "School not found." }); return; }
+    res.json(mapSchool(rows[0]));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 router.get("/schools/:schoolId/houses", requireSchoolAdmin, async (req, res) => {
   try {
     const schoolId = String(req.params.schoolId);
