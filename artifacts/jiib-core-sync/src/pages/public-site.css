@@ -464,3 +464,16 @@
   .roles-grid { grid-template-columns: 1fr; }
   .role-card { min-height: 0; }
 }
+
+/* Social links: X, LinkedIn, WhatsApp */
+.social-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.social-row--top { margin: 0 0 18px; }
+.social-row--footer { padding: 0 0 20px; }
+.social-link { display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 999px; border: 1px solid color-mix(in srgb, currentColor 28%, transparent); color: inherit; font-size: 11px; font-weight: 600; line-height: 1; text-decoration: none; transition: background-color .2s ease, border-color .2s ease, color .2s ease; }
+.social-link:hover, .social-link:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); border-color: color-mix(in srgb, currentColor 55%, transparent); }
+.social-link--whatsapp svg { color: #25d366; }
+@media (max-width: 700px) {
+  .social-row { gap: 6px; }
+  .social-link { padding: 7px 11px; font-size: 10.5px; }
+}
+.footer-links a { white-space: nowrap; }
