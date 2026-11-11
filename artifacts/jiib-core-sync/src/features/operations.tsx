@@ -31,6 +31,7 @@ import { ALevelFields, aLevelSummary, defaultALevel } from '@/features/alevel-su
 import { PromotionWizard } from '@/features/promotion-wizard';
 import { OptionalSubjectsCard } from '@/features/optional-subjects-card';
 import { HousesCard } from '@/features/houses-card';
+import { TeacherNotifications, describePush, pushStatusKey, sendDeadlineNotice } from '@/features/push-admin';
 import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
 import { ALevelSetup } from '@/features/alevel-setup';
@@ -876,6 +877,7 @@ function PublishDeadline({ school }: { school: School }) {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [notifyNow, setNotifyNow] = useState(true);
 
   useEffect(() => {
     if (!config.isSuccess) return;
@@ -892,7 +894,7 @@ function PublishDeadline({ school }: { school: School }) {
     changes: { deadline?: string | null; deadlinePublishedAt?: string | null; activeMarkColumns?: AssessmentFieldId[] },
     successMessage: string,
     onDone?: () => void,
-  ) => {
+  ): Promise<boolean> => {
     setNotice('');
     setError('');
     setSaving(true);
@@ -901,15 +903,25 @@ function PublishDeadline({ school }: { school: School }) {
       queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), result);
       onDone?.();
       setNotice(successMessage);
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Settings could not be saved. Please try again.');
+      return false;
     } finally {
       setSaving(false);
     }
   };
-  const publishDeadline = () => {
+  const publishDeadline = async () => {
     if (!deadline) return;
-    void persist({ deadline, deadlinePublishedAt: new Date().toISOString() }, 'Deadline published to teachers.', () => setDeadlineDirty(false));
+    const saved = await persist({ deadline, deadlinePublishedAt: new Date().toISOString() }, 'Deadline published to teachers.', () => setDeadlineDirty(false));
+    if (!saved || !notifyNow) return;
+    try {
+      const result = await sendDeadlineNotice(school.id, 'published');
+      setNotice(`Deadline published to teachers. ${describePush(result)}`);
+      void queryClient.invalidateQueries({ queryKey: pushStatusKey(school.id) });
+    } catch (cause) {
+      setNotice(`Deadline published to teachers. The phone notification could not be sent: ${cause instanceof Error ? cause.message : 'please try again from the notification section below.'}`);
+    }
   };
   const clearDeadline = () => {
     void persist({ deadline: null, deadlinePublishedAt: null }, 'Published deadline cleared.', () => {
@@ -928,8 +940,9 @@ function PublishDeadline({ school }: { school: School }) {
         <h3 className="font-display text-lg font-semibold">Marks entry deadline</h3>
         <p className="mt-1 text-sm leading-5 text-muted-foreground">Teachers see a red reminder in the marks register until they dismiss it.</p>
         <label className="mt-5 block"><span className="mb-2 block text-sm font-semibold">Deadline date and time</span><input data-testid="input-publish-deadline" type="datetime-local" value={deadline} onChange={(event) => { setDeadline(event.target.value); setDeadlineDirty(true); setNotice(''); }} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
+        <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sm"><input data-testid="checkbox-notify-deadline" type="checkbox" checked={notifyNow} onChange={(event) => setNotifyNow(event.target.checked)} className="mt-0.5 accent-primary" /><span>Also send a phone notification to teachers now<span className="block text-xs text-muted-foreground">Teachers are reminded again automatically in the last 3 days before the deadline.</span></span></label>
         <div className="mt-5 flex flex-wrap gap-2">
-          <button data-testid="button-save-deadline" onClick={publishDeadline} disabled={!deadline || saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {saving ? 'Publishing…' : 'Publish deadline'}</button>
+          <button data-testid="button-save-deadline" onClick={() => void publishDeadline()} disabled={!deadline || saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {saving ? 'Publishing…' : 'Publish deadline'}</button>
           <button data-testid="button-clear-deadline" onClick={clearDeadline} disabled={saving || !config.data.deadline} className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">Clear deadline</button>
         </div>
       </ShellCard>
@@ -959,9 +972,10 @@ function PublishDeadline({ school }: { school: School }) {
         {!activeMarkColumns.length && <p className="mt-3 text-xs text-destructive">Select at least one assessment for teachers.</p>}
         <button data-testid="button-save-assessment-filter" onClick={saveAssessmentFilter} disabled={!assessmentDirty || saving || !activeMarkColumns.length} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {saving ? 'Saving…' : 'Save assessment filter'}</button>
       </ShellCard>
+      <TeacherNotifications schoolId={school.id} hasDeadline={Boolean(config.data.deadline)} />
     </div>
     {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
-    {notice && <p role="status" className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
+    {notice && <p role="status" data-testid="text-publish-notice" className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
   </div>;
 }
 

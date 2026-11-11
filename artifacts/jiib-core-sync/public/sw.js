@@ -51,6 +51,21 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
+// A message from the school (or a deadline reminder, or "update ready") arrives here even when the app is closed.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : "" }; }
+  const title = String(data.title || "J-SCHOOLS");
+  event.waitUntil(self.registration.showNotification(title, {
+    body: String(data.body || ""),
+    tag: String(data.tag || "jiib-message"),
+    renotify: true,
+    icon: "/icons/icon-192.png",
+    badge: "/icons/badge-96.png",
+    data: { url: String(data.url || "/") },
+  }));
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const target = (event.notification.data && event.notification.data.url) || "/marks";

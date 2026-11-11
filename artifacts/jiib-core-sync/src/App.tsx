@@ -31,12 +31,14 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { PwaUi } from '@/components/pwa-ui';
+import { NotificationPrompt } from '@/components/notification-prompt';
+import { dropPushSubscription, enablePush } from '@/lib/push';
 import { SuperAdminPortal } from '@/features/super-admin/portal';
 import { HqLogin } from '@/pages/hq-login';
 import { HQ_PATH } from '@/lib/hq-path';
 import { takeSignOutNotice, useDeviceHeartbeat } from '@/lib/device';
 import { useSecretTaps } from '@/lib/secret-taps';
-import { enableNotifications, isStandalone, notificationPermission, notificationsSupported, remindAboutDeadline, usePwa } from '@/lib/pwa';
+import { isStandalone, notificationPermission, notificationsSupported, remindAboutDeadline, usePwa } from '@/lib/pwa';
 import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
@@ -193,6 +195,7 @@ function App() {
         <SyncManager />
         <Router />
         <PwaUi />
+        <NotificationPrompt />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
@@ -586,7 +589,10 @@ function AppShell({ children }: { children: ReactNode }) {
     if (!isTeacher || !reminderDeadline) return;
     const date = new Date(reminderDeadline);
     const label = Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(date) : reminderDeadline;
-    void remindAboutDeadline(reminderDeadline, reminderNoticeId, label);
+    const remind = () => { void remindAboutDeadline(reminderDeadline, reminderNoticeId, label); };
+    remind();
+    window.addEventListener('online', remind); // a teacher who was offline is reminded as soon as the phone has internet again
+    return () => window.removeEventListener('online', remind);
   }, [isTeacher, reminderDeadline, reminderNoticeId]);
   const previousActiveTerm = useRef<string | null>(null);
   useEffect(() => {
@@ -667,7 +673,7 @@ function AppShell({ children }: { children: ReactNode }) {
     const activeTermLabel = getTerms((config.data?.data ?? {}) as SchoolConfig).find((item) => item.key === activeTerm)?.label ?? activeTerm;
     const Shell = isBursar ? BursarShell : HeadTeacherShell;
     const signOut = async () => {
-      await supabase?.auth.signOut();
+      await dropPushSubscription(school.id); await supabase?.auth.signOut();
       ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key));
       clearAccountTheme();
       setLocation('/');
@@ -686,7 +692,7 @@ function AppShell({ children }: { children: ReactNode }) {
         <nav className="mt-7 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-4">{visibleNavItems.map(({ href, label, icon: Icon }) => <Link href={href} key={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setOpen(false)} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${location === href ? 'bg-sidebar-primary font-semibold text-sidebar-primary-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}><Icon size={18} strokeWidth={location === href ? 2.4 : 1.8} />{!collapsed && <span>{label}</span>}{href === '/messages' && !collapsed && <span className="ml-auto rounded-full bg-sidebar-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-sidebar-primary">3</span>}</Link>)}
           <div className="my-5 border-t border-sidebar-border" />
         </nav>
-          {!collapsed && <div className="border-t border-sidebar-border p-4"><div className="rounded-xl bg-[#102238] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-sidebar-primary">Current term</p><p className="mt-1 text-sm font-semibold">{String((config.data?.data as SchoolConfig | undefined)?.terms?.[String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '')]?.label ?? (config.data?.data as SchoolConfig | undefined)?.activeTerm ?? 'No active term')}</p><p data-sync-revision={syncRevision} className="mt-1 text-xs text-sidebar-foreground/55">{online ? `${getPendingMarks(school.id).length} marks waiting to sync` : 'Offline · changes are queued'}</p></div><button data-testid="button-sign-out" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); clearAccountTheme(); setLocation('/'); }} className="mt-4 flex w-full items-center gap-2 px-1 text-xs text-sidebar-foreground/55 hover:text-sidebar-foreground"><LogOut size={14} /> Sign out</button></div>}
+          {!collapsed && <div className="border-t border-sidebar-border p-4"><div className="rounded-xl bg-[#102238] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-sidebar-primary">Current term</p><p className="mt-1 text-sm font-semibold">{String((config.data?.data as SchoolConfig | undefined)?.terms?.[String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '')]?.label ?? (config.data?.data as SchoolConfig | undefined)?.activeTerm ?? 'No active term')}</p><p data-sync-revision={syncRevision} className="mt-1 text-xs text-sidebar-foreground/55">{online ? `${getPendingMarks(school.id).length} marks waiting to sync` : 'Offline · changes are queued'}</p></div><button data-testid="button-sign-out" onClick={async () => { await dropPushSubscription(school.id); await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); clearAccountTheme(); setLocation('/'); }} className="mt-4 flex w-full items-center gap-2 px-1 text-xs text-sidebar-foreground/55 hover:text-sidebar-foreground"><LogOut size={14} /> Sign out</button></div>}
       </aside>
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex h-[78px] items-center justify-between border-b border-border bg-background/90 px-5 backdrop-blur-md sm:px-8">
@@ -700,11 +706,11 @@ function AppShell({ children }: { children: ReactNode }) {
               <button data-testid="button-profile" aria-expanded={profileOpen} aria-label="Open user profile menu" onClick={() => setProfileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(userName)}</button>
               {profileOpen && <div role="menu" className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-3 shadow-xl">
                 <div className="border-b border-border px-2 pb-3"><p className="truncate text-sm font-semibold">{userName}</p><p className="truncate text-xs text-muted-foreground">{accountEmail || role}</p><p className="mt-1 truncate text-xs text-muted-foreground">{school.name}</p></div>
-                {isTeacher && notificationsSupported() && notificationPermission() === 'default' && <button role="menuitem" type="button" data-testid="button-enable-reminders" onClick={async () => { await enableNotifications(); setProfileOpen(false); }} className="mt-2 flex w-full rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-muted">Turn on marks reminders</button>}
+                {!isParent && !isSuperAdmin && notificationsSupported() && notificationPermission() === 'default' && <button role="menuitem" type="button" data-testid="button-enable-reminders" onClick={async () => { await enablePush(school.id); setProfileOpen(false); }} className="mt-2 flex w-full rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-muted">Turn on notifications</button>}
                 {!isSuperAdmin && !isParent && <Link role="menuitem" href="/account-settings" onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">Account settings</Link>}
                 {!isTeacher && <Link role="menuitem" href={isSuperAdmin ? '/support' : isParent ? '/parent-messages' : '/support'} onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isSuperAdmin ? 'Support inbox' : isParent ? 'Contact the school' : 'Contact J-SCHOOLS support'}</Link>}
                 <p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">J-SCHOOLS · Version 8.2</p>
-                <button role="menuitem" onClick={async () => { await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); clearAccountTheme(); setLocation('/'); }} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-destructive hover:bg-destructive/5"><LogOut size={14} /> Sign out</button>
+                <button role="menuitem" onClick={async () => { await dropPushSubscription(school.id); await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); clearAccountTheme(); setLocation('/'); }} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-destructive hover:bg-destructive/5"><LogOut size={14} /> Sign out</button>
               </div>}
             </div>
           </div>
