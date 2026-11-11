@@ -60,14 +60,14 @@ export function TeacherNotifications({ schoolId, hasDeadline }: { schoolId: stri
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h3 className="flex items-center gap-2 font-display text-lg font-semibold"><BellRing size={18} className="text-primary" /> Send a notification</h3>
-        <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">Appears on teachers' phones even when the app is closed. If a phone is offline, it arrives as soon as the phone has internet again (held for up to 2 days).</p>
+        <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">Appears on teachers' phones even when the app is closed (and inside the app for anyone who has not allowed notifications). If a phone is offline, it arrives as soon as the phone has internet again (held for up to 2 days).</p>
       </div>
       <span data-testid="text-notification-coverage" className={`rounded-full px-3 py-1.5 text-xs font-semibold ${teachers && teachers.enabled > 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
         {status.isLoading ? 'Checking…' : status.isError ? 'Not available' : `${teachers?.enabled ?? 0} of ${teachers?.total ?? 0} teachers have notifications on`}
       </span>
     </div>
     {status.isError && <p role="alert" data-testid="text-notification-unavailable" className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{status.error instanceof Error ? status.error.message : 'Notifications are unavailable right now.'}</p>}
-    {teachers && teachers.total > teachers.enabled && <p className="mt-3 text-xs leading-5 text-muted-foreground">Teachers turn notifications on from the prompt that appears after they sign in (or from their profile menu). Ask the others to do it once.</p>}
+    {teachers && teachers.total > teachers.enabled && <p className="mt-3 text-xs leading-5 text-muted-foreground">The phone asks each teacher to tap Allow the first time they use the app after signing in. Teachers who have not allowed it still see your message inside the app as soon as they open it.</p>}
     <div className="mt-5 grid gap-4 lg:grid-cols-2">
       <div>
         <label className="block"><span className="mb-2 block text-sm font-semibold">Title</span>
