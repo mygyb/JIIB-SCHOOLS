@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { registerFinanceRoutes } from "./finance.js";
+import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -1005,6 +1006,9 @@ router.post("/schools/:schoolId/parents/chat", async (req, res) => {
   }
 });
 
+// Push notifications: the public key, new-version check and the daily scheduled job need no school sign-in.
+registerPublicPushRoutes(router, sendError);
+
 // All remaining school workspace endpoints require a real Supabase session
 // that is registered for this school. The database still enforces RLS.
 router.use("/schools/:schoolId", async (req, res, next) => {
@@ -1035,13 +1039,14 @@ router.use("/schools/:schoolId", async (req, res, next) => {
       const sub = req.path.replace(/\/+$/, "");
       // Head teachers can look at every department but change nothing. Bursars only reach the Finance workspace
       // (plus the read-only lists it needs). Neither may use the teacher-or-admin write routes below.
-      if (res.locals.jiibRole === "headteacher" && req.method !== "GET") {
+      const ownPushDevice = /^\/push\/(un)?subscribe$/.test(sub); // any staff member may turn notifications on or off for their own phone
+      if (res.locals.jiibRole === "headteacher" && req.method !== "GET" && !ownPushDevice) {
         res.status(403).json({ error: "Head teacher accounts can view school records but not change them." });
         return;
       }
       if (res.locals.jiibRole === "bursar") {
         const readable = req.method === "GET" && /^\/(config|students|terms|users\/[^/]+)$/.test(sub);
-        if (!readable && !/^\/finance(\/|$)/.test(sub)) {
+        if (!readable && !ownPushDevice && !/^\/finance(\/|$)/.test(sub)) {
           res.status(403).json({ error: "Bursar accounts can only use the Finance workspace." });
           return;
         }
@@ -1062,6 +1067,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
 
 // Finance (Bursar full access, Head teacher read-only; administrators and teachers are refused inside the gate).
 registerFinanceRoutes(router, { readSchoolConfig });
+registerPushRoutes(router, { readSchoolConfig, requireSchoolAdmin }, sendError);
 
 // Teacher logins and marks entries for the school's System settings page (administrators only).
 router.get("/schools/:schoolId/activity", requireSchoolViewer, async (req, res) => {

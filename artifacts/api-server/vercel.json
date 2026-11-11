@@ -3,8 +3,21 @@
   "framework": null,
   "buildCommand": "pnpm run build:vercel",
   "outputDirectory": "public",
-  "rewrites": [{ "source": "/api/(.*)", "destination": "/api" }],
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    }
+  ],
   "functions": {
-    "api/index.mjs": { "includeFiles": "dist/**" }
-  }
+    "api/index.mjs": {
+      "includeFiles": "dist/**"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/push-daily",
+      "schedule": "0 5 * * *"
+    }
+  ]
 }

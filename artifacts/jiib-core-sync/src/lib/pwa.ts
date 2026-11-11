@@ -19,6 +19,8 @@ function setState(patch: Partial<PwaState>) {
   listeners.forEach((listener) => listener());
 }
 
+export function getPwaRegistration(): ServiceWorkerRegistration | null { return registration; }
+
 export function usePwa(): PwaState {
   return useSyncExternalStore(
     (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
@@ -108,6 +110,8 @@ function watchForUpdate(reg: ServiceWorkerRegistration) {
   const flagIfReady = () => {
     if (reg.waiting && navigator.serviceWorker.controller) {
       setState({ updateReady: true });
+      // Let the server confirm the new version and tell phones where the app is closed (it announces each version once).
+      void fetch('/api/push/check-update', { method: 'POST' }).catch(() => undefined);
       void notify('J-SCHOOLS update ready', 'A new version is available. Open the app to update.', { tag: 'jiib-update', url: '/', onlyWhenHidden: true });
     }
   };
@@ -177,19 +181,24 @@ export async function notify(title: string, body: string, options: { tag: string
   }
 }
 
-/** Shows each marks reminder once per deadline: when it is first published, and again when less than a day is left. */
+/** Marks reminder: shown once when a deadline is published; when less than a day is left it can show again (at most every 6 hours),
+ *  for example when the phone gets internet back. Uses the same notification tags as the server's, so the two never double up. */
 export async function remindAboutDeadline(deadline: string, noticeId: string, formatted: string) {
   const due = new Date(deadline).getTime();
-  if (!Number.isFinite(due) || due < Date.now() || Notification.permission !== 'granted') return;
-  const stage = due - Date.now() < 86_400_000 ? 'soon' : 'published';
+  if (!Number.isFinite(due) || due < Date.now() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const soon = due - Date.now() < 86_400_000;
+  const stage = soon ? 'soon' : 'published';
   const key = `jiib.reminded:${noticeId}:${stage}`;
-  try { if (localStorage.getItem(key)) return; } catch { /* storage unavailable */ }
+  try {
+    const last = Number(localStorage.getItem(key) ?? 0);
+    if (last && (!soon || Date.now() - last < 6 * 3_600_000)) return;
+  } catch { /* storage unavailable */ }
   const shown = await notify(
-    stage === 'soon' ? 'Marks are due soon' : 'Marks deadline set',
-    stage === 'soon' ? `Please finish entering your marks before ${formatted}.` : `Please complete your marks by ${formatted}.`,
-    { tag: `jiib-deadline-${stage}`, url: '/marks' },
+    soon ? 'Marks are due soon' : 'Marks deadline set',
+    soon ? `Please finish entering your marks before ${formatted}.` : `Please complete your marks by ${formatted}.`,
+    { tag: soon ? 'jiib-deadline-reminder' : 'jiib-deadline', url: '/marks' },
   );
-  if (shown) { try { localStorage.setItem(key, '1'); } catch { /* storage unavailable */ } }
+  if (shown) { try { localStorage.setItem(key, String(Date.now())); } catch { /* storage unavailable */ } }
 }
 
 // ---- Android app (APK) download ---------------------------------------------------------------------
