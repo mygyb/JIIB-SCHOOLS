@@ -65,13 +65,22 @@ function SchoolDetail({ school, hq, onClose, onChanged }: { school: PortfolioSch
     try { await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/status`, { method: 'PATCH', body: JSON.stringify({ active: !school.active }) }); onChanged(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not change the status.'); }
   };
+  const changeType = async (schoolType: 'primary' | 'secondary') => {
+    if (schoolType === (school.schoolType ?? 'secondary')) return;
+    if (!confirm(`Change ${school.name} to a ${schoolType} school?`)) return;
+    setError('');
+    try { await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/type`, { method: 'PATCH', body: JSON.stringify({ schoolType }) }); onChanged(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not change the school type.'); }
+  };
   return (
     <Drawer title={school.name} onClose={onClose}>
-      <div className="mb-4 flex items-center gap-2">{school.active ? <Badge tone="green">Active</Badge> : <Badge tone="red">Suspended</Badge>}<span className="text-xs text-muted-foreground">/{school.slug}</span></div>
+      <div className="mb-4 flex items-center gap-2">{school.active ? <Badge tone="green">Active</Badge> : <Badge tone="red">Suspended</Badge>}<Badge tone="blue">{school.schoolType === 'primary' ? 'Primary school' : 'Secondary school'}</Badge><span className="text-xs text-muted-foreground">/{school.slug}</span></div>
       <div className="mb-4 flex gap-1 rounded-xl bg-muted p-1 text-sm font-semibold">{(['summary', 'staff', 'devices'] as const).map((key) => <button key={key} type="button" onClick={() => setTab(key)} className={`flex-1 rounded-lg py-2 capitalize ${tab === key ? 'bg-card shadow-sm' : 'text-muted-foreground'}`}>{key}{key === 'staff' ? ` (${staff.length})` : key === 'devices' ? ` (${devices.length})` : ''}</button>)}</div>
       {tab === 'summary' && <div className="space-y-4"><div className="grid grid-cols-2 gap-3"><Stat label="Students" value={school.studentCount} /><Stat label="Classes" value={school.classCount} /><Stat label="Staff" value={staff.length} /><Stat label="Online now" value={devices.filter((d) => d.online).length} /></div>
         <div><div className="mb-1 flex justify-between text-sm"><span>Marks completion</span><span className="font-semibold">{Math.round(school.marksCompletionPercent)}%</span></div><Bar percent={school.marksCompletionPercent} /></div>
         <p className="text-sm text-muted-foreground">Last activity: {devices[0] ? timeAgo(devices[0].lastSeen) : 'no devices recorded'}</p>
+        <div className="rounded-xl border border-border p-3"><p className="text-sm font-semibold">School type</p><p className="mt-0.5 text-xs text-muted-foreground">Decides whether this school uses the primary or the secondary portal. It can only be changed before the school has students.</p>
+          <select aria-label="School type" data-testid="hq-school-type" value={school.schoolType ?? 'secondary'} onChange={(e) => void changeType(e.target.value as 'primary' | 'secondary')} className={`${field} mt-2 w-full`}><option value="secondary">Secondary school</option><option value="primary">Primary school</option></select></div>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <button type="button" data-testid="hq-toggle-school" onClick={toggle} className={`h-11 w-full rounded-xl text-sm font-semibold ${school.active ? 'border border-destructive/40 text-destructive hover:bg-destructive/5' : 'bg-primary text-primary-foreground'}`}>{school.active ? 'Suspend school' : 'Reactivate school'}</button></div>}
       {tab === 'staff' && <ul className="divide-y divide-border rounded-xl border border-border text-sm">{staff.map((s) => <li key={s.email} className="flex items-center justify-between gap-3 px-3 py-2.5"><span className="min-w-0"><span className="block truncate font-medium">{s.displayName || s.email}</span><span className="block truncate text-xs text-muted-foreground">{s.email}</span></span><Badge tone={s.role === 'admin' ? 'blue' : 'muted'}>{s.role === 'admin' ? 'Admin' : 'Teacher'}</Badge></li>)}{staff.length === 0 && <li className="px-3 py-4 text-muted-foreground">No staff yet.</li>}</ul>}
@@ -86,7 +95,7 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
   const [state, setState] = useState<'all' | 'active' | 'suspended'>('all');
   const [openId, setOpenId] = useState('');
   const [registering, setRegistering] = useState(false);
-  const [form, setForm] = useState({ name: '', slug: '', adminEmail: '' });
+  const [form, setForm] = useState<{ name: string; slug: string; adminEmail: string; schoolType: '' | 'primary' | 'secondary' }>({ name: '', slug: '', adminEmail: '', schoolType: '' });
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const schools = hq.analytics.data?.schools ?? [];
@@ -97,8 +106,8 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
   const register = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setNotice('');
     try {
-      await jiibApi('/api/schools', { method: 'POST', body: JSON.stringify({ name: form.name.trim(), slug: form.slug.trim(), ...(form.adminEmail.trim() ? { initialAdminEmail: form.adminEmail.trim() } : {}) }) });
-      setForm({ name: '', slug: '', adminEmail: '' }); setRegistering(false); setNotice('School registered.'); await refresh();
+      await jiibApi('/api/schools', { method: 'POST', body: JSON.stringify({ name: form.name.trim(), slug: form.slug.trim(), schoolType: form.schoolType || 'secondary', ...(form.adminEmail.trim() ? { initialAdminEmail: form.adminEmail.trim() } : {}) }) });
+      setForm({ name: '', slug: '', adminEmail: '', schoolType: '' }); setRegistering(false); setNotice('School registered.'); await refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not register this school.'); }
   };
   return (
@@ -113,6 +122,7 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
           <input required placeholder="School name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={field} />
           <input required placeholder="slug (e.g. mucoss)" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} className={field} />
           <input type="email" placeholder="Admin email (optional)" value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })} className={field} />
+          <select required aria-label="School type" data-testid="hq-new-school-type" value={form.schoolType} onChange={(e) => setForm({ ...form, schoolType: e.target.value as typeof form.schoolType })} className={`${field} sm:col-span-3`}><option value="" disabled>Choose school type…</option><option value="secondary">Secondary school</option><option value="primary">Primary school</option></select>
           <button className="h-10 rounded-xl bg-primary text-sm font-semibold text-primary-foreground sm:col-span-3">Create school</button>
         </form>}
         {notice && <p className="mt-3 text-sm text-emerald-600">{notice}</p>}{error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
@@ -122,7 +132,7 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
           <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{list.map((s) => {
             const mine = devices.filter((d) => d.schoolId === s.id);
             return <li key={s.id}><button type="button" data-testid={`hq-school-${s.slug}`} onClick={() => setOpenId(s.id)} className="w-full rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/50">
-              <span className="flex items-start justify-between gap-2"><span className="min-w-0"><span className="block truncate font-display text-base font-semibold">{s.name}</span><span className="text-xs text-muted-foreground">/{s.slug}</span></span>{s.active ? <Badge tone="green">Active</Badge> : <Badge tone="red">Suspended</Badge>}</span>
+              <span className="flex items-start justify-between gap-2"><span className="min-w-0"><span className="block truncate font-display text-base font-semibold">{s.name}</span><span className="text-xs text-muted-foreground">/{s.slug}</span></span><span className="flex shrink-0 flex-col items-end gap-1">{s.active ? <Badge tone="green">Active</Badge> : <Badge tone="red">Suspended</Badge>}{s.schoolType === 'primary' && <Badge tone="blue">Primary</Badge>}</span></span>
               <span className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><span><b className="block text-base">{s.studentCount}</b>students</span><span><b className="block text-base">{(hq.staff.data ?? []).filter((x) => x.schoolId === s.id).length}</b>staff</span><span><b className="block text-base">{mine.filter((d) => d.online).length}</b>online</span></span>
               <span className="mt-3 block"><span className="mb-1 flex justify-between text-xs text-muted-foreground"><span>Marks</span><span>{Math.round(s.marksCompletionPercent)}%</span></span><Bar percent={s.marksCompletionPercent} /></span>
               <span className="mt-2 block text-xs text-muted-foreground">Last activity {mine[0] ? timeAgo(mine[0].lastSeen) : '—'}</span></button></li>;

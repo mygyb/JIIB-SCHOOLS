@@ -793,6 +793,9 @@ components:
           type: ["string", "null"]
         active:
           type: boolean
+        schoolType:
+          type: string
+          enum: [primary, secondary]
     SchoolSubjectAssignment:
       type: object
       required: [class, subject]
@@ -958,6 +961,9 @@ components:
           type: ["string", "null"]
         address:
           type: string
+        schoolType:
+          type: string
+          enum: [primary, secondary]
         assessmentFields:
           type: array
           items:

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssessmentField } from './assessmentField';
+import type { SchoolRegistrationInputSchoolType } from './schoolRegistrationInputSchoolType';
 
 export interface SchoolRegistrationInput {
   /** @minLength 1 */
@@ -23,5 +24,6 @@ export interface SchoolRegistrationInput {
   /** @nullable */
   initialAdminName?: string | null;
   address?: string;
+  schoolType?: SchoolRegistrationInputSchoolType;
   assessmentFields?: AssessmentField[];
 }

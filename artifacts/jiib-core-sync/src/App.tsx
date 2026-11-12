@@ -42,7 +42,7 @@ import { isStandalone, notificationPermission, notificationsSupported, remindAbo
 import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
-import { SCHOOL_BADGE_EVENT, refreshActiveSchoolBadge } from '@/lib/school-badge';
+import { SCHOOL_BADGE_EVENT, SCHOOL_TYPE_EVENT, refreshActiveSchoolBadge } from '@/lib/school-badge';
 import { BursarShell, HEAD_TABS, HeadTeacherShell } from '@/features/role-shells';
 import { FinanceHome } from '@/features/finance/finance-home';
 import { FeeStructures } from '@/features/finance/fee-structures';
@@ -52,7 +52,7 @@ import { Defaulters } from '@/features/finance/defaulters';
 import { Reports } from '@/features/finance/reports';
 import { clearAccountTheme, getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { combinationsOf, enrolmentLabel, enrolmentSubjects, isALevelClass, isALevelEnabled, STREAM_LABELS, subsidiarySubjectNames, type Enrolment, type Stream } from '@/lib/school-data';
-import { configuredHouses, currentTerm, DEFAULT_ASSESSMENT_FIELDS, finalTotal, getAssessmentFields, markTotal, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from '@/lib/school-data';
+import { configuredHouses, currentTerm, isPrimarySchool, primaryLabel, DEFAULT_ASSESSMENT_FIELDS, finalTotal, getAssessmentFields, markTotal, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from '@/lib/school-data';
 import { flushPendingMarks, getPendingMarks, queueMark } from '@/lib/offline-marks';
 import { OperationsPage } from '@/features/operations';
 import { MarksRegister } from '@/features/marks-register';
@@ -150,9 +150,14 @@ function useActiveSchool() {
       const logoUrl = (event as CustomEvent<{ logoUrl: string | null }>).detail?.logoUrl ?? null;
       setSchool((current) => ({ ...current, logoUrl }));
     };
+    const onType = (event: Event) => {
+      const schoolType = (event as CustomEvent<{ schoolType: 'primary' | 'secondary' }>).detail?.schoolType ?? 'secondary';
+      setSchool((current) => ({ ...current, schoolType }));
+    };
     window.addEventListener(SCHOOL_BADGE_EVENT, onBadge);
+    window.addEventListener(SCHOOL_TYPE_EVENT, onType);
     refreshActiveSchoolBadge();
-    return () => window.removeEventListener(SCHOOL_BADGE_EVENT, onBadge);
+    return () => { window.removeEventListener(SCHOOL_BADGE_EVENT, onBadge); window.removeEventListener(SCHOOL_TYPE_EVENT, onType); };
   }, []);
   return school;
 }
@@ -563,6 +568,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const [syncRevision, setSyncRevision] = useState(0);
   const shellConfig = useGetSchoolConfig(school.id, { query: { queryKey: getGetSchoolConfigQueryKey(school.id), enabled: !isParent && !isSuperAdmin } });
   const aLevelOn = isALevelEnabled(shellConfig.data?.data as SchoolConfig | undefined);
+  const primarySchool = isPrimarySchool(school);
   useEffect(() => {
     setAccountDarkMode(accountEmail, dark);
   }, [accountEmail, dark]);
@@ -663,7 +669,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const visibleNavItems = navItems.filter((item) =>
     isParent || isSuperAdmin
       ? false
-      : (item.href === '/a-level' || item.href === '/a-level-results') && !aLevelOn
+      : (item.href === '/a-level' || item.href === '/a-level-results') && (!aLevelOn || primarySchool)
         ? false
         : isTeacher ? !ADMIN_ONLY_HREFS.includes(item.href) : !TEACHER_ONLY_HREFS.includes(item.href),
   );
@@ -677,7 +683,7 @@ function AppShell({ children }: { children: ReactNode }) {
     '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',
     '/system-settings': 'System settings', '/account-settings': 'Account settings',
   };
-  const title = titleMap[location] ?? 'Portfolio';
+  const title = primarySchool ? primaryLabel(titleMap[location] ?? 'Portfolio') : (titleMap[location] ?? 'Portfolio');
   if (!authReady) return <main className="grid min-h-[100dvh] place-items-center bg-background text-sm text-muted-foreground">Checking account access…</main>;
   if (isHead || isBursar) {
     const activeTermLabel = getTerms((config.data?.data ?? {}) as SchoolConfig).find((item) => item.key === activeTerm)?.label ?? activeTerm;
@@ -699,7 +705,7 @@ function AppShell({ children }: { children: ReactNode }) {
           <button data-testid="button-close-nav" onClick={() => { setCollapsed(!collapsed); setOpen(false); }} className="hidden rounded-lg p-2 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground lg:block">{collapsed ? <Menu size={17} /> : <PanelLeftClose size={17} />}</button>
         </div>
         <div className={`mx-3 mt-5 rounded-xl bg-sidebar-accent/70 p-3 ${collapsed ? 'lg:p-2' : ''}`}><div className="flex items-center gap-2.5"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sidebar-primary/15 text-xs font-bold text-sidebar-primary">{initials(school.name)}</span>{!collapsed && <div className="min-w-0"><p data-testid="text-active-school" className="truncate text-sm font-semibold">{school.name}</p><p className="mt-0.5 text-[10px] uppercase tracking-widest text-sidebar-foreground/50">Active school</p></div>}</div></div>
-        <nav className="mt-7 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-4">{visibleNavItems.map(({ href, label, icon: Icon }) => <Link href={href} key={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setOpen(false)} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${location === href ? 'bg-sidebar-primary font-semibold text-sidebar-primary-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}><Icon size={18} strokeWidth={location === href ? 2.4 : 1.8} />{!collapsed && <span>{label}</span>}{href === '/messages' && !collapsed && <span className="ml-auto rounded-full bg-sidebar-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-sidebar-primary">3</span>}</Link>)}
+        <nav className="mt-7 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 pb-4">{visibleNavItems.map(({ href, label: baseLabel, icon: Icon }) => { const label = primarySchool ? primaryLabel(baseLabel) : baseLabel; return <Link href={href} key={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setOpen(false)} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${location === href ? 'bg-sidebar-primary font-semibold text-sidebar-primary-foreground' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'lg:justify-center lg:px-0' : ''}`}><Icon size={18} strokeWidth={location === href ? 2.4 : 1.8} />{!collapsed && <span>{label}</span>}{href === '/messages' && !collapsed && <span className="ml-auto rounded-full bg-sidebar-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-sidebar-primary">3</span>}</Link>; })}
           <div className="my-5 border-t border-sidebar-border" />
         </nav>
           {!collapsed && <div className="border-t border-sidebar-border p-4"><div className="rounded-xl bg-[#102238] p-3"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-sidebar-primary">Current term</p><p className="mt-1 text-sm font-semibold">{String((config.data?.data as SchoolConfig | undefined)?.terms?.[String((config.data?.data as SchoolConfig | undefined)?.activeTerm ?? '')]?.label ?? (config.data?.data as SchoolConfig | undefined)?.activeTerm ?? 'No active term')}</p><p data-sync-revision={syncRevision} className="mt-1 text-xs text-sidebar-foreground/55">{online ? `${getPendingMarks(school.id).length} marks waiting to sync` : 'Offline · changes are queued'}</p></div><button data-testid="button-sign-out" onClick={async () => { await dropPushSubscription(school.id); await supabase?.auth.signOut(); ['jiib.school', 'jiib.role', 'jiib.userName', 'jiib.email', 'jiib.parentPhone', 'jiib.parentVerified', 'jiib.subjects'].forEach((key) => localStorage.removeItem(key)); clearAccountTheme(); setLocation('/'); }} className="mt-4 flex w-full items-center gap-2 px-1 text-xs text-sidebar-foreground/55 hover:text-sidebar-foreground"><LogOut size={14} /> Sign out</button></div>}

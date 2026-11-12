@@ -32,7 +32,8 @@ export const GetSchoolBySlugResponse = zod.object({
   "name": zod.string(),
   "slug": zod.string(),
   "logoUrl": zod.string().nullish(),
-  "active": zod.boolean()
+  "active": zod.boolean(),
+  "schoolType": zod.enum(['primary', 'secondary']).optional()
 })
 
 
@@ -59,6 +60,7 @@ export const CreateSchoolBody = zod.object({
   "initialAdminEmail": zod.string().email().nullish(),
   "initialAdminName": zod.string().nullish(),
   "address": zod.string().optional(),
+  "schoolType": zod.enum(['primary', 'secondary']).optional(),
   "assessmentFields": zod.array(zod.object({
   "name": zod.string().min(1).max(createSchoolBodyAssessmentFieldsItemNameMax),
   "field": zod.enum(['c1', 'c2', 'c3']),
@@ -72,7 +74,8 @@ export const CreateSchoolResponse = zod.object({
   "name": zod.string(),
   "slug": zod.string(),
   "logoUrl": zod.string().nullish(),
-  "active": zod.boolean()
+  "active": zod.boolean(),
+  "schoolType": zod.enum(['primary', 'secondary']).optional()
 })
 
 
@@ -92,7 +95,8 @@ export const UpdateSchoolStatusResponse = zod.object({
   "name": zod.string(),
   "slug": zod.string(),
   "logoUrl": zod.string().nullish(),
-  "active": zod.boolean()
+  "active": zod.boolean(),
+  "schoolType": zod.enum(['primary', 'secondary']).optional()
 })
 
 

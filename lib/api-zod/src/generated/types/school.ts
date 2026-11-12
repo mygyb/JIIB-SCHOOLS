@@ -5,6 +5,7 @@
  * JIIB Core Sync school management API
  * OpenAPI spec version: 0.1.0
  */
+import type { SchoolSchoolType } from './schoolSchoolType';
 
 export interface School {
   id: string;
@@ -13,4 +14,5 @@ export interface School {
   /** @nullable */
   logoUrl?: string | null;
   active: boolean;
+  schoolType?: SchoolSchoolType;
 }

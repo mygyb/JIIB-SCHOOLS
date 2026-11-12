@@ -69,8 +69,13 @@ function mapSchool(row: Record<string, unknown>) {
     slug: String(row.slug ?? ""),
     logoUrl: (row.logo_url as string | null | undefined) ?? null,
     active: Boolean(row.active),
+    // Set by the super administrator. Schools without the column (or any other value) are secondary schools.
+    schoolType: row.school_type === "primary" ? "primary" : "secondary",
   };
 }
+
+// Classes a new primary school starts with: optional nursery sections, then P.1 to P.7.
+const PRIMARY_CLASSES = ["Baby", "Middle", "Top", "P.1", "P.2", "P.3", "P.4", "P.5", "P.6", "P.7"];
 
 function mapStudent(row: Record<string, unknown>) {
   return {
@@ -198,7 +203,9 @@ const SchoolRegistrationBody = z.object({
   initialAdminName: z.string().trim().max(160).nullable().optional(),
   address: z.string().trim().max(300).optional(),
   assessmentFields: z.array(AssessmentFieldBody).min(1).max(3).optional(),
+  schoolType: z.enum(["primary", "secondary"]).default("secondary"),
 });
+const SchoolTypeBody = z.object({ schoolType: z.enum(["primary", "secondary"]) });
 const SchoolStatusBody = z.object({ active: z.boolean() });
 const HelpMessageBody = z.object({ message: z.string().trim().min(1).max(5000) });
 const SupportBroadcastBody = z.object({
@@ -596,10 +603,17 @@ router.post("/schools", async (req, res) => {
           slug: body.slug,
           logo_url: body.logoUrl ?? null,
           active: true,
+          // Only written for primary schools, so secondary registration keeps working before the SQL below is run.
+          ...(body.schoolType === "primary" ? { school_type: "primary" } : {}),
         }),
       },
       "?select=*",
-    ));
+    ).catch((error: unknown) => {
+      if (body.schoolType === "primary" && /school_type/i.test(error instanceof Error ? error.message : "")) {
+        throw new Error("Primary schools are not set up in the database yet. Run supabase/primary-setup.sql in the Supabase SQL editor, then try again.");
+      }
+      throw error;
+    }));
     const school = schoolRows[0];
     if (!school) throw new Error("The school record was not created.");
     const schoolId = String(school.id);
@@ -607,7 +621,7 @@ router.post("/schools", async (req, res) => {
     const termKey = `${year}-T1`;
     const config = {
       activeTerm: termKey,
-      subjects: {},
+      subjects: body.schoolType === "primary" ? Object.fromEntries(PRIMARY_CLASSES.map((name) => [name, []])) : {},
       terms: {
         [termKey]: {
           label: `Term 1 — ${year}`,
@@ -701,6 +715,50 @@ router.patch("/schools/:schoolId/status", async (req, res) => {
   }
 });
 
+// Super administrator only: change a school between primary and secondary. Refused once the school has students,
+// because their classes, subjects and marks follow the school type.
+router.patch("/schools/:schoolId/type", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    const { schoolId } = GetSchoolConfigParams.parse(req.params);
+    const body = SchoolTypeBody.parse(req.body);
+    const current = asRows(await supabaseRequest(req, "schools", {}, `?id=eq.${encodeURIComponent(schoolId)}&select=*`));
+    if (!current[0]) { res.status(404).json({ error: "School not found." }); return; }
+    if ((current[0].school_type === "primary" ? "primary" : "secondary") === body.schoolType) { res.json(mapSchool(current[0])); return; }
+    const existing = asRows(await supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id&limit=1`));
+    if (existing.length) {
+      res.status(409).json({ error: "This school already has students, so its type can no longer be changed." });
+      return;
+    }
+    const rows = asRows(await supabaseRequest(
+      req,
+      "schools",
+      { method: "PATCH", body: jsonBody({ school_type: body.schoolType }) },
+      `?id=eq.${encodeURIComponent(schoolId)}&select=*`,
+    ).catch((error: unknown) => {
+      if (/school_type/i.test(error instanceof Error ? error.message : "")) {
+        throw new Error("School types are not set up in the database yet. Run supabase/primary-setup.sql in the Supabase SQL editor, then try again.");
+      }
+      throw error;
+    }));
+    if (body.schoolType === "primary") {
+      // Give the school its primary classes unless it already has classes of its own.
+      const dataRows = asRows(await supabaseRequest(req, "school_data", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=data`));
+      const data = dataRows[0]?.data && typeof dataRows[0].data === "object" && !Array.isArray(dataRows[0].data) ? dataRows[0].data as Record<string, unknown> : null;
+      const subjects = data?.subjects && typeof data.subjects === "object" && !Array.isArray(data.subjects) ? data.subjects as Record<string, unknown> : {};
+      if (data && !Object.keys(subjects).length) {
+        await supabaseRequest(req, "school_data", {
+          method: "PATCH",
+          body: jsonBody({ data: { ...data, subjects: Object.fromEntries(PRIMARY_CLASSES.map((name) => [name, []])) }, updated_at: new Date().toISOString() }),
+        }, `?school_id=eq.${encodeURIComponent(schoolId)}`);
+      }
+    }
+    res.json(mapSchool(rows[0] ?? current[0]));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 router.get("/schools/portfolio/analytics", async (req, res) => {
   try {
     if (!await authorizeSuperAdmin(req, res)) return;
@@ -783,6 +841,7 @@ router.get("/schools/portfolio/analytics", async (req, res) => {
         name: String(schoolRow.name ?? ""),
         slug: String(schoolRow.slug ?? ""),
         active: Boolean(schoolRow.active),
+        schoolType: schoolRow.school_type === "primary" ? "primary" : "secondary",
         studentCount: termStudents.length,
         classCount: classes.size,
         marksCompletionPercent: percentage,

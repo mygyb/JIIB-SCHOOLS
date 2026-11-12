@@ -13,6 +13,14 @@ export interface ErrorResponse {
   error: string;
 }
 
+export type SchoolSchoolType = typeof SchoolSchoolType[keyof typeof SchoolSchoolType];
+
+
+export const SchoolSchoolType = {
+  primary: 'primary',
+  secondary: 'secondary',
+} as const;
+
 export interface School {
   id: string;
   name: string;
@@ -20,6 +28,7 @@ export interface School {
   /** @nullable */
   logoUrl?: string | null;
   active: boolean;
+  schoolType?: SchoolSchoolType;
 }
 
 export interface SchoolSubjectAssignment {
@@ -156,6 +165,14 @@ export interface PortalAccessRequestReviewResult {
   schoolName: string | null;
 }
 
+export type SchoolRegistrationInputSchoolType = typeof SchoolRegistrationInputSchoolType[keyof typeof SchoolRegistrationInputSchoolType];
+
+
+export const SchoolRegistrationInputSchoolType = {
+  primary: 'primary',
+  secondary: 'secondary',
+} as const;
+
 export type AssessmentFieldField = typeof AssessmentFieldField[keyof typeof AssessmentFieldField];
 
 
@@ -197,6 +214,7 @@ export interface SchoolRegistrationInput {
   /** @nullable */
   initialAdminName?: string | null;
   address?: string;
+  schoolType?: SchoolRegistrationInputSchoolType;
   assessmentFields?: AssessmentField[];
 }
 

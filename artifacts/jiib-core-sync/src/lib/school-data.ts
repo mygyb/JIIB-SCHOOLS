@@ -344,3 +344,11 @@ export function optionalSubjectsClassOf(config: SchoolConfig | null | undefined)
   const settings = config?.settings && typeof config.settings === "object" ? (config.settings as Record<string, unknown>) : {};
   return String(settings.optionalSubjectsClass ?? "S.3");
 }
+
+// ---- School type (set by the super administrator) ----
+export type SchoolType = "primary" | "secondary";
+export const isPrimarySchool = (school: { schoolType?: string } | null | undefined) => school?.schoolType === "primary";
+/** Wording used in a primary school's menus: pupils instead of students. */
+export function primaryLabel(text: string) {
+  return text.replace(/\bStudents\b/g, "Pupils").replace(/\bstudents\b/g, "pupils").replace(/\bStudent\b/g, "Pupil");
+}

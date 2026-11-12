@@ -41,6 +41,8 @@ export * from './schoolConfigInput';
 export * from './schoolConfigInputData';
 export * from './schoolProfileUpdate';
 export * from './schoolRegistrationInput';
+export * from './schoolRegistrationInputSchoolType';
+export * from './schoolSchoolType';
 export * from './schoolStatusInput';
 export * from './schoolSubjectAssignment';
 export * from './schoolTerm';
