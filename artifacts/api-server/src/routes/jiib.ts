@@ -53,7 +53,7 @@ import {
 import { listSchoolActivity, logTeacherActivity } from "../lib/activity.js";
 import { aLevelEnabled as isALevelEnabledOn, combinationsOf, combinationsProblem, papersOf, enrolmentSubjects, resolveEnrolment, subjectsProblem, type Combination, type Enrolment } from "../lib/alevel.js";
 import { cellKey, conversionsFor, convertConfigTerms, convertTable, planRescale, scaleMapper, scaleValue, type Conversion, type Mapper } from "../lib/rescale.js";
-import { accountIsBlocked, clientIp, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
+import { accountIsBlocked, clientIp, isSuperAdminEmail, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
 const router: IRouter = Router();
 
@@ -762,6 +762,31 @@ router.patch("/schools/:schoolId/status", async (req, res) => {
       return;
     }
     res.json(mapSchool(rows[0]));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+const AdminPasswordBody = z.object({ email: z.string().trim().email(), password: z.string().min(8).max(128) });
+// Super administrator only: set a new password for one of a school's administrators (for example when the e-mail already had
+// an account from before, so the first password typed at registration could not be applied, or when it was forgotten).
+router.put("/schools/:schoolId/admin-password", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    if (!isSupabaseAdminConfigured()) { res.status(503).json({ error: "Account management is not configured. Add SUPABASE_SERVICE_ROLE_KEY." }); return; }
+    const { schoolId } = GetSchoolConfigParams.parse(req.params);
+    const body = AdminPasswordBody.parse(req.body);
+    const email = body.email.toLowerCase();
+    if (isSuperAdminEmail(email)) {
+      res.status(409).json({ error: "This is your own system administrator account, so its password is not changed here. Sign in to the school with your normal password, or register the school with a different administrator email." });
+      return;
+    }
+    const roster = asRows(await supabaseAdminRequest(`/rest/v1/allowed_users?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(email)}&select=role&limit=1`));
+    if (!roster[0] || staffRole(roster[0].role) !== "admin") { res.status(404).json({ error: "That email is not an administrator of this school." }); return; }
+    const existing = await findSupabaseAuthUserByEmail(email);
+    if (existing) await updateSupabaseAuthUser(existing.id, { password: body.password, email_confirm: true });
+    else await createSupabaseAuthUser(email, body.password, email.split("@")[0]);
+    res.json({ updated: true });
   } catch (error) {
     sendError(res, error);
   }
