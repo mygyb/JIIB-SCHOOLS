@@ -1,6 +1,6 @@
 // The numbers behind the Performance page: student averages, class ranking (ties share a rank), grades, class summaries and subject results.
 // An average is the mean of a student's subject totals as a percentage of the assessment maximum, the same rule the page always used.
-import { markTotal, type AssessmentField } from '@/lib/school-data';
+import { compareClasses, markTotal, plePointsFor, pleDivision, pleSubjectKind, primaryStage, type AssessmentField } from '@/lib/school-data';
 import { gradeFor, type GradeBand } from '@/features/report-studio/report-model';
 
 export type PerfStudent = { id: string; name: string; className: string };
@@ -17,6 +17,8 @@ export type StudentRow = {
   rank: number; // position within the class (ties share a position)
   best?: SubjectScore;
   weakest?: SubjectScore;
+  /** Primary P.7 only: aggregate of English, Mathematics, Science and Social Studies, and the division it gives. */
+  ple?: { aggregate: number | null; division: string };
 };
 
 export type ClassSummary = {
@@ -52,7 +54,20 @@ export type Performance = {
 };
 
 const oneDecimal = (value: number) => Math.round(value * 10) / 10;
-const naturalCompare = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+const naturalCompare = (a: string, b: string) => compareClasses(a, b);
+
+/** PLE aggregate from a pupil's four core subjects; null until all four have marks. */
+function pleOf(scores: SubjectScore[], grading: GradeBand[]): { aggregate: number | null; division: string } {
+  const picked = new Map<string, number>();
+  for (const score of scores) { const kind = pleSubjectKind(score.subject); if (kind && !picked.has(kind)) picked.set(kind, score.percent); }
+  if (picked.size < 4) return { aggregate: null, division: '—' };
+  let aggregate = 0;
+  for (const percent of picked.values()) {
+    const digit = /(\d)\s*$/.exec(gradeFor(percent, grading).grade);
+    aggregate += digit ? Number(digit[1]) : plePointsFor(percent);
+  }
+  return { aggregate, division: pleDivision(aggregate) };
+}
 
 export function compute(input: {
   students: PerfStudent[];
@@ -60,6 +75,7 @@ export function compute(input: {
   fields: AssessmentField[];
   grading: GradeBand[];
   settings: PerformanceSettings;
+  primary?: boolean;
 }): Performance {
   const { students, marks, fields, grading, settings } = input;
   const maxTotal = Math.max(1, fields.reduce((total, field) => total + field.max, 0));
@@ -82,6 +98,7 @@ export function compute(input: {
       id: student.id, name: student.name, className: student.className, average, subjects: items.length,
       grade: gradeFor(average, grading).grade,
       best: sorted[0], weakest: sorted.length > 1 ? sorted[sorted.length - 1] : undefined,
+      ...(input.primary && primaryStage(student.className) === 'ple' ? { ple: pleOf(scores, grading) } : {}),
     });
   }
 

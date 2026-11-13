@@ -337,10 +337,61 @@ export function aLevelStudentResult(
 
 // ---- Classes and optional subjects ----
 /** The number in a class name: "S.3" -> 3. */
-export const classLevel = (value: string) => Number(String(value).match(/\d+/)?.[0] ?? 0);
+// Nursery sections sit below P.1 so promotion and sorting run Baby, Middle, Top, P.1 ... P.7.
+export const classLevel = (value: string) => {
+  const text = String(value).trim();
+  if (/^baby/i.test(text)) return -2;
+  if (/^middle/i.test(text)) return -1;
+  if (/^top\b/i.test(text)) return 0;
+  return Number(text.match(/\d+/)?.[0] ?? 0);
+};
 
 /** The class where students begin choosing optional subjects (S.3 unless the school changed it). */
 export function optionalSubjectsClassOf(config: SchoolConfig | null | undefined) {
   const settings = config?.settings && typeof config.settings === "object" ? (config.settings as Record<string, unknown>) : {};
   return String(settings.optionalSubjectsClass ?? "S.3");
 }
+
+// ---- School type (set by the super administrator) ----
+export type SchoolType = "primary" | "secondary";
+export const isPrimarySchool = (school: { schoolType?: string } | null | undefined) => school?.schoolType === "primary";
+/** Wording used in a primary school's menus: pupils instead of students. */
+export function primaryLabel(text: string) {
+  return text.replace(/\bStudents\b/g, "Pupils").replace(/\bstudents\b/g, "pupils").replace(/\bStudent\b/g, "Pupil");
+}
+
+// ---- Primary school stages, PLE grades and competence ratings ----
+export type PrimaryStage = "nursery" | "lower" | "upper" | "ple";
+/** Nursery (Baby/Middle/Top), lower primary P.1-P.3, upper primary P.4-P.6 and P.7 (the PLE class). Null for other class names. */
+export function primaryStage(className: string): PrimaryStage | null {
+  const text = String(className).trim();
+  if (/^(baby|middle|top\b|nursery|kg)/i.test(text)) return "nursery";
+  const match = /^p(?:rimary)?[\s.]*([1-7])(?!\d)/i.exec(text);
+  if (!match) return null;
+  const level = Number(match[1]);
+  return level <= 3 ? "lower" : level === 7 ? "ple" : "upper";
+}
+
+/** Fixed UNEB-style points, used when the school's own grade names are not D1...F9. */
+export function plePointsFor(percent: number): number {
+  return percent >= 90 ? 1 : percent >= 80 ? 2 : percent >= 70 ? 3 : percent >= 60 ? 4 : percent >= 55 ? 5 : percent >= 50 ? 6 : percent >= 45 ? 7 : percent >= 40 ? 8 : 9;
+}
+/** PLE division from the aggregate of the four subjects (4 best = 4, worst = 36). */
+export function pleDivision(aggregate: number): string {
+  return aggregate <= 12 ? "Division 1" : aggregate <= 23 ? "Division 2" : aggregate <= 29 ? "Division 3" : aggregate <= 34 ? "Division 4" : "Ungraded (U)";
+}
+/** Wording for lower primary and nursery, where a competence rating goes beside the marks. */
+export function competenceFor(percent: number): { label: string; short: string } {
+  return percent >= 80 ? { label: "HIGHLY COMPETENT", short: "Highly competent" }
+    : percent >= 60 ? { label: "COMPETENT", short: "Competent" }
+      : percent >= 40 ? { label: "DEVELOPING", short: "Developing" }
+        : { label: "BEGINNING", short: "Beginning" };
+}
+/** The four PLE subjects are found by name: English, Mathematics, Science and Social Studies. */
+export function pleSubjectKind(subject: string): "english" | "maths" | "science" | "sst" | null {
+  const text = subject.toLowerCase();
+  return /english/.test(text) ? "english" : /math/.test(text) ? "maths" : /science/.test(text) ? "science" : /social|sst/.test(text) ? "sst" : null;
+}
+
+/** Class order for lists: nursery, then P.1 upward (or S.1 upward), then streams by name. */
+export const compareClasses = (a: string, b: string) => classLevel(a) - classLevel(b) || a.localeCompare(b, undefined, { numeric: true });

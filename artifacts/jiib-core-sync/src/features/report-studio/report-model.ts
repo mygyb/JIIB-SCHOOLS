@@ -1,6 +1,6 @@
 // Turns the school's students, marks, subjects and grading into the numbers printed on a report.
 // Ported from the Report Studio design file, using the app's own data instead of browser storage.
-import { finalTotal, getAssessmentFields, weightedScore, type AssessmentField, type AssessmentFieldId, type SchoolConfig } from "@/lib/school-data";
+import { competenceFor, finalTotal, getAssessmentFields, plePointsFor, pleDivision, pleSubjectKind, primaryStage, weightedScore, type AssessmentField, type AssessmentFieldId, type SchoolConfig } from "@/lib/school-data";
 
 export type ReportType = "midterm" | "endterm";
 
@@ -39,6 +39,11 @@ export type StudentReport = {
   resultCategory: string;
   weakSubjects: string[];
   lowestPercent: number | null;
+  /** Primary P.7 only: the four PLE subjects, their points, the aggregate and the division. */
+  ple: { subjects: Array<{ name: string; points: number | null }>; aggregate: number | null; division: string } | null;
+  /** Primary schools: the stage of the pupil's class decides whether PLE or competence wording is shown. */
+  stage: ReturnType<typeof primaryStage>;
+  primary: boolean;
 };
 
 export type ReportDataset = {
@@ -105,7 +110,8 @@ function subjectRecordsFor(config: SchoolConfig, className: string) {
   });
 }
 
-export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], config: SchoolConfig): ReportDataset {
+export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], config: SchoolConfig, options: { primary?: boolean } = {}): ReportDataset {
+  const primary = Boolean(options.primary);
   const fields = getAssessmentFields(config);
   const grading = readGrading(config);
   const settings = (config.settings && typeof config.settings === "object" ? config.settings : {}) as Record<string, unknown>;
@@ -117,7 +123,8 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
   const subjectsFor = (student: ReportStudent) => {
     const all = subjectRecordsFor(config, student.className);
     const classNumber = numberFromClass(student.className);
-    const optional = classNumber !== null && optionalFrom !== null && classNumber >= optionalFrom;
+    // Primary pupils always take every subject of their class; optional subjects are a secondary-school idea.
+    const optional = !primary && classNumber !== null && optionalFrom !== null && classNumber >= optionalFrom;
     if (!optional) return all;
     // Upper classes: only subjects the student is actually enrolled in appear on the report.
     const assigned = new Set(student.subjects.map(norm));
@@ -152,7 +159,15 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
         const total = any ? finalTotal(type === "endterm" ? Math.min(100, sum) : sum, fields) : null;
         const percent = total === null ? null : (total / maxPossible) * 100;
         const grade = total === null ? null : gradeFor(type === "endterm" ? total : percent ?? 0, grading);
-        const descriptor = percent === null ? null : descriptorFor(percent, grade?.grade);
+        const stage = primary ? primaryStage(student.className) : null;
+        // Nursery and lower primary get a competence rating next to the marks; everyone else keeps the grade descriptor.
+        const competence = percent !== null && (stage === "lower" || stage === "nursery") ? competenceFor(percent) : null;
+        const descriptor = percent === null ? null : competence
+          ? { label: competence.label, cls: (percent >= 60 ? "rc-descriptor-outstanding" : percent >= 40 ? "rc-descriptor-moderate" : "rc-descriptor-basic") as Descriptor["cls"] }
+          : primary && grade?.descriptor && /^[DCPF]\d$/.test(grade.grade)
+            // PLE-style grade tables: the descriptor printed is the school's own word (Distinction, Credit, Pass, Fail).
+            ? { label: grade.descriptor.toUpperCase(), cls: (/^D|^C/.test(grade.grade) ? "rc-descriptor-outstanding" : grade.grade.startsWith("P") ? "rc-descriptor-moderate" : "rc-descriptor-basic") as Descriptor["cls"] }
+            : descriptorFor(percent, grade?.grade);
         const outOf3 = total === null ? "" : Math.min(3, (total / maxPossible) * 3).toFixed(2);
         return { name: subject.name, teacher: subject.teacher, cols, total, grade, descriptor, outOf3 };
       });
@@ -184,6 +199,22 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
       const averageLevel = levels.indexOf(descriptorFor((averageValue / maxPossible) * 100).label);
       const overallDescriptor = [...counts.values()].sort((a, b) => b.n - a.n || Math.abs(levels.indexOf(a.d.label) - averageLevel) - Math.abs(levels.indexOf(b.d.label) - averageLevel))[0]?.d ?? null;
 
+      const stage = primary ? primaryStage(student.className) : null;
+      let ple: StudentReport["ple"] = null;
+      if (stage === "ple" && type === "endterm") {
+        // The first subject of each kind counts; the aggregate only exists when all four have marks.
+        const picked = new Map<string, SubjectResult>();
+        for (const item of results) { const kind = pleSubjectKind(item.name); if (kind && !picked.has(kind)) picked.set(kind, item); }
+        const subjects = ["english", "maths", "science", "sst"].map((kind) => {
+          const item = picked.get(kind);
+          if (!item || item.total === null) return { name: item?.name ?? ({ english: "English", maths: "Mathematics", science: "Science", sst: "Social Studies" } as Record<string, string>)[kind], points: null as number | null };
+          const digit = /(\d)\s*$/.exec(item.grade?.grade ?? "");
+          return { name: item.name, points: digit ? Number(digit[1]) : plePointsFor(item.total) };
+        });
+        const complete = subjects.every((item) => item.points !== null);
+        const aggregate = complete ? subjects.reduce((sum, item) => sum + (item.points ?? 0), 0) : null;
+        ple = { subjects, aggregate, division: aggregate === null ? "—" : pleDivision(aggregate) };
+      }
       const lowest = scored.length ? Math.min(...scored.map((item) => item.total!)) : null;
       const weakSubjects = lowest === null ? [] : scored.filter((item) => item.total === lowest && lowest > 0).map((item) => item.name);
 
@@ -205,6 +236,9 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
         resultCategory: overall === null ? "—" : overall >= 2 ? "RESULT 1" : "RESULT 2",
         weakSubjects,
         lowestPercent: lowest === null ? null : (lowest / maxPossible) * 100,
+        ple,
+        stage,
+        primary,
       });
     });
     return out;

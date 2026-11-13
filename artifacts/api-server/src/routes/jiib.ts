@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { registerFinanceRoutes } from "./finance.js";
+import { parentFeeSummary, registerFinanceRoutes } from "./finance.js";
 import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
@@ -69,8 +69,41 @@ function mapSchool(row: Record<string, unknown>) {
     slug: String(row.slug ?? ""),
     logoUrl: (row.logo_url as string | null | undefined) ?? null,
     active: Boolean(row.active),
+    // Set by the super administrator. Schools without the column (or any other value) are secondary schools.
+    schoolType: row.school_type === "primary" ? "primary" : "secondary",
   };
 }
+
+// What a new primary school starts with: classes (optional nursery, then P.1-P.7), their subjects, three assessments
+// (Beginning / Middle / End of term, 20 + 20 + 60) and the PLE grade table. Everything stays editable by the school.
+const PRIMARY_NURSERY = ["Baby", "Middle", "Top"];
+const PRIMARY_LOWER = ["P.1", "P.2", "P.3"];
+const PRIMARY_UPPER = ["P.4", "P.5", "P.6", "P.7"];
+const PRIMARY_CLASSES = [...PRIMARY_NURSERY, ...PRIMARY_LOWER, ...PRIMARY_UPPER];
+const primarySubjects = (name: string) => (
+  PRIMARY_NURSERY.includes(name) ? ["Language Development", "Number Work", "Social Development", "Creative Arts"]
+    : PRIMARY_LOWER.includes(name) ? ["English Language", "Mathematics", "Local Language", "Religious Education"]
+      : ["English Language", "Mathematics", "Integrated Science", "Social Studies", "Religious Education"]
+).map((subject) => ({ name: subject, teacher: "" }));
+const PRIMARY_ASSESSMENT = [
+  { name: "Beginning of Term", field: "c1" as const, max: 20 },
+  { name: "Mid Term", field: "c2" as const, max: 20 },
+  { name: "End of Term", field: "c3" as const, max: 60 },
+];
+const PRIMARY_GRADING = [
+  { grade: "D1", min: 90, max: 100, descriptor: "DISTINCTION" },
+  { grade: "D2", min: 80, max: 89, descriptor: "DISTINCTION" },
+  { grade: "C3", min: 70, max: 79, descriptor: "CREDIT" },
+  { grade: "C4", min: 60, max: 69, descriptor: "CREDIT" },
+  { grade: "C5", min: 55, max: 59, descriptor: "CREDIT" },
+  { grade: "C6", min: 50, max: 54, descriptor: "CREDIT" },
+  { grade: "P7", min: 45, max: 49, descriptor: "PASS" },
+  { grade: "P8", min: 40, max: 44, descriptor: "PASS" },
+  { grade: "F9", min: 0, max: 39, descriptor: "FAIL" },
+];
+const primaryClassSubjects = () => Object.fromEntries(PRIMARY_CLASSES.map((name) => [name, primarySubjects(name)]));
+// "P.99": no class ever reaches the point where pupils pick optional subjects, so every pupil takes their class's subjects.
+const PRIMARY_SETTINGS = { schoolType: "primary", optionalSubjectsClass: "P.99" };
 
 function mapStudent(row: Record<string, unknown>) {
   return {
@@ -198,7 +231,9 @@ const SchoolRegistrationBody = z.object({
   initialAdminName: z.string().trim().max(160).nullable().optional(),
   address: z.string().trim().max(300).optional(),
   assessmentFields: z.array(AssessmentFieldBody).min(1).max(3).optional(),
+  schoolType: z.enum(["primary", "secondary"]).default("secondary"),
 });
+const SchoolTypeBody = z.object({ schoolType: z.enum(["primary", "secondary"]) });
 const SchoolStatusBody = z.object({ active: z.boolean() });
 const HelpMessageBody = z.object({ message: z.string().trim().min(1).max(5000) });
 const SupportBroadcastBody = z.object({
@@ -562,11 +597,11 @@ router.post("/schools", async (req, res) => {
       res.status(503).json({ error: "School administrator invitations are not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
       return;
     }
-    const assessmentFields = body.assessmentFields ?? [
+    const assessmentFields = body.assessmentFields ?? (body.schoolType === "primary" ? PRIMARY_ASSESSMENT : [
       { name: "AOI", field: "c1" as const, max: 10 },
       { name: "Midterm", field: "c2" as const, max: 10 },
       { name: "End of Term", field: "c3" as const, max: 80 },
-    ];
+    ]);
     if (new Set(assessmentFields.map((field) => field.field)).size !== assessmentFields.length) {
       res.status(400).json({ error: "Each assessment component must use a different mark field." });
       return;
@@ -596,10 +631,17 @@ router.post("/schools", async (req, res) => {
           slug: body.slug,
           logo_url: body.logoUrl ?? null,
           active: true,
+          // Only written for primary schools, so secondary registration keeps working before the SQL below is run.
+          ...(body.schoolType === "primary" ? { school_type: "primary" } : {}),
         }),
       },
       "?select=*",
-    ));
+    ).catch((error: unknown) => {
+      if (body.schoolType === "primary" && /school_type/i.test(error instanceof Error ? error.message : "")) {
+        throw new Error("Primary schools are not set up in the database yet. Run supabase/primary-setup.sql in the Supabase SQL editor, then try again.");
+      }
+      throw error;
+    }));
     const school = schoolRows[0];
     if (!school) throw new Error("The school record was not created.");
     const schoolId = String(school.id);
@@ -607,7 +649,8 @@ router.post("/schools", async (req, res) => {
     const termKey = `${year}-T1`;
     const config = {
       activeTerm: termKey,
-      subjects: {},
+      subjects: body.schoolType === "primary" ? primaryClassSubjects() : {},
+      ...(body.schoolType === "primary" ? { grading: PRIMARY_GRADING } : {}),
       terms: {
         [termKey]: {
           label: `Term 1 — ${year}`,
@@ -622,6 +665,7 @@ router.post("/schools", async (req, res) => {
         houses: [],
         marksSchema: assessmentFields,
         activeMarkColumns: assessmentFields.map((field) => field.field),
+        ...(body.schoolType === "primary" ? PRIMARY_SETTINGS : {}),
       },
     };
     let invitationSent: boolean | undefined;
@@ -696,6 +740,67 @@ router.patch("/schools/:schoolId/status", async (req, res) => {
       return;
     }
     res.json(mapSchool(rows[0]));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// Super administrator only: change a school between primary and secondary. Refused once the school has students,
+// because their classes, subjects and marks follow the school type.
+router.patch("/schools/:schoolId/type", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    const { schoolId } = GetSchoolConfigParams.parse(req.params);
+    const body = SchoolTypeBody.parse(req.body);
+    const current = asRows(await supabaseRequest(req, "schools", {}, `?id=eq.${encodeURIComponent(schoolId)}&select=*`));
+    if (!current[0]) { res.status(404).json({ error: "School not found." }); return; }
+    if ((current[0].school_type === "primary" ? "primary" : "secondary") === body.schoolType) { res.json(mapSchool(current[0])); return; }
+    const existing = asRows(await supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=id&limit=1`));
+    if (existing.length) {
+      res.status(409).json({ error: "This school already has students, so its type can no longer be changed." });
+      return;
+    }
+    const rows = asRows(await supabaseRequest(
+      req,
+      "schools",
+      { method: "PATCH", body: jsonBody({ school_type: body.schoolType }) },
+      `?id=eq.${encodeURIComponent(schoolId)}&select=*`,
+    ).catch((error: unknown) => {
+      if (/school_type/i.test(error instanceof Error ? error.message : "")) {
+        throw new Error("School types are not set up in the database yet. Run supabase/primary-setup.sql in the Supabase SQL editor, then try again.");
+      }
+      throw error;
+    }));
+    // No students yet, so the school's setup can follow its new type. Classes the school already made are kept.
+    const dataRows = asRows(await supabaseRequest(req, "school_data", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=data`));
+    const data = dataRows[0]?.data && typeof dataRows[0].data === "object" && !Array.isArray(dataRows[0].data) ? dataRows[0].data as Record<string, unknown> : null;
+    if (data) {
+      const subjects = data.subjects && typeof data.subjects === "object" && !Array.isArray(data.subjects) ? data.subjects as Record<string, unknown> : {};
+      const settings = data.settings && typeof data.settings === "object" && !Array.isArray(data.settings) ? { ...(data.settings as Record<string, unknown>) } : {};
+      let next: Record<string, unknown>;
+      if (body.schoolType === "primary") {
+        next = {
+          ...data,
+          subjects: Object.keys(subjects).length ? subjects : primaryClassSubjects(),
+          grading: Array.isArray(data.grading) && data.grading.length ? data.grading : PRIMARY_GRADING,
+          settings: { ...settings, ...PRIMARY_SETTINGS, marksSchema: PRIMARY_ASSESSMENT, activeMarkColumns: PRIMARY_ASSESSMENT.map((field) => field.field) },
+        };
+      } else {
+        delete settings.schoolType;
+        if (settings.optionalSubjectsClass === "P.99") delete settings.optionalSubjectsClass;
+        const schema = Array.isArray(settings.marksSchema) ? settings.marksSchema as Array<Record<string, unknown>> : [];
+        if (schema[0]?.name === PRIMARY_ASSESSMENT[0].name) {
+          settings.marksSchema = [{ name: "AOI", field: "c1", max: 10 }, { name: "Midterm", field: "c2", max: 10 }, { name: "End of Term", field: "c3", max: 80 }];
+        }
+        const grading = Array.isArray(data.grading) ? data.grading as Array<Record<string, unknown>> : [];
+        next = { ...data, ...(grading[0]?.grade === "D1" ? { grading: [] } : {}), settings };
+      }
+      await supabaseRequest(req, "school_data", {
+        method: "PATCH",
+        body: jsonBody({ data: next, updated_at: new Date().toISOString() }),
+      }, `?school_id=eq.${encodeURIComponent(schoolId)}`);
+    }
+    res.json(mapSchool(rows[0] ?? current[0]));
   } catch (error) {
     sendError(res, error);
   }
@@ -783,6 +888,7 @@ router.get("/schools/portfolio/analytics", async (req, res) => {
         name: String(schoolRow.name ?? ""),
         slug: String(schoolRow.slug ?? ""),
         active: Boolean(schoolRow.active),
+        schoolType: schoolRow.school_type === "primary" ? "primary" : "secondary",
         studentCount: termStudents.length,
         classCount: classes.size,
         marksCompletionPercent: percentage,
@@ -947,7 +1053,9 @@ router.get("/schools/:schoolId/parents/portal", async (req, res) => {
         `?id=eq.${encodeURIComponent(schoolId)}&select=name&limit=1`,
       ),
     );
-    res.json({ ...portal, schoolName: String(schoolRows[0]?.name ?? "") });
+    // Fee balances for this parent's own children only. Never blocks the portal if finance is not set up.
+    const fees = await parentFeeSummary({ readSchoolConfig }, req, schoolId, portal.students.map((student: { id: string }) => student.id)).catch(() => []);
+    res.json({ ...portal, schoolName: String(schoolRows[0]?.name ?? ""), fees });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not load the parent portal.";
     res.status(message.includes("restricted") ? 403 : 400).json({ error: message });

@@ -23,6 +23,8 @@ export type ReportContext = {
   template: TemplateId;
   grading: GradeBand[];
   bills?: { label: string }[];
+  /** Primary school: pupil wording, PLE division or competence ratings instead of the secondary result categories. */
+  primary?: boolean;
 };
 
 const esc = (value: unknown) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -38,14 +40,28 @@ const DEFAULT_BILLS = [
 
 const TRAITS = ["Punctuality", "Mental Alertness", "Behavior", "Reliability", "Respect", "Neatness", "Politeness", "Honesty", "Relationship with Staff", "Relationship with Others"];
 
-const gradeClass = (grade?: string) => ({ A: "rc-grade-A", B: "rc-grade-B", C: "rc-grade-C", D: "rc-grade-D", E: "rc-grade-E" } as Record<string, string>)[grade ?? ""] ?? "";
+const gradeClass = (grade?: string) => {
+  const plain = ({ A: "rc-grade-A", B: "rc-grade-B", C: "rc-grade-C", D: "rc-grade-D", E: "rc-grade-E" } as Record<string, string>)[grade ?? ""];
+  if (plain) return plain;
+  // PLE grades: D1-D2 distinction, C3-C4 / C5-C6 credit, P7-P8 pass, F9 fail.
+  const ple = /^([DCPF])(\d)$/.exec(grade ?? "");
+  if (!ple) return "";
+  return ple[1] === "D" ? "rc-grade-A" : ple[1] === "C" ? (Number(ple[2]) <= 4 ? "rc-grade-B" : "rc-grade-C") : ple[1] === "P" ? "rc-grade-D" : "rc-grade-E";
+};
+
+const PLE_DIVISIONS = [
+  ["Division 1", "Aggregate 4 – 12"], ["Division 2", "Aggregate 13 – 23"], ["Division 3", "Aggregate 24 – 29"], ["Division 4", "Aggregate 30 – 34"], ["Ungraded (U)", "Aggregate 35 – 36"],
+];
+const COMPETENCE_KEY = [
+  ["HIGHLY COMPETENT", "80% and above"], ["COMPETENT", "60% – 79%"], ["DEVELOPING", "40% – 59%"], ["BEGINNING", "Below 40%"],
+];
 
 function termNumber(label: string) {
   return (label.match(/term\s*(\d)/i) || [])[1] ?? "";
 }
 
 function classTeacherComment(report: StudentReport) {
-  const first = esc(report.student.name.split(/\s+/)[0] || "The student");
+  const first = esc(report.student.name.split(/\s+/)[0] || (report.primary ? "The pupil" : "The student"));
   const red = (value: string) => `<span style="color:#c0392b;font-weight:800;font-style:normal;">${esc(value)}</span>`;
   const weak = report.weakSubjects;
   if (!report.subjects.length || report.lowestPercent === null) return `${first} has shown encouraging effort.`;
@@ -58,8 +74,12 @@ function classTeacherComment(report: StudentReport) {
 
 function headTeacherComment(report: StudentReport) {
   switch (report.overallDescriptor?.label) {
+    case "DISTINCTION":
     case "EXCEPTIONAL":
     case "OUTSTANDING": return "Excellent performance! Keep it up.";
+    case "CREDIT": return "Good performance. Keep working hard.";
+    case "PASS": return "Fair performance. More effort is needed to improve.";
+    case "FAIL": return "More effort needed to improve overall results.";
     case "SATISFACTORY": return "Very good performance across most subjects.";
     case "BASIC": return "Fair performance. More effort is needed to improve.";
     case "ELEMENTARY": return "More effort needed to improve overall grades.";
@@ -127,6 +147,35 @@ export function buildSlipPage(reports: StudentReport[], ctx: ReportContext, qrs:
   </div>`;
 }
 
+function primaryKeyRows(report: StudentReport) {
+  const rows = report.stage === "ple" ? PLE_DIVISIONS : COMPETENCE_KEY;
+  return rows.map(([head, rest]) => `<tr><td colspan="3" style="font-size:6.5pt;color:#1a1a1a;padding:3px 5px;"><strong style="color:#1a3a6b;">${esc(head)}</strong> — ${esc(rest)}</td></tr>`).join("");
+}
+
+/** Primary summary band: PLE aggregate and division for P.7, otherwise the average and overall performance. */
+function primarySummary(report: StudentReport, overallCls: string) {
+  if (report.ple) {
+    const points = report.ple.subjects.map((item) => `<span style="margin:0 6px;white-space:nowrap;">${esc(item.name)}: <b>${item.points ?? "-"}</b></span>`).join("");
+    return `<table class="rc-summary-row-table" style="margin-top:8px;">
+      <thead><tr><th style="text-align:left;width:auto;">PLE SUBJECT POINTS (1 = best, 9 = lowest)</th><th>AGGREGATE</th><th>DIVISION</th></tr></thead>
+      <tbody><tr><td style="font-size:8pt;">${points}</td><td style="font-size:11pt;font-weight:900;color:#1a3a6b;">${report.ple.aggregate ?? "—"}</td><td style="font-weight:800;color:#c0392b;">${esc(report.ple.division)}</td></tr></tbody>
+    </table>`;
+  }
+  return `<table class="rc-summary-row-table" style="margin-top:8px;">
+    <thead><tr><th style="text-align:left;width:auto;">OVERALL AVERAGE</th><th>OVERALL PERFORMANCE</th></tr></thead>
+    <tbody><tr><td style="font-size:9pt;font-weight:900;color:#1a3a6b;">${esc(report.percentage)}</td><td><span class="${overallCls}" style="font-size:7.5pt;">${esc(report.overallDescriptor?.label ?? "—")}</span></td></tr></tbody>
+  </table>`;
+}
+
+function primaryScale(report: StudentReport, ctx: ReportContext) {
+  const rows = ctx.grading.map((band) => `<tr><td style="font-weight:900;">${esc(band.grade)}</td><td><b>${esc(band.descriptor)}</b></td><td><i>${band.min}% – ${band.max}%</i></td></tr>`).join("");
+  return `<div style="color:#111124;text-align:center;font-size:13px;font-weight:700;margin:4px 0;"><u>GRADING SCALE</u></div>
+    <table class="rc-descriptor-system-table">
+      <thead><tr><th style="width:70px;">GRADE</th><th style="width:130px;">ACHIEVEMENT</th><th>MARKS</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 /** A full end-of-term report card in the chosen template. */
 export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: string) {
   const { student, fields } = report;
@@ -146,13 +195,13 @@ export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: 
       <td class="subject-cell">${esc(subject.name)}</td>
       ${cols}
       <td><strong>${dash(subject.total)}</strong></td>
-      <td style="font-weight:800;color:#1a3a6b;">${dash(subject.outOf3)}</td>
+      ${ctx.primary ? "" : `<td style="font-weight:800;color:#1a3a6b;">${dash(subject.outOf3)}</td>`}
       <td>${grade}</td>
       <td>${descriptor}</td>
       <td style="font-weight:700;color:#1a3a6b;">${esc(subject.teacher || "-")}</td>
     </tr>`;
   }).join("");
-  const colCount = fields.length + 6;
+  const colCount = fields.length + (ctx.primary ? 5 : 6);
 
   const gradingRows = ctx.grading.map((band) => `<tr><td style="font-weight:700;text-align:center;">${esc(band.grade)}</td><td>${band.min}–${band.max}</td><td>${esc(band.descriptor)}</td></tr>`).join("");
   const billRows = (ctx.bills ?? DEFAULT_BILLS).map((bill) => {
@@ -181,7 +230,7 @@ export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: 
 
     <div class="rc-info-grid" style="display:flex;">
       <div style="flex:1;min-width:0;">
-        <div class="rc-info-row"><div class="rc-info-cell" style="flex:2.2;">${info("NAME OF STUDENT:", student.name.toUpperCase())}</div><div class="rc-info-cell">${info("CLASS:", student.className)}</div></div>
+        <div class="rc-info-row"><div class="rc-info-cell" style="flex:2.2;">${info(ctx.primary ? "NAME OF PUPIL:" : "NAME OF STUDENT:", student.name.toUpperCase())}</div><div class="rc-info-cell">${info("CLASS:", student.className)}</div></div>
         <div class="rc-info-row"><div class="rc-info-cell" style="flex:2.2;">${info("HOUSE:", (student.house || "").toUpperCase())}</div><div class="rc-info-cell">${info("YEAR:", ctx.year)}</div></div>
         <div class="rc-info-row"><div class="rc-info-cell" style="flex:2.2;">${info("CLOSING DATE:", ctx.closingDate)}</div><div class="rc-info-cell">${info("TERM:", ctx.termLabel)}</div></div>
         <div class="rc-info-row"><div class="rc-info-cell" style="flex:2.2;">${info("NEXT TERM BEGINS ON:", ctx.nextTermDate)}</div><div class="rc-info-cell">${info("NO. IN CLASS:", String(report.classSize))}</div></div>
@@ -203,15 +252,15 @@ export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: 
       <thead><tr>
         <th class="subject-col" style="width:auto;">SUBJECT</th>
         ${thCols}
-        <th style="width:36px;">OUT/3</th>
+        ${ctx.primary ? "" : `<th style="width:36px;">OUT/3</th>`}
         <th style="width:30px;">GRADE</th>
-        <th style="width:70px;">DESCRIPTOR</th>
+        <th style="width:70px;">${report.stage === "lower" || report.stage === "nursery" ? "COMPETENCE" : "DESCRIPTOR"}</th>
         <th style="width:30px;">INITIALS</th>
       </tr></thead>
       <tbody>${rows || `<tr><td colspan="${colCount}" style="text-align:center;padding:8px;color:#999;">No subjects configured</td></tr>`}</tbody>
     </table>
 
-    <table class="rc-summary-row-table" style="margin-top:8px;">
+${ctx.primary ? primarySummary(report, overallCls) : `<table class="rc-summary-row-table" style="margin-top:8px;">
       <thead><tr>
         <th style="text-align:left;width:auto;">OVERALL AVERAGE (out of 3)</th>
         <th>OVERALL PERFORMANCE</th>
@@ -222,9 +271,8 @@ export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: 
         <td><span class="${overallCls}" style="font-size:7.5pt;">${esc(report.overallDescriptor?.label ?? "—")}</span></td>
         <td style="font-weight:800;color:#c0392b;">${esc(report.resultCategory)}</td>
       </tr></tbody>
-    </table>
-
-    <div style="color:#111124;text-align:center;font-size:13px;font-weight:700;margin:4px 0;"><u>GRADING SCALE</u></div>
+    </table>`}
+${ctx.primary ? primaryScale(report, ctx) : `<div style="color:#111124;text-align:center;font-size:13px;font-weight:700;margin:4px 0;"><u>GRADING SCALE</u></div>
     <table class="rc-descriptor-system-table">
       <thead><tr><th style="width:70px;">GRADE</th><th style="width:130px;">ACHIEVEMENT LEVEL</th><th>DESCRIPTOR</th></tr></thead>
       <tbody>
@@ -234,7 +282,7 @@ export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: 
         <tr><td style="font-weight:900;">D</td><td><b>BASIC</b></td><td><i>Demonstrates minimum level of acquired knowledge &amp; skills in life</i></td></tr>
         <tr><td style="font-weight:900;">E</td><td><b>ELEMENTARY</b></td><td><i>Demonstrates basic level of acquired knowledge and skills in real life.</i></td></tr>
       </tbody>
-    </table>
+    </table>`}
 
     <div class="rc-bottom" style="margin-top:8px;">
       <div class="rc-bottom-col">
@@ -260,8 +308,8 @@ export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: 
         </tbody></table>
       </div>
       <div class="rc-bottom-col">
-        <div class="rc-bottom-title">RESULT CATEGORIES</div>
-        <table class="rc-bottom-table"><tbody>${billRows}</tbody></table>
+        <div class="rc-bottom-title">${ctx.primary ? (report.stage === "ple" ? "PLE DIVISIONS" : "COMPETENCE KEY") : "RESULT CATEGORIES"}</div>
+        <table class="rc-bottom-table"><tbody>${ctx.primary ? primaryKeyRows(report) : billRows}</tbody></table>
       </div>
     </div>
 

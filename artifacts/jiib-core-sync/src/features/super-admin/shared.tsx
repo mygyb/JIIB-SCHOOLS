@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { Laptop, Smartphone, Tablet } from 'lucide-react';
 import { jiibApi } from '@/lib/jiib-api';
 
-export type School = { id: string; name: string; slug: string; active: boolean; logoUrl?: string | null };
+export type School = { id: string; name: string; slug: string; active: boolean; logoUrl?: string | null; schoolType?: 'primary' | 'secondary' };
 export type PortfolioSchool = School & { studentCount: number; classCount: number; marksCompletionPercent: number };
 export type Portfolio = { schoolCount: number; activeSchoolCount: number; suspendedSchoolCount: number; staffCount: number; studentCount: number; marksCompletionPercent: number; schools: PortfolioSchool[] };
 export type Staff = { schoolId: string; email: string; displayName: string | null; role: 'admin' | 'teacher'; schoolName: string };

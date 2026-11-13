@@ -38,7 +38,7 @@ import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
 import { ALevelSetup } from '@/features/alevel-setup';
 import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } from '@/lib/school-data';
-import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
+import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, isPrimarySchool, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
 
 type Page =
   | 'promote'
@@ -1079,8 +1079,8 @@ function SchoolSettings({ school }: { school: School }) {
         <button data-testid="button-save-school-profile" onClick={() => config.save({ ...config.data, settings: { ...settings, address, phone } })} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Check size={15} /> Save school profile</button>
       </ShellCard>
       <HousesCard schoolId={school.id} />
-      <OptionalSubjectsCard schoolId={school.id} config={config.data as SchoolConfig} />
-      <ALevelToggleCard school={school} config={config.data as SchoolConfig} />
+      {!isPrimarySchool(school) && <OptionalSubjectsCard schoolId={school.id} config={config.data as SchoolConfig} />}
+      {!isPrimarySchool(school) && <ALevelToggleCard school={school} config={config.data as SchoolConfig} />}
       <ShellCard>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="font-display text-lg font-semibold">Assessment structure</h3><p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">Choose the assessments this school uses, and set the name and maximum score for each. These settings are shared with all school accounts.</p></div>

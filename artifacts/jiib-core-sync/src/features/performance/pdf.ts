@@ -13,6 +13,8 @@ export type PdfContext = {
   passMark: number;
   /** What the list shows, in words, e.g. "Academic giants: average of 80% or more" or "Top 5 students". */
   criterion: string;
+  /** Primary school: pupils instead of students. */
+  primary?: boolean;
   printedOn: string;
 };
 
@@ -115,7 +117,13 @@ function giantsBody(ctx: PdfContext, list: ClassList, rows: StudentRow[], first:
 }
 
 /** The honour roll: an optional school summary first, then one section per class (long lists continue on more pages). */
+const wording = (ctx: PdfContext, html: string) => (ctx.primary ? html.replace(/\bStudents\b/g, 'Pupils').replace(/\bstudents\b/g, 'pupils').replace(/\bStudent\b/g, 'Pupil').replace(/\bstudent\b/g, 'pupil') : html);
+
 export function giantsPages(ctx: PdfContext, lists: ClassList[], options: { summary: boolean; overall?: Performance['overall'] }): string[] {
+  return giantsPagesRaw(ctx, lists, options).map((html) => wording(ctx, html));
+}
+
+function giantsPagesRaw(ctx: PdfContext, lists: ClassList[], options: { summary: boolean; overall?: Performance['overall'] }): string[] {
   const bodies: string[] = [];
   if (options.summary && lists.length > 1) {
     for (const [index, part] of chunk(lists.map((l) => l.summary), SUMMARY_ROWS_PER_PAGE).entries()) {
@@ -149,7 +157,7 @@ function summaryBody(ctx: PdfContext, classes: ClassSummary[], overall: Performa
 export function summaryPages(ctx: PdfContext, classes: ClassSummary[], overall: Performance['overall']): string[] {
   const parts = chunk(classes, SUMMARY_ROWS_PER_PAGE);
   const closing = '<div class="pf-sign"><div>Director of studies</div><div>Head teacher</div></div>';
-  return parts.map((part, index) => page(ctx, summaryBody(ctx, part, overall, index === 0, false, 'Class Performance Summary', 'Academic review') + (index === parts.length - 1 ? closing : ''), index + 1, parts.length));
+  return parts.map((part, index) => wording(ctx, page(ctx, summaryBody(ctx, part, overall, index === 0, false, 'Class Performance Summary', 'Academic review') + (index === parts.length - 1 ? closing : ''), index + 1, parts.length)));
 }
 
 export const safeFileName = (...parts: string[]) => parts.join('-').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');

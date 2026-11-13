@@ -1,4 +1,5 @@
 // /finance/accounts — every student's fees, paid and balance; open one to set Day/Boarding, a custom structure and see receipts.
+import { compareClasses } from '@/lib/school-data';
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Banknote, Search, Trash2 } from 'lucide-react';
@@ -28,7 +29,7 @@ export function StudentFees() {
   if (search.trim()) params.set('search', search.trim());
   const accounts = useFin<AccountsResponse>(fin, 'accounts', `/accounts?${params}`);
   const everyone = useFin<AccountsResponse>(fin, 'accounts-all', `/accounts?termKey=${encodeURIComponent(fin.termKey)}`);
-  const classes = Array.from(new Set((everyone.data?.accounts ?? []).map((account) => account.className))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const classes = Array.from(new Set((everyone.data?.accounts ?? []).map((account) => account.className))).sort(compareClasses);
   const rows = accounts.data?.accounts ?? [];
 
   const bulk = async (studentType: StudentType) => {

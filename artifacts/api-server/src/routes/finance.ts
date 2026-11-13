@@ -165,6 +165,31 @@ async function previousArrears(deps: FinanceDeps, req: Request, schoolId: string
   return out;
 }
 
+/** What a parent may see about their own children's fees this term: bill, paid, balance and any unpaid amount from earlier terms. */
+export async function parentFeeSummary(deps: FinanceDeps, req: Request, schoolId: string, studentIds: string[]) {
+  const wanted = new Set(studentIds);
+  if (!wanted.size) return [];
+  const termKey = await activeTermKey(deps, req, schoolId, "");
+  if (!termKey) return [];
+  const [accounts, arrears] = await Promise.all([buildAccounts(deps, req, schoolId, termKey), previousArrears(deps, req, schoolId, termKey)]);
+  return accounts
+    .filter((account) => wanted.has(account.studentId) && (!account.noStructure || account.paid > 0))
+    .map((account) => {
+      const before = arrears.get(account.studentId)?.total ?? 0;
+      return {
+        studentId: account.studentId,
+        termKey,
+        expected: account.expected,
+        paid: account.paid,
+        balance: account.balance,
+        arrears: before,
+        totalDue: Math.max(0, account.balance) + before,
+        lastPaymentOn: account.lastPaymentOn,
+        items: account.items,
+      };
+    });
+}
+
 function totalsOf(accounts: Account[]) {
   const billed = accounts.filter((account) => !account.noStructure || account.paid > 0);
   const expected = sum(billed.map((account) => ({ amount: account.expected })));
