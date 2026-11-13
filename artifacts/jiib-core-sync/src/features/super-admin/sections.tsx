@@ -15,24 +15,21 @@ export function Overview({ hq, go }: { hq: Hq; go: (section: string) => void }) 
   const online = devices.filter((d) => d.online).length;
   const sevenDays = Date.now() - 7 * 86_400_000;
   const quiet = (totals?.schools ?? []).filter((s) => s.active && !devices.some((d) => d.schoolId === s.id && new Date(d.lastSeen).getTime() > sevenDays));
-  const behind = (totals?.schools ?? []).filter((s) => s.active && s.studentCount > 0 && s.marksCompletionPercent < 40);
   const flagged = suspiciousAccounts(devices);
   const mix = { phone: devices.filter((d) => d.deviceType === 'phone').length, computer: devices.filter((d) => d.deviceType === 'computer').length, tablet: devices.filter((d) => d.deviceType === 'tablet').length, app: devices.filter((d) => d.isApp).length };
   const attention: { text: string; to: string }[] = [
     ...flagged.map((f) => ({ text: `${f.email} signed in on ${f.devices.length} devices this week`, to: 'devices' })),
     ...(hq.blocked.data?.length ? [{ text: `${hq.blocked.data.length} blocked account${hq.blocked.data.length > 1 ? 's' : ''}`, to: 'users' }] : []),
-    ...behind.map((s) => ({ text: `${s.name}: marks only ${Math.round(s.marksCompletionPercent)}% complete`, to: 'schools' })),
     ...(hq.devices.isSuccess ? quiet.map((s) => ({ text: `${s.name}: no one has logged in for 7 days`, to: 'schools' })) : []),
   ];
   return (
     <div className="space-y-4">
       <QueryState query={hq.analytics}>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label="Schools" value={totals?.schoolCount ?? 0} hint={`${totals?.activeSchoolCount ?? 0} active · ${totals?.suspendedSchoolCount ?? 0} suspended`} />
           <Stat label="Staff" value={totals?.staffCount ?? 0} />
           <Stat label="Students" value={(totals?.studentCount ?? 0).toLocaleString()} />
           <Stat label="Online now" value={online} tone="text-emerald-600" hint={`${devices.length} devices seen`} />
-          <Stat label="Marks complete" value={`${Math.round(totals?.marksCompletionPercent ?? 0)}%`} />
         </div>
       </QueryState>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -77,7 +74,6 @@ function SchoolDetail({ school, hq, onClose, onChanged }: { school: PortfolioSch
       <div className="mb-4 flex items-center gap-2">{school.active ? <Badge tone="green">Active</Badge> : <Badge tone="red">Suspended</Badge>}<Badge tone="blue">{school.schoolType === 'primary' ? 'Primary school' : 'Secondary school'}</Badge><span className="text-xs text-muted-foreground">/{school.slug}</span></div>
       <div className="mb-4 flex gap-1 rounded-xl bg-muted p-1 text-sm font-semibold">{(['summary', 'staff', 'devices'] as const).map((key) => <button key={key} type="button" onClick={() => setTab(key)} className={`flex-1 rounded-lg py-2 capitalize ${tab === key ? 'bg-card shadow-sm' : 'text-muted-foreground'}`}>{key}{key === 'staff' ? ` (${staff.length})` : key === 'devices' ? ` (${devices.length})` : ''}</button>)}</div>
       {tab === 'summary' && <div className="space-y-4"><div className="grid grid-cols-2 gap-3"><Stat label="Students" value={school.studentCount} /><Stat label="Classes" value={school.classCount} /><Stat label="Staff" value={staff.length} /><Stat label="Online now" value={devices.filter((d) => d.online).length} /></div>
-        <div><div className="mb-1 flex justify-between text-sm"><span>Marks completion</span><span className="font-semibold">{Math.round(school.marksCompletionPercent)}%</span></div><Bar percent={school.marksCompletionPercent} /></div>
         <p className="text-sm text-muted-foreground">Last activity: {devices[0] ? timeAgo(devices[0].lastSeen) : 'no devices recorded'}</p>
         <div className="rounded-xl border border-border p-3"><p className="text-sm font-semibold">School type</p><p className="mt-0.5 text-xs text-muted-foreground">Decides whether this school uses the primary or the secondary portal. It can only be changed before the school has students.</p>
           <select aria-label="School type" data-testid="hq-school-type" value={school.schoolType ?? 'secondary'} onChange={(e) => void changeType(e.target.value as 'primary' | 'secondary')} className={`${field} mt-2 w-full`}><option value="secondary">Secondary school</option><option value="primary">Primary school</option></select></div>
@@ -89,13 +85,22 @@ function SchoolDetail({ school, hq, onClose, onChanged }: { school: PortfolioSch
   );
 }
 
+// 12 characters from an alphabet without look-alike letters (no 0/O, 1/l/I), made with the browser's secure random source.
+function makePassword() {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
+}
+
 export function SchoolsSection({ hq }: { hq: Hq }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [state, setState] = useState<'all' | 'active' | 'suspended'>('all');
   const [openId, setOpenId] = useState('');
   const [registering, setRegistering] = useState(false);
-  const [form, setForm] = useState<{ name: string; slug: string; adminEmail: string; schoolType: '' | 'primary' | 'secondary' }>({ name: '', slug: '', adminEmail: '', schoolType: '' });
+  const [form, setForm] = useState<{ name: string; slug: string; adminName: string; adminEmail: string; password: string; schoolType: '' | 'primary' | 'secondary' }>({ name: '', slug: '', adminName: '', adminEmail: '', password: '', schoolType: '' });
+  const [showPassword, setShowPassword] = useState(false);
+  const [created, setCreated] = useState<{ school: string; slug: string; email: string; password: string; existing: boolean } | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const schools = hq.analytics.data?.schools ?? [];
@@ -106,8 +111,11 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
   const register = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setNotice('');
     try {
-      await jiibApi('/api/schools', { method: 'POST', body: JSON.stringify({ name: form.name.trim(), slug: form.slug.trim(), schoolType: form.schoolType || 'secondary', ...(form.adminEmail.trim() ? { initialAdminEmail: form.adminEmail.trim() } : {}) }) });
-      setForm({ name: '', slug: '', adminEmail: '', schoolType: '' }); setRegistering(false); setNotice('School registered.'); await refresh();
+      const email = form.adminEmail.trim(); const password = form.password;
+      if (password.length < 8) { setError('Choose a first password of at least 8 characters for the school administrator.'); return; }
+      const result = await jiibApi<{ existingAccount?: boolean }>('/api/schools', { method: 'POST', body: JSON.stringify({ name: form.name.trim(), slug: form.slug.trim(), schoolType: form.schoolType || 'secondary', initialAdminEmail: email, initialAdminName: form.adminName.trim() || undefined, initialPassword: password }) });
+      setCreated({ school: form.name.trim(), slug: form.slug.trim(), email, password, existing: Boolean(result.existingAccount) });
+      setForm({ name: '', slug: '', adminName: '', adminEmail: '', password: '', schoolType: '' }); setRegistering(false); setShowPassword(false); await refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not register this school.'); }
   };
   return (
@@ -121,10 +129,23 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
         {registering && <form onSubmit={register} className="mt-4 grid gap-2 sm:grid-cols-3">
           <input required placeholder="School name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={field} />
           <input required placeholder="slug (e.g. mucoss)" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} className={field} />
-          <input type="email" placeholder="Admin email (optional)" value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })} className={field} />
+          <input required placeholder="Administrator's full name" value={form.adminName} onChange={(e) => setForm({ ...form, adminName: e.target.value })} className={field} />
+          <input required type="email" placeholder="Administrator's email" value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })} className={field} />
+          <div className="flex gap-2"><input required data-testid="hq-new-school-password" type={showPassword ? 'text' : 'password'} minLength={8} autoComplete="new-password" placeholder="First password (min 8)" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={`${field} min-w-0 flex-1`} />
+            <button type="button" data-testid="hq-generate-password" onClick={() => { setForm({ ...form, password: makePassword() }); setShowPassword(true); }} className="h-10 shrink-0 rounded-xl border border-input px-3 text-xs font-semibold">Generate</button></div>
+          <p className="text-xs text-muted-foreground sm:col-span-3">The administrator signs in with this email and password, then can change the password under Settings. Share it with them privately.</p>
           <select required aria-label="School type" data-testid="hq-new-school-type" value={form.schoolType} onChange={(e) => setForm({ ...form, schoolType: e.target.value as typeof form.schoolType })} className={`${field} sm:col-span-3`}><option value="" disabled>Choose school type…</option><option value="secondary">Secondary school</option><option value="primary">Primary school</option></select>
           <button className="h-10 rounded-xl bg-primary text-sm font-semibold text-primary-foreground sm:col-span-3">Create school</button>
         </form>}
+        {created && <div role="status" data-testid="hq-created-school" className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+          <p className="font-semibold">{created.school} is registered.</p>
+          {created.existing
+            ? <p className="mt-1">{created.email} already had an account, so their existing password still works. They now also manage this school.</p>
+            : <><p className="mt-1">Give the administrator these sign-in details. The password is shown only now.</p>
+              <dl className="mt-2 grid gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-4"><dt className="text-emerald-800/80 dark:text-emerald-200/80">Website</dt><dd className="font-semibold">{window.location.origin}</dd><dt className="text-emerald-800/80 dark:text-emerald-200/80">School code</dt><dd className="font-semibold">{created.slug}</dd><dt className="text-emerald-800/80 dark:text-emerald-200/80">Email</dt><dd className="font-semibold break-all">{created.email}</dd><dt className="text-emerald-800/80 dark:text-emerald-200/80">First password</dt><dd data-testid="hq-created-password" className="font-mono font-semibold">{created.password}</dd></dl>
+              <button type="button" data-testid="hq-copy-credentials" onClick={() => void navigator.clipboard?.writeText(`${created.school}\nWebsite: ${window.location.origin}\nSchool code: ${created.slug}\nEmail: ${created.email}\nFirst password: ${created.password}\nPlease change the password after your first sign-in.`).then(() => setNotice('Sign-in details copied.'))} className="mt-3 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white">Copy sign-in details</button></>}
+          <button type="button" onClick={() => setCreated(null)} className="ml-3 mt-3 text-xs font-semibold underline">Done</button>
+        </div>}
         {notice && <p className="mt-3 text-sm text-emerald-600">{notice}</p>}{error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
       </Panel>
       <QueryState query={hq.analytics}>
@@ -134,7 +155,6 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
             return <li key={s.id}><button type="button" data-testid={`hq-school-${s.slug}`} onClick={() => setOpenId(s.id)} className="w-full rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/50">
               <span className="flex items-start justify-between gap-2"><span className="min-w-0"><span className="block truncate font-display text-base font-semibold">{s.name}</span><span className="text-xs text-muted-foreground">/{s.slug}</span></span><span className="flex shrink-0 flex-col items-end gap-1">{s.active ? <Badge tone="green">Active</Badge> : <Badge tone="red">Suspended</Badge>}{s.schoolType === 'primary' && <Badge tone="blue">Primary</Badge>}</span></span>
               <span className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><span><b className="block text-base">{s.studentCount}</b>students</span><span><b className="block text-base">{(hq.staff.data ?? []).filter((x) => x.schoolId === s.id).length}</b>staff</span><span><b className="block text-base">{mine.filter((d) => d.online).length}</b>online</span></span>
-              <span className="mt-3 block"><span className="mb-1 flex justify-between text-xs text-muted-foreground"><span>Marks</span><span>{Math.round(s.marksCompletionPercent)}%</span></span><Bar percent={s.marksCompletionPercent} /></span>
               <span className="mt-2 block text-xs text-muted-foreground">Last activity {mine[0] ? timeAgo(mine[0].lastSeen) : '—'}</span></button></li>;
           })}</ul>
         )}
