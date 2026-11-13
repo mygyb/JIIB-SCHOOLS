@@ -62,6 +62,17 @@ function SchoolDetail({ school, hq, onClose, onChanged }: { school: PortfolioSch
     try { await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/status`, { method: 'PATCH', body: JSON.stringify({ active: !school.active }) }); onChanged(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not change the status.'); }
   };
+  const [deleting, setDeleting] = useState(false);
+  const [confirmName, setConfirmName] = useState('');
+  const [busyDelete, setBusyDelete] = useState(false);
+  const deleteSchool = async () => {
+    setError(''); setBusyDelete(true);
+    try {
+      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) });
+      onClose(); onChanged();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'The school could not be deleted.'); }
+    finally { setBusyDelete(false); }
+  };
   const changeType = async (schoolType: 'primary' | 'secondary') => {
     if (schoolType === (school.schoolType ?? 'secondary')) return;
     if (!confirm(`Change ${school.name} to a ${schoolType} school?`)) return;
@@ -77,6 +88,15 @@ function SchoolDetail({ school, hq, onClose, onChanged }: { school: PortfolioSch
         <p className="text-sm text-muted-foreground">Last activity: {devices[0] ? timeAgo(devices[0].lastSeen) : 'no devices recorded'}</p>
         <div className="rounded-xl border border-border p-3"><p className="text-sm font-semibold">School type</p><p className="mt-0.5 text-xs text-muted-foreground">Decides whether this school uses the primary or the secondary portal. It can only be changed before the school has students.</p>
           <select aria-label="School type" data-testid="hq-school-type" value={school.schoolType ?? 'secondary'} onChange={(e) => void changeType(e.target.value as 'primary' | 'secondary')} className={`${field} mt-2 w-full`}><option value="secondary">Secondary school</option><option value="primary">Primary school</option></select></div>
+        <div className="rounded-xl border border-destructive/40 p-3" data-testid="hq-delete-zone">
+          <p className="text-sm font-semibold text-destructive">Delete school</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Permanently removes this school with all its pupils, marks, fees, staff access and settings. This cannot be undone. To stop a school without losing its records, suspend it instead.</p>
+          {!deleting
+            ? <button type="button" data-testid="hq-delete-school" onClick={() => { setDeleting(true); setConfirmName(''); setError(''); }} className="mt-2 h-9 rounded-lg border border-destructive px-3 text-xs font-semibold text-destructive hover:bg-destructive/5">Delete this school…</button>
+            : <div className="mt-2 space-y-2"><label className="block text-xs">Type <b>{school.name}</b> to confirm<input data-testid="hq-delete-confirm" value={confirmName} onChange={(e) => setConfirmName(e.target.value)} autoComplete="off" className={`${field} mt-1 w-full`} /></label>
+              <div className="flex gap-2"><button type="button" data-testid="hq-delete-confirm-button" disabled={busyDelete || confirmName.trim().toLowerCase() !== school.name.trim().toLowerCase()} onClick={() => void deleteSchool()} className="h-9 rounded-lg bg-destructive px-3 text-xs font-semibold text-destructive-foreground disabled:opacity-50">{busyDelete ? 'Deleting…' : 'Delete permanently'}</button>
+                <button type="button" disabled={busyDelete} onClick={() => setDeleting(false)} className="h-9 rounded-lg border border-input px-3 text-xs font-semibold">Cancel</button></div></div>}
+        </div>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <button type="button" data-testid="hq-toggle-school" onClick={toggle} className={`h-11 w-full rounded-xl text-sm font-semibold ${school.active ? 'border border-destructive/40 text-destructive hover:bg-destructive/5' : 'bg-primary text-primary-foreground'}`}>{school.active ? 'Suspend school' : 'Reactivate school'}</button></div>}
       {tab === 'staff' && <ul className="divide-y divide-border rounded-xl border border-border text-sm">{staff.map((s) => <li key={s.email} className="flex items-center justify-between gap-3 px-3 py-2.5"><span className="min-w-0"><span className="block truncate font-medium">{s.displayName || s.email}</span><span className="block truncate text-xs text-muted-foreground">{s.email}</span></span><Badge tone={s.role === 'admin' ? 'blue' : 'muted'}>{s.role === 'admin' ? 'Admin' : 'Teacher'}</Badge></li>)}{staff.length === 0 && <li className="px-3 py-4 text-muted-foreground">No staff yet.</li>}</ul>}
