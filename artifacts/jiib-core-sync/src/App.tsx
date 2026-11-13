@@ -42,6 +42,7 @@ import { isStandalone, notificationPermission, notificationsSupported, remindAbo
 import { LandingPage, PortalRequestPage, type PortalRequestValues } from '@/pages/public-site';
 import { registrationSupabase, supabase } from '@/lib/supabase';
 import { jiibApi } from '@/lib/jiib-api';
+import { startPupilWording } from '@/lib/pupil-wording';
 import { SCHOOL_BADGE_EVENT, SCHOOL_TYPE_EVENT, refreshActiveSchoolBadge } from '@/lib/school-badge';
 import { BursarShell, HEAD_TABS, HeadTeacherShell } from '@/features/role-shells';
 import { FinanceHome } from '@/features/finance/finance-home';
@@ -223,10 +224,29 @@ function fmtHeaderDate(value: Date = new Date()) {
     .replace(', ', ' · ');
 }
 
+// Shows "pupil" instead of "student" everywhere while a primary school's own users are signed in.
+function PupilWording() {
+  useLocation(); // signing in or out changes the page, so the saved school is read again
+  const [typeChanged, setTypeChanged] = useState(0);
+  useEffect(() => {
+    const bump = () => setTypeChanged((count) => count + 1);
+    window.addEventListener(SCHOOL_TYPE_EVENT, bump);
+    return () => window.removeEventListener(SCHOOL_TYPE_EVENT, bump);
+  }, []);
+  let on = false;
+  try {
+    const saved = JSON.parse(localStorage.getItem('jiib.school') || 'null') as { schoolType?: string } | null;
+    on = isPrimarySchool(saved) && localStorage.getItem('jiib.role') !== 'Super administrator';
+  } catch { on = false; }
+  useEffect(() => (on ? startPupilWording() : undefined), [on, typeChanged]);
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <PupilWording />
         <SyncManager />
         <Router />
         <PwaUi />
