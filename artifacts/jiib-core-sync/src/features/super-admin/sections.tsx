@@ -62,6 +62,19 @@ function SchoolDetail({ school, hq, onClose, onChanged }: { school: PortfolioSch
     try { await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/status`, { method: 'PATCH', body: JSON.stringify({ active: !school.active }) }); onChanged(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not change the status.'); }
   };
+  const admins = staff.filter((member) => member.role === 'admin');
+  const [pwEmail, setPwEmail] = useState('');
+  const [pw, setPw] = useState('');
+  const [pwShown, setPwShown] = useState(false);
+  const [pwDone, setPwDone] = useState('');
+  const setAdminPassword = async () => {
+    setError(''); setPwDone('');
+    const target = pwEmail || admins[0]?.email || '';
+    try {
+      await jiibApi(`/api/schools/${encodeURIComponent(school.id)}/admin-password`, { method: 'PUT', body: JSON.stringify({ email: target, password: pw }) });
+      setPwDone(`New password set for ${target}: ${pw}`); setPw('');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'The password could not be changed.'); }
+  };
   const [deleting, setDeleting] = useState(false);
   const [confirmName, setConfirmName] = useState('');
   const [busyDelete, setBusyDelete] = useState(false);
@@ -88,6 +101,16 @@ function SchoolDetail({ school, hq, onClose, onChanged }: { school: PortfolioSch
         <p className="text-sm text-muted-foreground">Last activity: {devices[0] ? timeAgo(devices[0].lastSeen) : 'no devices recorded'}</p>
         <div className="rounded-xl border border-border p-3"><p className="text-sm font-semibold">School type</p><p className="mt-0.5 text-xs text-muted-foreground">Decides whether this school uses the primary or the secondary portal. It can only be changed before the school has students.</p>
           <select aria-label="School type" data-testid="hq-school-type" value={school.schoolType ?? 'secondary'} onChange={(e) => void changeType(e.target.value as 'primary' | 'secondary')} className={`${field} mt-2 w-full`}><option value="secondary">Secondary school</option><option value="primary">Primary school</option></select></div>
+        {admins.length > 0 && <div className="rounded-xl border border-border p-3" data-testid="hq-admin-password">
+          <p className="text-sm font-semibold">Administrator password</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Set a new password for a school administrator who cannot sign in. Give it to them privately.</p>
+          {admins.length > 1 && <select aria-label="Administrator" value={pwEmail || admins[0].email} onChange={(e) => setPwEmail(e.target.value)} className={`${field} mt-2 w-full`}>{admins.map((a) => <option key={a.email} value={a.email}>{a.displayName ? `${a.displayName} · ${a.email}` : a.email}</option>)}</select>}
+          {admins.length === 1 && <p className="mt-2 text-xs font-semibold break-all">{admins[0].email}</p>}
+          <div className="mt-2 flex gap-2"><input data-testid="hq-admin-password-input" type={pwShown ? 'text' : 'password'} minLength={8} autoComplete="new-password" placeholder="New password (min 8)" value={pw} onChange={(e) => setPw(e.target.value)} className={`${field} min-w-0 flex-1`} />
+            <button type="button" onClick={() => { setPw(makePassword()); setPwShown(true); }} className="h-10 shrink-0 rounded-xl border border-input px-3 text-xs font-semibold">Generate</button></div>
+          <button type="button" data-testid="hq-admin-password-save" disabled={pw.length < 8} onClick={() => void setAdminPassword()} className="mt-2 h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">Set password</button>
+          {pwDone && <p role="status" data-testid="hq-admin-password-done" className="mt-2 break-all text-xs font-semibold text-emerald-700">{pwDone}</p>}
+        </div>}
         <div className="rounded-xl border border-destructive/40 p-3" data-testid="hq-delete-zone">
           <p className="text-sm font-semibold text-destructive">Delete school</p>
           <p className="mt-0.5 text-xs text-muted-foreground">Permanently removes this school with all its pupils, marks, fees, staff access and settings. This cannot be undone. To stop a school without losing its records, suspend it instead.</p>
@@ -120,7 +143,8 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
   const [registering, setRegistering] = useState(false);
   const [form, setForm] = useState<{ name: string; slug: string; adminName: string; adminEmail: string; password: string; schoolType: '' | 'primary' | 'secondary' }>({ name: '', slug: '', adminName: '', adminEmail: '', password: '', schoolType: '' });
   const [showPassword, setShowPassword] = useState(false);
-  const [created, setCreated] = useState<{ school: string; slug: string; email: string; password: string; existing: boolean } | null>(null);
+  const [created, setCreated] = useState<{ school: string; slug: string; schoolId: string; email: string; password: string; existing: boolean; fixed?: boolean } | null>(null);
+  const [fixing, setFixing] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const schools = hq.analytics.data?.schools ?? [];
@@ -133,8 +157,8 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
     try {
       const email = form.adminEmail.trim(); const password = form.password;
       if (password.length < 8) { setError('Choose a first password of at least 8 characters for the school administrator.'); return; }
-      const result = await jiibApi<{ existingAccount?: boolean }>('/api/schools', { method: 'POST', body: JSON.stringify({ name: form.name.trim(), slug: form.slug.trim(), schoolType: form.schoolType || 'secondary', initialAdminEmail: email, initialAdminName: form.adminName.trim() || undefined, initialPassword: password }) });
-      setCreated({ school: form.name.trim(), slug: form.slug.trim(), email, password, existing: Boolean(result.existingAccount) });
+      const result = await jiibApi<{ id: string; existingAccount?: boolean }>('/api/schools', { method: 'POST', body: JSON.stringify({ name: form.name.trim(), slug: form.slug.trim(), schoolType: form.schoolType || 'secondary', initialAdminEmail: email, initialAdminName: form.adminName.trim() || undefined, initialPassword: password }) });
+      setCreated({ school: form.name.trim(), slug: form.slug.trim(), schoolId: result.id, email, password, existing: Boolean(result.existingAccount) });
       setForm({ name: '', slug: '', adminName: '', adminEmail: '', password: '', schoolType: '' }); setRegistering(false); setShowPassword(false); await refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not register this school.'); }
   };
@@ -159,9 +183,10 @@ export function SchoolsSection({ hq }: { hq: Hq }) {
         </form>}
         {created && <div role="status" data-testid="hq-created-school" className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
           <p className="font-semibold">{created.school} is registered.</p>
-          {created.existing
-            ? <p className="mt-1">{created.email} already had an account, so their existing password still works. They now also manage this school.</p>
-            : <><p className="mt-1">Give the administrator these sign-in details. The password is shown only now.</p>
+          {created.existing && !created.fixed
+            ? <div className="mt-1 space-y-2"><p><b>{created.email}</b> already had a sign-in account, so the password you typed was <b>not</b> applied to it and will be refused at sign-in. Their old password still works.</p>
+                <button type="button" data-testid="hq-apply-password" disabled={fixing} onClick={() => { setFixing(true); setError(''); void jiibApi(`/api/schools/${encodeURIComponent(created.schoolId)}/admin-password`, { method: 'PUT', body: JSON.stringify({ email: created.email, password: created.password }) }).then(() => setCreated({ ...created, fixed: true })).catch((cause) => setError(cause instanceof Error ? cause.message : 'The password could not be set.')).finally(() => setFixing(false)); }} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">{fixing ? 'Setting…' : 'Use the password I typed for this account'}</button></div>
+            : <><p className="mt-1">{created.fixed ? 'The account\'s password is now the one below. ' : ''}Give the administrator these sign-in details. The password is shown only now.</p>
               <dl className="mt-2 grid gap-1 sm:grid-cols-[auto_1fr] sm:gap-x-4"><dt className="text-emerald-800/80 dark:text-emerald-200/80">Website</dt><dd className="font-semibold">{window.location.origin}</dd><dt className="text-emerald-800/80 dark:text-emerald-200/80">School code</dt><dd className="font-semibold">{created.slug}</dd><dt className="text-emerald-800/80 dark:text-emerald-200/80">Email</dt><dd className="font-semibold break-all">{created.email}</dd><dt className="text-emerald-800/80 dark:text-emerald-200/80">First password</dt><dd data-testid="hq-created-password" className="font-mono font-semibold">{created.password}</dd></dl>
               <button type="button" data-testid="hq-copy-credentials" onClick={() => void navigator.clipboard?.writeText(`${created.school}\nWebsite: ${window.location.origin}\nSchool code: ${created.slug}\nEmail: ${created.email}\nFirst password: ${created.password}\nPlease change the password after your first sign-in.`).then(() => setNotice('Sign-in details copied.'))} className="mt-3 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white">Copy sign-in details</button></>}
           <button type="button" onClick={() => setCreated(null)} className="ml-3 mt-3 text-xs font-semibold underline">Done</button>
