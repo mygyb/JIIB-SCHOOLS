@@ -1079,7 +1079,7 @@ function SchoolSettings({ school }: { school: School }) {
         <button data-testid="button-save-school-profile" onClick={() => config.save({ ...config.data, settings: { ...settings, address, phone } })} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Check size={15} /> Save school profile</button>
       </ShellCard>
       <HousesCard schoolId={school.id} />
-      <OptionalSubjectsCard schoolId={school.id} config={config.data as SchoolConfig} />
+      {!isPrimarySchool(school) && <OptionalSubjectsCard schoolId={school.id} config={config.data as SchoolConfig} />}
       {!isPrimarySchool(school) && <ALevelToggleCard school={school} config={config.data as SchoolConfig} />}
       <ShellCard>
         <div className="flex flex-wrap items-start justify-between gap-3">

@@ -9,7 +9,7 @@ import {
   useUpdateSchoolConfig,
 } from "@workspace/api-client-react";
 import type { School } from "@workspace/api-client-react";
-import { currentTerm, getTerms, type SchoolConfig } from "@/lib/school-data";
+import { compareClasses, currentTerm, getTerms, isPrimarySchool, primaryLabel, type SchoolConfig } from "@/lib/school-data";
 import { REPORT_CARD_CSS } from "./report-css";
 import { buildEndTermCard, buildSlipPage, TEMPLATES, type ReportContext, type TemplateId } from "./report-html";
 import { buildDataset, classOverview, type ReportType, type StudentReport } from "./report-model";
@@ -58,6 +58,8 @@ export function ReportStudio({ school }: { school: School }) {
   const activeKey = termKey || currentTerm(config);
   const termLabel = terms.find((term) => term.key === activeKey)?.label ?? activeKey;
 
+  const primary = isPrimarySchool(school);
+  const word = (text: string) => (primary ? primaryLabel(text) : text);
   const studentsQuery = useListStudents(school.id, {});
   const marksQuery = useListMarks(school.id, { termKey: activeKey });
 
@@ -96,10 +98,10 @@ export function ReportStudio({ school }: { school: School }) {
     const students = (studentsQuery.data ?? []).map((student) => ({
       id: student.id, name: student.name, className: student.className, house: student.house, subjects: student.subjects ?? [],
     }));
-    return buildDataset(students, marksQuery.data ?? [], config);
-  }, [studentsQuery.data, marksQuery.data, config]);
+    return buildDataset(students, marksQuery.data ?? [], config, { primary });
+  }, [studentsQuery.data, marksQuery.data, config, primary]);
 
-  const classes = useMemo(() => Array.from(new Set(dataset.students.map((student) => student.className))).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [dataset]);
+  const classes = useMemo(() => Array.from(new Set(dataset.students.map((student) => student.className))).filter(Boolean).sort(compareClasses), [dataset]);
   const classStudents = dataset.students
     .filter((student) => !className || student.className === className)
     .sort((a, b) => (a.className + a.name).localeCompare(b.className + b.name, undefined, { numeric: true }));
@@ -119,7 +121,8 @@ export function ReportStudio({ school }: { school: School }) {
     stamp,
     template: type === "midterm" ? "classic" : template,
     grading: dataset.grading,
-  }), [school.name, school.logoUrl, details, year, termLabel, stamp, template, type, dataset.grading]);
+    primary,
+  }), [primary, school.name, school.logoUrl, details, year, termLabel, stamp, template, type, dataset.grading]);
 
   // ── Preview ──
   const [previewHtml, setPreviewHtml] = useState("");
@@ -272,10 +275,10 @@ export function ReportStudio({ school }: { school: School }) {
           <div className="space-y-3">
             <label><span className={label}>Term</span><select data-testid="select-report-term" value={activeKey} onChange={(event) => { setTermKey(event.target.value); setStudentId(""); }} className={field}>{terms.length ? terms.map((term) => <option key={term.key} value={term.key}>{term.label}{term.active ? " (active)" : ""}</option>) : <option value={activeKey}>{activeKey}</option>}</select></label>
             <label><span className={label}>Class</span><select data-testid="select-report-class" value={className} onChange={(event) => { setClassName(event.target.value); setStudentId(""); }} className={field}><option value="">All classes</option>{classes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-            <label><span className={label}>Student</span><select data-testid="select-report-student" value={studentId} onChange={(event) => setStudentId(event.target.value)} className={field}><option value="">Select a student</option>{classStudents.map((student) => <option key={student.id} value={student.id}>{student.name.toUpperCase()} · {student.className}</option>)}</select></label>
+            <label><span className={label}>{word("Student")}</span><select data-testid="select-report-student" value={studentId} onChange={(event) => setStudentId(event.target.value)} className={field}><option value="">Select a student</option>{classStudents.map((student) => <option key={student.id} value={student.id}>{student.name.toUpperCase()} · {student.className}</option>)}</select></label>
           </div>
           {overview && <dl className="mt-4 grid grid-cols-3 gap-2 text-center">
-            {([["Students", overview.students], ["Class avg", overview.average], ["Marks in", `${overview.complete}%`]] as const).map(([name, value]) => <div key={name} className="rounded-lg bg-muted/60 px-2 py-2"><dd className="font-display text-lg font-semibold">{value}</dd><dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{name}</dt></div>)}
+            {([[word("Students"), overview.students], ["Class avg", overview.average], ["Marks in", `${overview.complete}%`]] as const).map(([name, value]) => <div key={name} className="rounded-lg bg-muted/60 px-2 py-2"><dd className="font-display text-lg font-semibold">{value}</dd><dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{name}</dt></div>)}
           </dl>}
         </section>
 
@@ -305,8 +308,8 @@ export function ReportStudio({ school }: { school: School }) {
         <section className="rounded-2xl border border-border bg-card p-4">
           <p className={label}>Print or download</p>
           <label><span className={label}>Which reports</span><select data-testid="select-report-scope" value={scope} onChange={(event) => setScope(event.target.value as Scope)} className={field}>
-            <option value="student">This student only</option>
-            <option value="class" disabled={!className}>Every student in the selected class</option>
+            <option value="student">{word("This student only")}</option>
+            <option value="class" disabled={!className}>{word("Every student in the selected class")}</option>
             <option value="school">Every student in the school</option>
           </select></label>
           <div className="mt-3 grid grid-cols-2 gap-2">

@@ -6,7 +6,7 @@ import { getGetSchoolConfigQueryKey, useGetSchoolConfig, type School } from '@wo
 import { ArrowLeft, ArrowRight, Check, Undo2 } from 'lucide-react';
 import { jiibApi } from '@/lib/jiib-api';
 import {
-  classLevel, combinationsOf, enrolmentLabel, isALevelClass, isALevelEnabled, optionalSubjectsClassOf, STREAM_LABELS, subjectNames, subsidiarySubjectNames,
+  classLevel, combinationsOf, isPrimarySchool, primaryStage, enrolmentLabel, isALevelClass, isALevelEnabled, optionalSubjectsClassOf, STREAM_LABELS, subjectNames, subsidiarySubjectNames,
   type Enrolment, type SchoolConfig, type Stream,
 } from '@/lib/school-data';
 
@@ -47,12 +47,14 @@ export function PromotionWizard({ school }: { school: School }) {
   const promoting = roster.filter((student) => (action[student.id] ?? 'promote') === 'promote');
   const toSubjects = to ? subjectNames(config, to) : [];
   const aLevelDestination = aLevelOn && Boolean(to) && isALevelClass(to);
-  const optionalStep = Boolean(to) && !aLevelDestination && classLevel(to) >= classLevel(optionalFrom);
+  const optionalStep = Boolean(to) && !aLevelDestination && !/^leavers/i.test(to) && classLevel(to) >= classLevel(optionalFrom);
   const hasSubjectStep = optionalStep || aLevelDestination;
   const steps = ['Classes', 'Students', ...(hasSubjectStep ? [aLevelDestination ? 'Streams' : 'Subjects'] : []), 'Review'];
   const stepName = steps[step];
 
-  const suggestNext = (className: string) => classes.find((item) => classLevel(item) === classLevel(className) + 1) ?? '';
+  // Primary: pupils finishing P.7 leave the school. They move into a "Leavers <year>" group so their records are kept.
+  const leaversFor = (className: string) => (isPrimarySchool(school) && primaryStage(className) === 'ple' ? `Leavers ${new Date().getFullYear()}` : '');
+  const suggestNext = (className: string) => classes.find((item) => classLevel(item) === classLevel(className) + 1) ?? leaversFor(className);
   const chooseFrom = (value: string) => { setFrom(value); setTo(suggestNext(value)); setAction({}); setChosen({}); setEnrol({}); setError(''); };
 
   // Subjects / enrolment each promoted student starts with: what they had, where it still applies.
@@ -139,7 +141,7 @@ export function PromotionWizard({ school }: { school: School }) {
             <label><span className={label}>Promote the students of</span>
               <select data-testid="select-promote-from" value={from} onChange={(event) => chooseFrom(event.target.value)} className={select}><option value="">Choose a class</option>{classes.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
             <label><span className={label}>Into</span>
-              <select data-testid="select-promote-to" value={to} disabled={!from} onChange={(event) => { setTo(event.target.value); setChosen({}); setEnrol({}); }} className={`${select} disabled:opacity-60`}><option value="">Choose a class</option>{classes.filter((name) => name !== from).map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+              <select data-testid="select-promote-to" value={to} disabled={!from} onChange={(event) => { setTo(event.target.value); setChosen({}); setEnrol({}); }} className={`${select} disabled:opacity-60`}><option value="">Choose a class</option>{classes.filter((name) => name !== from).map((name) => <option key={name} value={name}>{name}</option>)}{leaversFor(from) && !classes.includes(leaversFor(from)) && <option value={leaversFor(from)}>{leaversFor(from)} (completed P.7)</option>}</select></label>
             {from && <p className="text-sm text-muted-foreground sm:col-span-2" data-testid="promote-count">{students.isLoading ? 'Counting students…' : `${roster.length} ${roster.length === 1 ? 'student' : 'students'} in ${from}.`}{from && to && classLevel(to) <= classLevel(from) && <span className="ml-1 font-semibold text-destructive">{to} is not higher than {from}.</span>}</p>}
             {from && !classes.length && <p className="text-sm text-muted-foreground">Add classes and subjects in Manage subjects first.</p>}
           </div>}

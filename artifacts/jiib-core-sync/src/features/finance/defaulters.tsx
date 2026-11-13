@@ -1,5 +1,6 @@
 // /finance/defaulters — who still owes fees: this term, from earlier terms, or both. Filter, print, export, remind.
 import { useState } from 'react';
+import { compareClasses } from '@/lib/school-data';
 import { useLocation } from 'wouter';
 import { Download, MessageCircle, MessageSquare, Printer, Search, Copy } from 'lucide-react';
 import { AmountInput } from './amount-input';
@@ -29,7 +30,7 @@ export function Defaulters() {
   if (minValue) params.set('minBalance', String(minValue));
   const list = useFin<Response>(fin, 'defaulters', `/defaulters?${params}`);
   const base = useFin<Response>(fin, 'defaulters-base', `/defaulters?termKey=${encodeURIComponent(fin.termKey)}&basis=all`);
-  const classes = Array.from(new Set((base.data?.defaulters ?? []).map((row) => row.className))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const classes = Array.from(new Set((base.data?.defaulters ?? []).map((row) => row.className))).sort(compareClasses);
   const rows = list.data?.defaulters ?? [];
   const label = (key: string) => fin.terms.find((term) => term.key === key)?.label ?? key;
   const heading = `${BASES.find(([value]) => value === basis)?.[1]} · ${fin.termLabel}`;

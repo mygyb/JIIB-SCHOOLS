@@ -162,6 +162,26 @@ function useActiveSchool() {
   return school;
 }
 
+const ugx = (value: number) => `UGX ${Math.round(value).toLocaleString('en-UG')}`;
+
+// A parent's view of this term's fees for the selected child. Only shown once the school has set up a fee structure.
+function FeeBalanceCard({ fee, termLabel, isCurrent }: { fee?: { expected: number; paid: number; balance: number; arrears: number; totalDue: number; lastPaymentOn: string | null; items: Array<{ name: string; amount: number }> }; termLabel: string; isCurrent: boolean }) {
+  if (!fee || !isCurrent) return null;
+  const cleared = fee.totalDue <= 0;
+  return <div data-testid="parent-fees" className="mt-8 rounded-xl border border-border bg-muted/40 p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold">School fees · {termLabel}</h4><span data-testid="parent-fees-status" className={`rounded-full px-2.5 py-1 text-xs font-semibold ${cleared ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{cleared ? 'Fees cleared' : 'Balance due'}</span></div>
+    <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+      <div><dt className="text-xs text-muted-foreground">Fees this term</dt><dd className="mt-0.5 font-semibold">{ugx(fee.expected)}</dd></div>
+      <div><dt className="text-xs text-muted-foreground">Paid</dt><dd className="mt-0.5 font-semibold">{ugx(fee.paid)}</dd></div>
+      <div><dt className="text-xs text-muted-foreground">Balance</dt><dd data-testid="parent-fees-balance" className="mt-0.5 font-semibold">{ugx(Math.max(0, fee.balance))}</dd></div>
+      {fee.arrears > 0 && <div><dt className="text-xs text-muted-foreground">From earlier terms</dt><dd className="mt-0.5 font-semibold text-destructive">{ugx(fee.arrears)}</dd></div>}
+    </dl>
+    {fee.arrears > 0 && <p className="mt-3 text-sm font-semibold">Total to clear: {ugx(fee.totalDue)}</p>}
+    {fee.balance < 0 && <p className="mt-3 text-xs text-muted-foreground">An advance of {ugx(-fee.balance)} has been paid.</p>}
+    {fee.lastPaymentOn && <p className="mt-2 text-xs text-muted-foreground">Last payment received {fee.lastPaymentOn}. Please keep your receipt and contact the school bursar about any difference.</p>}
+  </div>;
+}
+
 function useActiveUserName() {
   const [name, setName] = useState<string>(() => localStorage.getItem('jiib.userName') || 'there');
   useEffect(() => {
@@ -1343,6 +1363,7 @@ function Parent() {
       students: Array<Student & { termKey: string }>;
       marks: Array<{ id: string; studentId: string; termKey: string; subject: string; aoi: number; midterm: number; end: number }>;
       assessmentFields?: AssessmentField[];
+      fees?: Array<{ studentId: string; termKey: string; expected: number; paid: number; balance: number; arrears: number; totalDue: number; lastPaymentOn: string | null; items: Array<{ name: string; amount: number }> }>;
       terms: Array<{ key: string; label: string }>;
       schoolNews: { title?: string; body?: string } | string | null;
       events: Array<string | { id?: string; title?: string; date?: string }>;
@@ -1393,7 +1414,7 @@ function Parent() {
         <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs uppercase tracking-[.18em] text-muted-foreground">Student report</p><h3 className="mt-1 font-display text-2xl font-semibold">{student?.name || 'No student in this term'}</h3><p className="text-sm text-muted-foreground">{student ? `${student.className} · ${student.house} house` : 'Select another term or contact your school.'}</p></div>
           <div className="flex gap-2">{(portal.data?.terms ?? []).length > 0 && <select aria-label="Academic term" value={term} onChange={(e) => { setSelectedTerm(e.target.value); setSelectedStudentId(''); }} className="h-10 rounded-lg border border-input bg-background px-2 text-sm">{portal.data?.terms.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select>}{familyStudents.length > 1 && <select aria-label="Student" value={studentId} onChange={(e) => setSelectedStudentId(e.target.value)} className="h-10 rounded-lg border border-input bg-background px-2 text-sm">{familyStudents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</div>
         </div>
-        {student ? <><div className="mt-8 grid grid-cols-3 gap-3"><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Subjects</p><p className="mt-2 font-display text-2xl font-semibold">{studentMarks.length}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Average</p><p className="mt-2 font-display text-2xl font-semibold text-primary">{average}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Term</p><p className="mt-2 truncate font-display text-lg font-semibold">{portal.data?.terms.find((item) => item.key === term)?.label ?? term}</p></div></div><div className="mt-8"><h4 className="mb-3 font-semibold">Subject performance</h4>{studentMarks.length ? <div className="space-y-3">{studentMarks.map((mark) => { const total = finalTotal(markTotal(mark, portalFields), portalFields); return <div key={mark.id}><div className="mb-1 flex justify-between text-sm"><span>{mark.subject}</span><span className="font-semibold">{total}/100</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${total}%` }} /></div></div>; })}</div> : <p className="text-sm text-muted-foreground">No marks have been published for this term yet.</p>}</div></> : <div className="mt-8"><EmptyState icon={GraduationCap} title="No matching student record" body="The school does not currently have a student record linked to this phone number for this term." /></div>}
+        {student ? <><div className="mt-8 grid grid-cols-3 gap-3"><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Subjects</p><p className="mt-2 font-display text-2xl font-semibold">{studentMarks.length}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Average</p><p className="mt-2 font-display text-2xl font-semibold text-primary">{average}</p></div><div className="rounded-xl bg-muted/55 p-4"><p className="text-xs text-muted-foreground">Term</p><p className="mt-2 truncate font-display text-lg font-semibold">{portal.data?.terms.find((item) => item.key === term)?.label ?? term}</p></div></div>{<FeeBalanceCard fee={(portal.data?.fees ?? []).find((item) => item.studentId === studentId)} termLabel={portal.data?.terms.find((item) => item.key === term)?.label ?? term} isCurrent={term === portal.data?.activeTerm} />}<div className="mt-8"><h4 className="mb-3 font-semibold">Subject performance</h4>{studentMarks.length ? <div className="space-y-3">{studentMarks.map((mark) => { const total = finalTotal(markTotal(mark, portalFields), portalFields); return <div key={mark.id}><div className="mb-1 flex justify-between text-sm"><span>{mark.subject}</span><span className="font-semibold">{total}/100</span></div><div className="h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${total}%` }} /></div></div>; })}</div> : <p className="text-sm text-muted-foreground">No marks have been published for this term yet.</p>}</div></> : <div className="mt-8"><EmptyState icon={GraduationCap} title="No matching student record" body="The school does not currently have a student record linked to this phone number for this term." /></div>}
         {newsBody && <div className="mt-8 rounded-xl border border-border bg-muted/40 p-4"><p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{typeof news === 'object' && news?.title ? news.title : 'School news'}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{newsBody}</p></div>}
         {!!portal.data?.events.length && <div className="mt-5"><h4 className="mb-2 font-semibold">Upcoming events</h4><ul className="space-y-2 text-sm text-muted-foreground">{portal.data.events.map((event, index) => <li key={typeof event === 'object' ? event.id ?? index : `${event}-${index}`} className="rounded-lg bg-muted/40 p-3">{typeof event === 'string' ? event : `${event.title ?? 'School event'}${event.date ? ` · ${event.date}` : ''}`}</li>)}</ul></div>}
       </section>

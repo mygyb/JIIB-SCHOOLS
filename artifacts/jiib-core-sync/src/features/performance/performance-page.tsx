@@ -6,6 +6,7 @@ import type { Mark, School, Student } from '@workspace/api-client-react';
 import { getAssessmentFields, getTerms, type SchoolConfig } from '@/lib/school-data';
 import { readGrading } from '@/features/report-studio/report-model';
 import { downloadCsv, printTable } from '@/features/finance/export';
+import { isPrimarySchool, primaryLabel } from '@/lib/school-data';
 import { compute, distributionOf, featured, fmt, type StudentRow } from './analysis';
 import { giantsPages, pdfDownload, pdfPrint, safeFileName, summaryPages, type ClassList, type PdfContext } from './pdf';
 
@@ -66,17 +67,20 @@ export function PerformanceView({ school, config, students, marks, loading, erro
   const termLabel = terms.find((term) => term.key === termKey)?.label ?? termKey;
   const fields = useMemo(() => getAssessmentFields(config), [config]);
   const grading = useMemo(() => readGrading(config), [config]);
-  const perf = useMemo(() => compute({ students, marks, fields, grading, settings: { giantMin, passMark: PASS_MARK } }), [students, marks, fields, grading, giantMin]);
+  const primary = isPrimarySchool(school);
+  const w = (text: string) => (primary ? primaryLabel(text) : text);
+  const perf = useMemo(() => compute({ students, marks, fields, grading, primary, settings: { giantMin, passMark: PASS_MARK } }), [students, marks, fields, grading, giantMin, primary]);
 
   const classNames = [...perf.byClass.keys()];
   const shownClasses = className && perf.byClass.has(className) ? [className] : classNames;
   const scopedRows = shownClasses.flatMap((name) => perf.byClass.get(name) ?? []);
+  const pleRows = scopedRows.filter((row) => row.ple);
   const scopedSummary = perf.classes.filter((item) => shownClasses.includes(item.className));
   const settings = (config.settings && typeof config.settings === 'object' ? config.settings : {}) as Record<string, unknown>;
-  const criterion = mode === 'giants' ? `Academic giants are students with an average of ${giantMin}% or more` : `The top ${mode} students in each class (equal averages are kept together)`;
+  const criterion = mode === 'giants' ? w(`Academic giants are students with an average of ${giantMin}% or more`) : `The top ${mode} students in each class (equal averages are kept together)`;
   const ctx: PdfContext = {
     schoolName: school.name, address: String(settings.address ?? ''), motto: String(settings.motto ?? ''), logoUrl: school.logoUrl ?? '',
-    termLabel, giantMin, passMark: PASS_MARK, criterion, printedOn: new Intl.DateTimeFormat('en-GB', { dateStyle: 'long' }).format(new Date()),
+    primary, termLabel, giantMin, passMark: PASS_MARK, criterion, printedOn: new Intl.DateTimeFormat('en-GB', { dateStyle: 'long' }).format(new Date()),
   };
   const listFor = (name: string): ClassList => ({ summary: perf.classes.find((item) => item.className === name)!, entries: featured(perf.byClass.get(name) ?? [], mode, giantMin) });
   const giantsTotal = shownClasses.reduce((sum, name) => sum + listFor(name).entries.length, 0);
@@ -104,14 +108,14 @@ export function PerformanceView({ school, config, students, marks, loading, erro
     await pdfDownload(pages, `${base}.pdf`, (done, total) => setProgress(`Page ${done} of ${total}`));
     setNotice(`Saved ${base}.pdf`);
   });
-  const rowsCsv = (rows: StudentRow[]) => [['Class', 'Rank', 'Student', 'Average %', 'Grade', 'Subjects', 'Best subject', 'Weakest subject'],
+  const rowsCsv = (rows: StudentRow[]) => [['Class', 'Rank', w('Student'), 'Average %', 'Grade', 'Subjects', 'Best subject', 'Weakest subject'],
     ...rows.map((row) => [row.className, row.rank, row.name, row.average, row.grade, row.subjects, row.best ? `${row.best.subject} (${Math.round(row.best.percent)}%)` : '', row.weakest ? `${row.weakest.subject} (${Math.round(row.weakest.percent)}%)` : ''])];
   const support = scopedRows.filter((row) => row.average < PASS_MARK);
 
   return <div className="fade-up" data-testid="performance-page">
     <div className="mb-6"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-primary">Academics & marks</p>
       <h2 className="mt-2 font-display text-3xl font-semibold tracking-tight">Performance</h2>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">Results for {termLabel}: class averages, the academic giants honour roll, subject strengths and students who need support.</p></div>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">Results for {termLabel}: class averages, the academic giants honour roll, subject strengths and {w('students who need support.')}</p></div>
 
     <div className={`${card} mb-5 !p-4`}>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -146,7 +150,7 @@ export function PerformanceView({ school, config, students, marks, loading, erro
 
         {tab === 'overview' && <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <Stat testId="stat-ranked" label="Students ranked" value={scopedRows.length} hint={`of ${scopedSummary.reduce((s, c) => s + c.enrolled, 0)} enrolled`} />
+            <Stat testId="stat-ranked" label={w('Students ranked')} value={scopedRows.length} hint={`of ${scopedSummary.reduce((s, c) => s + c.enrolled, 0)} enrolled`} />
             <Stat testId="stat-average" label={className ? 'Class average' : 'School average'} value={scopedRows.length ? fmt(scopedRows.reduce((s, r) => s + r.average, 0) / scopedRows.length) : '—'} />
             <Stat testId="stat-pass" label={`Pass rate (${PASS_MARK}%+)`} value={scopedRows.length ? `${Math.round(scopedRows.filter((r) => r.average >= PASS_MARK).length / scopedRows.length * 100)}%` : '—'} />
             <Stat testId="stat-giants" label={`Academic giants · ${giantMin}%+`} value={scopedRows.filter((r) => r.average >= giantMin).length} />
@@ -154,16 +158,23 @@ export function PerformanceView({ school, config, students, marks, loading, erro
             <Stat testId="stat-top" label="Highest average" value={scopedRows.length ? fmt(Math.max(...scopedRows.map((r) => r.average))) : '—'} hint={[...scopedRows].sort((a, b) => b.average - a.average)[0]?.name} />
           </div>
           <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-            <section className={card}>
-              <h3 className="font-display text-lg font-semibold">{className ? `Top students · ${className}` : 'Class averages'}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{className ? 'Average of the first 15 students in the class.' : 'Average percentage of each class.'}</p>
+            {primary && pleRows.length > 0 && <section className={card} data-testid="ple-divisions">
+            <h3 className="font-display text-lg font-semibold">PLE divisions · P.7</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Aggregate of English, Mathematics, Science and Social Studies (best 4, worst 36).</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              {['Division 1', 'Division 2', 'Division 3', 'Division 4', 'Ungraded (U)', '—'].map((name) => <div key={name} className="rounded-xl border border-border p-3 text-center"><p className="text-[11px] text-muted-foreground">{name === '—' ? 'Incomplete' : name}</p><p className="mt-1 font-display text-2xl font-semibold" data-testid={`ple-count-${name === '—' ? 'incomplete' : name.split(' ')[1]?.replace(/[()]/g, '') ?? name}`}>{pleRows.filter((row) => row.ple?.division === name).length}</p></div>)}
+            </div>
+          </section>}
+          <section className={card}>
+              <h3 className="font-display text-lg font-semibold">{className ? w(`Top students · ${className}`) : 'Class averages'}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{className ? w('Average of the first 15 students in the class.') : 'Average percentage of each class.'}</p>
               <div className="mt-5 h-72"><Bar
                 data={{ labels: className ? scopedRows.slice(0, 15).map((r) => r.name.split(' ')[0].toUpperCase()) : scopedSummary.map((c) => c.className), datasets: [{ label: 'Average', data: className ? scopedRows.slice(0, 15).map((r) => r.average) : scopedSummary.map((c) => c.average), backgroundColor: '#284e80', borderRadius: 7 }] }}
                 options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: (value) => `${value}%` } } } }} /></div>
             </section>
             <section className={card}>
               <h3 className="font-display text-lg font-semibold">How results are spread</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Students by average score.</p>
+              <p className="mt-1 text-sm text-muted-foreground">{w('Students by average score.')}</p>
               <div className="mt-5 space-y-3" data-testid="distribution">
                 {distributionOf(scopedRows).map((band) => <div key={band.label}><div className="flex justify-between text-sm"><span>{band.label}</span><span className="font-semibold">{band.count}</span></div>
                   <div className="mt-1.5 h-2 rounded-full bg-muted"><div className={`h-2 rounded-full ${band.low ? 'bg-rose-500' : 'bg-[#2e8c72]'}`} style={{ width: `${scopedRows.length ? (band.count / scopedRows.length) * 100 : 0}%` }} /></div></div>)}
@@ -212,7 +223,7 @@ export function PerformanceView({ school, config, students, marks, loading, erro
               <RankBadge rank={row.rank} />
               <div className="min-w-0"><p className="truncate text-sm font-semibold">{row.name}</p><p className="truncate text-xs text-muted-foreground">{row.best ? `Best: ${row.best.subject} (${Math.round(row.best.percent)}%)` : ''}{row.best ? ' · ' : ''}{row.subjects} subjects</p></div>
               <div className="text-right"><p className="font-display text-lg font-semibold">{fmt(row.average)}</p><p className="text-xs font-semibold text-primary">Grade {row.grade}</p></div>
-            </li>)}</ol> : <p className="mt-4 rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">No student in {name} reaches {giantMin}% yet. The best average is {fmt(list.summary.highest)}. Try a lower mark or “Top 3 per class”.</p>}
+            </li>)}</ol> : <p className="mt-4 rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">{w('No student in')} {name} reaches {giantMin}% yet. The best average is {fmt(list.summary.highest)}. Try a lower mark or “Top 3 per class”.</p>}
           </section>; })}
         </div>}
 
@@ -228,7 +239,7 @@ export function PerformanceView({ school, config, students, marks, loading, erro
         </section>}
 
         {tab === 'support' && <section className={card}>
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-display text-lg font-semibold">Students needing support</h3><p className="mt-1 text-sm text-muted-foreground">Average below {PASS_MARK}% in {termLabel}, with the subject to focus on.</p></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-display text-lg font-semibold">{w('Students needing support')}</h3><p className="mt-1 text-sm text-muted-foreground">Average below {PASS_MARK}% in {termLabel}, with the subject to focus on.</p></div>
             <div className="flex gap-2"><button data-testid="button-support-csv" className={buttonClass} disabled={!support.length} onClick={() => downloadCsv(`${safeFileName('Students-Needing-Support', className || 'All-Classes', termLabel)}.csv`, rowsCsv(support))}><FileSpreadsheet size={15} /> CSV</button>
               <button data-testid="button-support-print" className={buttonClass} disabled={!support.length} onClick={() => printTable(`Students needing support: ${termLabel}`, `${className || 'All classes'} · average below ${PASS_MARK}%`, ['Class', 'Student', 'Average', 'Weakest subject'], support.map((r) => [r.className, r.name, fmt(r.average), r.weakest ? `${r.weakest.subject} (${Math.round(r.weakest.percent)}%)` : '—']), 2)}><Printer size={15} /> Print</button></div></div>
           {support.length ? <div className="mt-5 space-y-5" data-testid="support-list">{shownClasses.map((name) => { const rows = support.filter((r) => r.className === name); return rows.length ? <div key={name}>
