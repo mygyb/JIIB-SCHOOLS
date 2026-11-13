@@ -4,8 +4,8 @@ import { Laptop, Smartphone, Tablet } from 'lucide-react';
 import { jiibApi } from '@/lib/jiib-api';
 
 export type School = { id: string; name: string; slug: string; active: boolean; logoUrl?: string | null; schoolType?: 'primary' | 'secondary' };
-export type PortfolioSchool = School & { studentCount: number; classCount: number; marksCompletionPercent: number };
-export type Portfolio = { schoolCount: number; activeSchoolCount: number; suspendedSchoolCount: number; staffCount: number; studentCount: number; marksCompletionPercent: number; schools: PortfolioSchool[] };
+export type PortfolioSchool = School & { studentCount: number; classCount: number };
+export type Portfolio = { schoolCount: number; activeSchoolCount: number; suspendedSchoolCount: number; staffCount: number; studentCount: number; schools: PortfolioSchool[] };
 export type Staff = { schoolId: string; email: string; displayName: string | null; role: 'admin' | 'teacher'; schoolName: string };
 export type Device = {
   deviceId: string; email: string | null; label: string | null; role: string | null; schoolId: string | null; schoolName: string | null;

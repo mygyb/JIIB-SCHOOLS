@@ -229,6 +229,8 @@ const SchoolRegistrationBody = z.object({
   logoUrl: z.string().url().nullable().optional(),
   initialAdminEmail: z.string().email().nullable().optional(),
   initialAdminName: z.string().trim().max(160).nullable().optional(),
+  // First password for the school administrator, chosen by the super administrator and passed on to the school.
+  initialPassword: z.string().min(8).max(128).nullable().optional(),
   address: z.string().trim().max(300).optional(),
   assessmentFields: z.array(AssessmentFieldBody).min(1).max(3).optional(),
   schoolType: z.enum(["primary", "secondary"]).default("secondary"),
@@ -593,6 +595,10 @@ router.post("/schools", async (req, res) => {
   try {
     if (!await authorizeSuperAdmin(req, res)) return;
     const body = SchoolRegistrationBody.parse(req.body);
+    if (body.initialPassword && !body.initialAdminEmail) {
+      res.status(400).json({ error: "Enter the administrator's email together with the first password." });
+      return;
+    }
     if (body.initialAdminEmail && !isSupabaseInviteConfigured()) {
       res.status(503).json({ error: "School administrator invitations are not configured. Add SUPABASE_SERVICE_ROLE_KEY in Replit Secrets." });
       return;
@@ -669,6 +675,9 @@ router.post("/schools", async (req, res) => {
       },
     };
     let invitationSent: boolean | undefined;
+    let accountCreated = false;
+    let existingAccount = false;
+    let createdAuthUserId: string | undefined;
     try {
       await supabaseRequest(
         req,
@@ -700,13 +709,24 @@ router.post("/schools", async (req, res) => {
           },
           "?on_conflict=school_id,email",
         );
-        const invite = await inviteSupabaseUser(
-          body.initialAdminEmail.toLowerCase(),
-          body.initialAdminName?.trim() || body.initialAdminEmail.split("@")[0],
-        );
-        invitationSent = invite.invitationSent;
+        const adminEmail = body.initialAdminEmail.toLowerCase();
+        const adminName = body.initialAdminName?.trim() || adminEmail.split("@")[0];
+        if (body.initialPassword) {
+          // The administrator signs in straight away with this password; no e-mail has to arrive first.
+          try {
+            createdAuthUserId = (await createSupabaseAuthUser(adminEmail, body.initialPassword, adminName)).id;
+            accountCreated = true;
+          } catch (error) {
+            if (!/already|registered|exists/i.test(error instanceof Error ? error.message : "")) throw error;
+            existingAccount = true; // same person already runs another school: their own password stays as it is
+          }
+        } else {
+          const invite = await inviteSupabaseUser(adminEmail, adminName);
+          invitationSent = invite.invitationSent;
+        }
       }
     } catch (error) {
+      if (createdAuthUserId) await deleteSupabaseAuthUser(createdAuthUserId).catch(() => undefined);
       await supabaseRequest(
         req,
         "schools",
@@ -718,6 +738,8 @@ router.post("/schools", async (req, res) => {
     res.status(201).json({
       ...mapSchool(school),
       ...(invitationSent === undefined ? {} : { invitationSent }),
+      ...(accountCreated ? { accountCreated } : {}),
+      ...(existingAccount ? { existingAccount } : {}),
     });
   } catch (error) {
     sendError(res, error);
@@ -806,118 +828,66 @@ router.patch("/schools/:schoolId/type", async (req, res) => {
   }
 });
 
+// Supabase returns at most 1,000 rows per request, so anything that counts across schools must read every page.
+async function fetchAllRows(req: Request, table: string, query: string) {
+  const rows: Array<Record<string, unknown>> = [];
+  for (let offset = 0; offset < 200_000; offset += 1000) {
+    const page = asRows(await supabaseRequest(req, table, {}, `${query}&limit=1000&offset=${offset}`));
+    rows.push(...page);
+    if (page.length < 1000) break;
+  }
+  return rows;
+}
+
+// Portfolio overview for the super administrator: schools, how many pupils and staff each has, and how many classes.
+// Marks are private to each school and are deliberately not read here.
 router.get("/schools/portfolio/analytics", async (req, res) => {
   try {
     if (!await authorizeSuperAdmin(req, res)) return;
-    const [schoolRows, studentRows, markRows, configRows, userRows] = await Promise.all([
-      supabaseRequest(req, "schools", {}, "?select=*&order=name.asc"),
-      supabaseRequest(req, "students", {}, "?select=school_id,id,name,class,house,term_key"),
-      supabaseRequest(req, "marks", {}, "?select=*&limit=50000"),
-      supabaseRequest(req, "school_data", {}, "?select=school_id,data"),
-      supabaseRequest(req, "allowed_users", {}, "?select=school_id,email"),
+    const [schoolRows, studentRows, configRows, userRows] = await Promise.all([
+      supabaseRequest(req, "schools", {}, "?select=*&order=name.asc&limit=1000"),
+      fetchAllRows(req, "students", "?select=school_id,id,class,term_key&order=school_id.asc,term_key.asc,id.asc"),
+      fetchAllRows(req, "school_data", "?select=school_id,data&order=school_id.asc"),
+      fetchAllRows(req, "allowed_users", "?select=school_id,email&order=school_id.asc,email.asc"),
     ]);
     const schools = asRows(schoolRows);
-    const students = asRows(studentRows);
-    const marks = asRows(markRows);
-    const configs = new Map(asRows(configRows).map((row) => [
+    const studentsBySchool = new Map<string, Array<Record<string, unknown>>>();
+    for (const student of studentRows) {
+      const key = String(student.school_id);
+      const list = studentsBySchool.get(key);
+      if (list) list.push(student); else studentsBySchool.set(key, [student]);
+    }
+    const activeTerms = new Map(configRows.map((row) => [
       String(row.school_id),
-      row.data && typeof row.data === "object" && !Array.isArray(row.data)
-        ? row.data as Record<string, unknown>
-        : {},
+      row.data && typeof row.data === "object" && !Array.isArray(row.data) ? String((row.data as Record<string, unknown>).activeTerm ?? "") : "",
     ]));
-    const users = asRows(userRows);
     const metrics = schools.map((schoolRow) => {
       const schoolId = String(schoolRow.id);
-      const config = configs.get(schoolId) ?? {};
-      const termKey = String(config.activeTerm ?? "");
-      const termStudents = students.filter((student) =>
-        String(student.school_id) === schoolId && (!termKey || String(student.term_key ?? "") === termKey),
-      );
+      const all = studentsBySchool.get(schoolId) ?? [];
+      // Pupils enrolled in the school's current term. If nobody is filed under it yet, use the newest term that has pupils.
+      const wanted = activeTerms.get(schoolId) ?? "";
+      const termKey = wanted && all.some((student) => String(student.term_key ?? "") === wanted)
+        ? wanted
+        : all.reduce((latest, student) => (String(student.term_key ?? "") > latest ? String(student.term_key ?? "") : latest), "");
+      const termStudents = all.filter((student) => String(student.term_key ?? "") === termKey);
+      const unique = new Set(termStudents.map((student) => String(student.id)));
       const classes = new Set(termStudents.map((student) => String(student.class ?? "")).filter(Boolean));
-      const fields = activeAssessmentFields(config);
-      const subjectMap = config.subjects && typeof config.subjects === "object" && !Array.isArray(config.subjects)
-        ? config.subjects as Record<string, unknown>
-        : {};
-      let expected = 0;
-      for (const student of termStudents) {
-        const rawSubjects = subjectMap[String(student.class ?? "")];
-        const count = Array.isArray(rawSubjects)
-          ? rawSubjects.filter((subject) => typeof subject === "string" ? subject.trim() : Boolean((subject as Record<string, unknown>)?.name)).length
-          : 0;
-        expected += count * fields.length;
-      }
-      const activeMarks = marks.filter((mark) =>
-        String(mark.school_id) === schoolId && (!termKey || String(mark.term_key ?? "") === termKey),
-      );
-      const legacyTerm = config.terms && typeof config.terms === "object"
-        ? (config.terms as Record<string, Record<string, unknown>>)[termKey]
-        : undefined;
-      const legacyMarks = Array.isArray(legacyTerm?.marks)
-        ? legacyTerm.marks as Array<Record<string, unknown>>
-        : [];
-      const legacyByKey = new Map(legacyMarks.map((mark) => [
-        `${String(mark.studentId ?? "")}|${String(mark.subject ?? "")}`,
-        mark,
-      ]));
-      const studentClassById = new Map(termStudents.map((student) => [String(student.id), String(student.class ?? "")]));
-      const marksEntered = new Set<string>();
-      for (const mark of activeMarks) {
-        const id = String(mark.student_id ?? "");
-        const className = studentClassById.get(id);
-        if (!className) continue;
-        const legacy = legacyByKey.get(`${id}|${String(mark.subject ?? "")}`);
-        const merged = { ...(legacy ?? {}), ...mark };
-        const entered = enteredMarkFields({
-          ...merged,
-          c1: mark.c1 ?? mark.aoi ?? legacy?.c1 ?? legacy?.aoi,
-          c2: mark.c2 ?? mark.midterm ?? legacy?.c2 ?? legacy?.midterm,
-          c3: mark.c3 ?? mark.end ?? legacy?.c3 ?? legacy?.end,
-        }, fields);
-        entered.forEach((field) => marksEntered.add(`${id}|${String(mark.subject)}|${field}`));
-      }
-      for (const mark of legacyMarks) {
-        const id = String(mark.studentId ?? "");
-        if (!studentClassById.has(id)) continue;
-        enteredMarkFields(mark, fields).forEach((field) =>
-          marksEntered.add(`${id}|${String(mark.subject ?? "")}|${field}`),
-        );
-      }
-      const percentage = expected ? Math.round((marksEntered.size / expected) * 100) : 0;
       return {
         schoolId,
         name: String(schoolRow.name ?? ""),
         slug: String(schoolRow.slug ?? ""),
         active: Boolean(schoolRow.active),
         schoolType: schoolRow.school_type === "primary" ? "primary" : "secondary",
-        studentCount: termStudents.length,
+        studentCount: unique.size,
         classCount: classes.size,
-        marksCompletionPercent: percentage,
       };
     });
-    const totalExpected = metrics.reduce((sum, metric) => {
-      const config = configs.get(metric.schoolId) ?? {};
-      const termKey = String(config.activeTerm ?? "");
-      const termStudents = students.filter((student) =>
-        String(student.school_id) === metric.schoolId && (!termKey || String(student.term_key ?? "") === termKey),
-      );
-      const subjectMap = config.subjects && typeof config.subjects === "object" && !Array.isArray(config.subjects)
-        ? config.subjects as Record<string, unknown>
-        : {};
-      return sum + termStudents.reduce((count, student) => {
-        const rawSubjects = subjectMap[String(student.class ?? "")];
-        const subjectCount = Array.isArray(rawSubjects) ? rawSubjects.length : 0;
-        return count + subjectCount * activeAssessmentFields(config).length;
-      }, 0);
-    }, 0);
-    const totalEntered = metrics.reduce((sum, metric) =>
-      sum + Math.round(totalExpected * metric.marksCompletionPercent / 100), 0);
     res.json({
       schoolCount: metrics.length,
       activeSchoolCount: metrics.filter((school) => school.active).length,
       suspendedSchoolCount: metrics.filter((school) => !school.active).length,
-      staffCount: new Set(users.map((user) => String(user.email ?? "").toLowerCase()).filter(Boolean)).size,
+      staffCount: new Set(userRows.map((user) => String(user.email ?? "").toLowerCase()).filter(Boolean)).size,
       studentCount: metrics.reduce((sum, school) => sum + school.studentCount, 0),
-      marksCompletionPercent: totalExpected ? Math.round(totalEntered / totalExpected * 100) : 0,
       schools: metrics,
     });
   } catch (error) {
@@ -929,8 +899,8 @@ router.get("/schools/portfolio/users", async (req, res) => {
   try {
     if (!await authorizeSuperAdmin(req, res)) return;
     const [userRows, schoolRows] = await Promise.all([
-      supabaseRequest(req, "allowed_users", {}, "?select=*&order=created_at.asc"),
-      supabaseRequest(req, "schools", {}, "?select=id,name"),
+      fetchAllRows(req, "allowed_users", "?select=*&order=created_at.asc,email.asc"),
+      supabaseRequest(req, "schools", {}, "?select=id,name&limit=1000"),
     ]);
     const schoolNames = new Map(asRows(schoolRows).map((row) => [String(row.id), String(row.name ?? "")]));
     res.json(asRows(userRows).map((row) => ({
@@ -1162,6 +1132,11 @@ router.use("/schools/:schoolId", async (req, res, next) => {
     } else {
       if (!await verifySuperAdmin(req, user)) {
         res.status(403).json({ error: "This account is not registered for this school." });
+        return;
+      }
+      // Marks and who entered them belong to the school. The super administrator manages schools but never reads marks.
+      if (/^\/(marks|a-level\/marks|activity)(\/|$)/.test(req.path.replace(/\/+$/, ""))) {
+        res.status(403).json({ error: "Marks are private to each school and are not available to the system administrator." });
         return;
       }
       res.locals.jiibRole = "super_admin";
