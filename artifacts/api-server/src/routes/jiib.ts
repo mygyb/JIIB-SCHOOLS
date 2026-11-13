@@ -767,6 +767,39 @@ router.patch("/schools/:schoolId/status", async (req, res) => {
   }
 });
 
+const SchoolDeleteBody = z.object({ confirmName: z.string().trim().min(1).max(200) });
+// Tables added later (fees, notifications, activity, A-Level) are not linked to the school record, so they are cleared by hand.
+const SCHOOL_OWNED_TABLES = ["jsa_fee_payments", "jsa_fee_overrides", "jsa_fee_students", "jsa_fee_structures", "jsa_alevel_marks", "jsa_activity", "jsa_push_subscriptions", "jsa_push_log", "jhq_devices"];
+const tableMissing = (error: unknown) => /does not exist|schema cache|Could not find the table|404/i.test(error instanceof Error ? error.message : "");
+
+// Super administrator only. Permanently removes a school and everything it owns: pupils, marks, fees, staff access and settings.
+// The caller must type the school's exact name, so a stray click or a wrong id cannot delete a school.
+router.delete("/schools/:schoolId", async (req, res) => {
+  try {
+    if (!await authorizeSuperAdmin(req, res)) return;
+    const { schoolId } = GetSchoolConfigParams.parse(req.params);
+    const body = SchoolDeleteBody.parse(req.body);
+    const rows = asRows(await supabaseRequest(req, "schools", {}, `?id=eq.${encodeURIComponent(schoolId)}&select=id,name`));
+    const school = rows[0];
+    if (!school) { res.status(404).json({ error: "School not found." }); return; }
+    if (String(school.name ?? "").trim().toLowerCase() !== body.confirmName.trim().toLowerCase()) {
+      res.status(400).json({ error: "The name you typed does not match this school. Nothing was deleted." });
+      return;
+    }
+    for (const table of SCHOOL_OWNED_TABLES) {
+      try {
+        await supabaseAdminRequest(`/rest/v1/${table}?school_id=eq.${encodeURIComponent(schoolId)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+      } catch (error) {
+        if (!tableMissing(error)) throw error; // an optional feature that was never set up has nothing to clear
+      }
+    }
+    await supabaseAdminRequest(`/rest/v1/schools?id=eq.${encodeURIComponent(schoolId)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    res.json({ deleted: true, name: String(school.name ?? "") });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 // Super administrator only: change a school between primary and secondary. Refused once the school has students,
 // because their classes, subjects and marks follow the school type.
 router.patch("/schools/:schoolId/type", async (req, res) => {
