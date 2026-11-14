@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { parentFeeSummary, registerFinanceRoutes } from "./finance.js";
 import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
+import { registerPublicSmsRoutes, registerSmsRoutes } from "./sms.js";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -179,6 +180,7 @@ function mapAllowedUser(row: Record<string, unknown>) {
     schoolId: String(row.school_id),
     email: String(row.email ?? ""),
     displayName: (row.display_name as string | null | undefined) ?? null,
+    phone: (row.phone as string | null | undefined) ?? null,
     role: staffRole(row.role),
     subjects: Array.isArray(row.subjects)
       ? row.subjects.map((entry) => {
@@ -250,6 +252,7 @@ const AllowedUserBody = z.object({
   email: z.string().trim().email(),
   displayName: z.string().trim().min(1).max(160),
   role: z.enum(["admin", "teacher", "headteacher", "bursar"]),
+  phone: z.string().trim().max(32).nullable().optional(),
   initialPassword: z.string().min(8).max(128),
   subjects: z.array(z.union([z.string(), SubjectAssignmentBody])).optional(),
 }).strict();
@@ -257,6 +260,7 @@ const AllowedUserUpdateBody = z.object({
   email: z.string().trim().email().optional(),
   displayName: z.string().trim().min(1).max(160).optional(),
   role: z.enum(["admin", "teacher", "headteacher", "bursar"]).optional(),
+  phone: z.string().trim().max(32).nullable().optional(),
   subjects: z.array(z.union([z.string(), SubjectAssignmentBody])).optional(),
 }).strict();
 const SchoolProfileBody = z.object({
@@ -794,7 +798,7 @@ router.put("/schools/:schoolId/admin-password", async (req, res) => {
 
 const SchoolDeleteBody = z.object({ confirmName: z.string().trim().min(1).max(200) });
 // Tables added later (fees, notifications, activity, A-Level) are not linked to the school record, so they are cleared by hand.
-const SCHOOL_OWNED_TABLES = ["jsa_fee_payments", "jsa_fee_overrides", "jsa_fee_students", "jsa_fee_structures", "jsa_alevel_marks", "jsa_activity", "jsa_push_subscriptions", "jsa_push_log", "jhq_devices"];
+const SCHOOL_OWNED_TABLES = ["jsa_fee_payments", "jsa_fee_overrides", "jsa_fee_students", "jsa_fee_structures", "jsa_alevel_marks", "jsa_activity", "jsa_push_subscriptions", "jsa_push_log", "jhq_devices", "jsa_sms_recipients", "jsa_sms_messages", "jsa_sms_ledger", "jsa_sms_requests", "jsa_sms_accounts"];
 const tableMissing = (error: unknown) => /does not exist|schema cache|Could not find the table|404/i.test(error instanceof Error ? error.message : "");
 
 // Super administrator only. Permanently removes a school and everything it owns: pupils, marks, fees, staff access and settings.
@@ -1144,6 +1148,7 @@ router.post("/schools/:schoolId/parents/chat", async (req, res) => {
 
 // Push notifications: the public key, new-version check and the daily scheduled job need no school sign-in.
 registerPublicPushRoutes(router, sendError);
+registerPublicSmsRoutes(router);
 
 // All remaining school workspace endpoints require a real Supabase session
 // that is registered for this school. The database still enforces RLS.
@@ -1176,13 +1181,14 @@ router.use("/schools/:schoolId", async (req, res, next) => {
       // Head teachers can look at every department but change nothing. Bursars only reach the Finance workspace
       // (plus the read-only lists it needs). Neither may use the teacher-or-admin write routes below.
       const ownPushDevice = /^\/push\/((un)?subscribe|notices)$/.test(sub); // any staff member may turn notifications on or off for their own phone
-      if (res.locals.jiibRole === "headteacher" && req.method !== "GET" && !ownPushDevice) {
+      const smsPath = /^\/sms(\/|$)/.test(sub); // the Head teacher and the Bursar send SMS; the SMS routes check who may do what
+      if (res.locals.jiibRole === "headteacher" && req.method !== "GET" && !ownPushDevice && !smsPath) {
         res.status(403).json({ error: "Head teacher accounts can view school records but not change them." });
         return;
       }
       if (res.locals.jiibRole === "bursar") {
         const readable = req.method === "GET" && /^\/(config|students|terms|users\/[^/]+)$/.test(sub);
-        if (!readable && !ownPushDevice && !/^\/finance(\/|$)/.test(sub)) {
+        if (!readable && !ownPushDevice && !smsPath && !/^\/finance(\/|$)/.test(sub)) {
           res.status(403).json({ error: "Bursar accounts can only use the Finance workspace." });
           return;
         }
@@ -1209,6 +1215,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
 // Finance (Bursar full access, Head teacher read-only; administrators and teachers are refused inside the gate).
 registerFinanceRoutes(router, { readSchoolConfig });
 registerPushRoutes(router, { readSchoolConfig, requireSchoolAdmin }, sendError);
+registerSmsRoutes(router, { readSchoolConfig, authorizeSuperAdmin, sendError });
 
 // Teacher logins and marks entries for the school's System settings page (administrators only).
 router.get("/schools/:schoolId/activity", requireSchoolViewer, async (req, res) => {
@@ -2970,6 +2977,7 @@ router.post("/schools/:schoolId/users", async (req, res) => {
           email,
           display_name: body.displayName,
           role: body.role,
+          ...(body.phone ? { phone: body.phone } : {}),
           subjects,
         }),
       },
@@ -3071,6 +3079,7 @@ router.patch("/schools/:schoolId/users/:email", async (req, res) => {
           body: jsonBody({
             email: nextEmail,
             display_name: body.displayName ?? current.display_name ?? null,
+            ...(body.phone !== undefined ? { phone: body.phone || null } : {}),
             role: nextRole,
             subjects: nextSubjects,
           }),
