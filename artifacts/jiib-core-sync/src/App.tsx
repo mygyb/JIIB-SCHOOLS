@@ -51,6 +51,7 @@ import { StudentFees } from '@/features/finance/student-fees';
 import { RecordPayment } from '@/features/finance/record-payment';
 import { Defaulters } from '@/features/finance/defaulters';
 import { Reports } from '@/features/finance/reports';
+import { SmsPage } from '@/features/sms/sms-page';
 import { clearAccountTheme, getAccountDarkMode, setAccountDarkMode } from '@/lib/account-preferences';
 import { combinationsOf, enrolmentLabel, enrolmentSubjects, isALevelClass, isALevelEnabled, STREAM_LABELS, subsidiarySubjectNames, type Enrolment, type Stream } from '@/lib/school-data';
 import { configuredHouses, currentTerm, isPrimarySchool, primaryLabel, DEFAULT_ASSESSMENT_FIELDS, finalTotal, getAssessmentFields, markTotal, getTerms, isTermLocked, subjectNames, type AssessmentField, type SchoolConfig } from '@/lib/school-data';
@@ -96,7 +97,7 @@ const ADMIN_ONLY_HREFS = [
 
 // Pages each of the other staff roles may open (the server enforces the same limits).
 const HEAD_HREFS = [...HEAD_TABS.map((tab) => tab.href), '/finance/fees', '/finance/accounts', '/finance/defaulters', '/finance/reports', '/account-settings'];
-const BURSAR_HREFS = ['/finance', '/finance/fees', '/finance/accounts', '/finance/payments', '/finance/defaulters', '/finance/reports', '/students', '/account-settings'];
+const BURSAR_HREFS = ['/sms', '/finance', '/finance/fees', '/finance/accounts', '/finance/payments', '/finance/defaulters', '/finance/reports', '/students', '/account-settings'];
 
 // Nav items / routes that belong to the teacher workspace only.
 const TEACHER_ONLY_HREFS = ['/marks'];
@@ -339,6 +340,7 @@ function Router() {
         <Route path="/finance/payments"><AppShell><RecordPayment /></AppShell></Route>
         <Route path="/finance/defaulters"><AppShell><Defaulters /></AppShell></Route>
         <Route path="/finance/reports"><AppShell><Reports /></AppShell></Route>
+        <Route path="/sms"><AppShell><SmsPage /></AppShell></Route>
         <Route path="/promote"><AppShell><OperationsRoute page="promote" /></AppShell></Route>
         <Route path="/overview"><Redirect to="/promote" /></Route>
         <Route path="/parents-portal"><AppShell><OperationsRoute page="parentsPortal" /></AppShell></Route>
@@ -721,7 +723,7 @@ function AppShell({ children }: { children: ReactNode }) {
     '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
     '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/a-level': 'A-Level', '/a-level-results': 'A-Level results', '/grading-system': 'Grading system',
     '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',
-    '/system-settings': 'System settings', '/account-settings': 'Account settings',
+    '/system-settings': 'System settings', '/account-settings': 'Account settings', '/sms': 'SMS',
   };
   const title = primarySchool ? primaryLabel(titleMap[location] ?? 'Portfolio') : (titleMap[location] ?? 'Portfolio');
   if (!authReady) return <main className="grid min-h-[100dvh] place-items-center bg-background text-sm text-muted-foreground">Checking account access…</main>;

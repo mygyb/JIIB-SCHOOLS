@@ -49,10 +49,10 @@ function bursarOnly(res: Response): boolean {
   return true;
 }
 
-type TermStudent = { id: string; name: string; className: string; parentPhone: string | null };
+export type TermStudent = { id: string; name: string; className: string; parentPhone: string | null };
 
 /** Every student in a term: database rows plus the older copies kept in the school settings. */
-async function termStudents(deps: FinanceDeps, req: Request, schoolId: string, termKey: string): Promise<TermStudent[]> {
+export async function termStudents(deps: FinanceDeps, req: Request, schoolId: string, termKey: string): Promise<TermStudent[]> {
   const [config, rows] = await Promise.all([
     deps.readSchoolConfig(req, schoolId),
     supabaseRequest(req, "students", {}, `?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=id,name,class,parent_phone`),
@@ -96,7 +96,7 @@ export type Account = {
 };
 
 /** Works out what every student owes and has paid for one term. Cancelled receipts never count. */
-async function buildAccounts(deps: FinanceDeps, req: Request, schoolId: string, termKey: string): Promise<Account[]> {
+export async function buildAccounts(deps: FinanceDeps, req: Request, schoolId: string, termKey: string): Promise<Account[]> {
   const [students, structures, types, overrides, payments] = await Promise.all([
     termStudents(deps, req, schoolId, termKey),
     supabaseRequest(req, "jsa_fee_structures", {}, `?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=class_name,student_type,items,total`),
