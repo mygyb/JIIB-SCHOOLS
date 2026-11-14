@@ -31,7 +31,11 @@ export async function buildPages(reports: StudentReport[], type: ReportType, ctx
 
 async function settle(root: HTMLElement) {
   const images = Array.from(root.querySelectorAll("img"));
-  await Promise.all(images.map((img) => img.complete ? Promise.resolve() : new Promise<void>((resolve) => { img.onload = () => resolve(); img.onerror = () => resolve(); })));
+  await Promise.all(images.map(async (img) => {
+    if (!img.complete) await new Promise<void>((resolve) => { img.onload = () => resolve(); img.onerror = () => resolve(); });
+    // Fully decode (the QR is a large data URL) so the snapshot below never captures it half loaded.
+    try { await img.decode(); } catch { /* a broken image just stays blank */ }
+  }));
   try { await root.ownerDocument.fonts?.ready; } catch { /* fonts are optional */ }
 }
 
@@ -39,6 +43,20 @@ async function settle(root: HTMLElement) {
 function fitToSheet(inner: HTMLElement) {
   const height = inner.scrollHeight;
   if (height > PAGE_HEIGHT) inner.style.zoom = String(PAGE_HEIGHT / height);
+}
+
+/** Draws the card's images (the QR code) straight onto the snapshot, so they are there even when the snapshot engine dropped them. */
+function paintImages(card: HTMLElement, canvas: HTMLCanvasElement, ratio: number) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const origin = card.getBoundingClientRect();
+  card.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
+    if (!img.complete || !img.naturalWidth) return;
+    const box = img.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    ctx.imageSmoothingEnabled = false;
+    try { ctx.drawImage(img, (box.left - origin.left) * ratio, (box.top - origin.top) * ratio, box.width * ratio, box.height * ratio); } catch { /* cross-origin images are skipped */ }
+  });
 }
 
 export async function downloadPdf(pages: string[], filename: string, onProgress?: (done: number, total: number) => void) {
@@ -60,7 +78,12 @@ export async function downloadPdf(pages: string[], filename: string, onProgress?
         // Fetch the template fonts once and reuse them for every page; without them the PDF still prints in a standard font.
         fontCss = await Promise.race([getFontEmbedCSS(card).catch(() => ""), new Promise<string>((resolve) => setTimeout(() => resolve(""), 8000))]);
       }
-      const canvas = await toCanvas(card, { pixelRatio: 2, backgroundColor: "#ffffff", width: PAGE_WIDTH, height: card.scrollHeight, fontEmbedCSS: fontCss });
+      const options = { pixelRatio: 2, backgroundColor: "#ffffff", width: PAGE_WIDTH, height: card.scrollHeight, fontEmbedCSS: fontCss };
+      // The first snapshot can miss images (the QR code) because the browser has not painted them inside the snapshot yet,
+      // so take one throw-away snapshot to warm it up and keep the second.
+      await toCanvas(card, options).catch(() => undefined);
+      const canvas = await toCanvas(card, options);
+      paintImages(card, canvas, options.pixelRatio);
       if (index > 0) pdf.addPage();
       const pageW = 210;
       const pageH = 297;
