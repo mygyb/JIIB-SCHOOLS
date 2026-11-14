@@ -45,12 +45,12 @@ function fitToSheet(inner: HTMLElement) {
   if (height > PAGE_HEIGHT) inner.style.zoom = String(PAGE_HEIGHT / height);
 }
 
-/** Draws the card's images (the QR code) straight onto the snapshot, so they are there even when the snapshot engine dropped them. */
+/** Draws the QR code straight onto the snapshot, so they are there even when the snapshot engine dropped them. */
 function paintImages(card: HTMLElement, canvas: HTMLCanvasElement, ratio: number) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const origin = card.getBoundingClientRect();
-  card.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
+  card.querySelectorAll<HTMLImageElement>("img[data-qr]").forEach((img) => {
     if (!img.complete || !img.naturalWidth) return;
     const box = img.getBoundingClientRect();
     if (!box.width || !box.height) return;
