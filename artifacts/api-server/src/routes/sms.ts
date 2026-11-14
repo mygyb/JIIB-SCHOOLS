@@ -298,7 +298,7 @@ export function registerSmsRoutes(router: IRouter, deps: SmsDeps) {
         db(`/rest/v1/schools?id=eq.${enc(schoolId)}&select=name&limit=1`),
       ]);
       const schoolName = String(asRows(schoolRow)[0]?.name ?? "the school");
-      if (/\{paycode\}/i.test(body.template) && !acct.payCode) {
+      if (/\{paycode\}/i.test(body.template) && !acct.payCode && !body.dryRun) {
         res.status(400).json({ code: "pay_code_missing", error: "Add the school pay code first, so parents know where to pay." });
         return;
       }
@@ -309,7 +309,7 @@ export function registerSmsRoutes(router: IRouter, deps: SmsDeps) {
         .filter((a) => !chosen || chosen.has(a.studentId))
         .map((a) => {
           const number = normalizePhone(a.parentPhone);
-          const text = fillFeeTemplate(body.template, { student: a.name, className: a.className, school: schoolName, term: termLabel, balance: a.balance, payCode: acct.payCode });
+          const text = fillFeeTemplate(body.template, { student: a.name, className: a.className, school: schoolName, term: termLabel, balance: a.balance, payCode: acct.payCode || "[PAY CODE]" });
           return { studentId: a.studentId, name: a.name, className: a.className, balance: a.balance, phone: number, rawPhone: a.parentPhone, message: text, segments: smsSegments(text) };
         })
         .sort((a, b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name));

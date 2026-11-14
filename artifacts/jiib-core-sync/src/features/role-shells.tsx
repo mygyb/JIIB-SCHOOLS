@@ -1,9 +1,10 @@
 // Separate workspaces for the Head teacher (a calm, view-only overview) and the Bursar (an accountant's ledger).
 import { useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
+import { SmsBalanceChip } from '@/features/sms/sms-balance';
 import {
   AlertTriangle, Award, Banknote, BarChart3, ClipboardList, Eye, FileBarChart, GraduationCap, LayoutDashboard, LogOut, Moon, Printer,
-  Receipt, Settings, Sun, Users, UsersRound, Wallet,
+  MessageSquareText, Receipt, Settings, Sun, Users, UsersRound, Wallet,
 } from 'lucide-react';
 
 export type ShellProps = {
@@ -47,6 +48,7 @@ export const HEAD_TABS = [
   { href: '/print-marksheets', label: 'Marksheets', icon: Printer },
   { href: '/a-level-results', label: 'A-Level', icon: Award },
   { href: '/finance', label: 'Finance', icon: Wallet },
+  { href: '/sms', label: 'SMS', icon: MessageSquareText },
 ];
 
 export function HeadTeacherShell({ schoolName, logoUrl, userName, email, term, dark, online, location, onToggleDark, onSignOut, children }: ShellProps) {
@@ -55,6 +57,7 @@ export function HeadTeacherShell({ schoolName, logoUrl, userName, email, term, d
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6">
         {logoUrl ? <img src={logoUrl} alt="" className="h-9 w-9 rounded-lg object-contain" /> : <span className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground"><GraduationCap size={18} /></span>}
         <div className="min-w-0 flex-1"><p className="truncate font-display text-base font-semibold leading-tight">{schoolName}</p><p className="truncate text-[11px] text-muted-foreground">Head teacher · {term}</p></div>
+        <SmsBalanceChip />
         <span className="hidden items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-[11px] font-semibold text-accent-foreground sm:inline-flex"><Eye size={12} /> View only</span>
         <span className={`hidden h-2 w-2 rounded-full sm:block ${online ? 'bg-[#61b990]' : 'bg-[#e6a23c]'}`} title={online ? 'Online' : 'Offline'} />
         <ThemeButton dark={dark} onToggle={onToggleDark} />
@@ -81,6 +84,7 @@ const BURSAR_NAV: Array<{ href: string; label: string; icon: typeof Wallet; soon
   { href: '/finance/payments', label: 'Record payment', icon: Banknote },
   { href: '/finance/defaulters', label: 'Defaulters', icon: AlertTriangle },
   { href: '/finance/reports', label: 'Reports', icon: Receipt },
+  { href: '/sms', label: 'Send SMS', icon: MessageSquareText },
   { href: '/students', label: 'Students (view)', icon: UsersRound },
 ];
 
@@ -102,6 +106,7 @@ export function BursarShell({ schoolName, logoUrl, userName, email, term, dark, 
     <div className="flex min-w-0 flex-1 flex-col">
       <header className="sticky top-0 z-30 flex h-[64px] items-center gap-3 border-b border-border bg-card/95 px-4 backdrop-blur-md sm:px-8">
         <div className="min-w-0 flex-1"><p className="truncate text-[10px] font-semibold uppercase tracking-[.2em] text-muted-foreground lg:hidden">{schoolName} · Bursar</p><h1 className="truncate font-display text-lg font-semibold">{current?.label ?? 'Finance'}</h1></div>
+        <SmsBalanceChip />
         <span className="hidden rounded border border-border bg-muted px-2.5 py-1 text-[11px] font-semibold ledger-figure sm:inline">UGX</span>
         <span className={`h-2 w-2 rounded-full ${online ? 'bg-[#2f9e6f]' : 'bg-[#e6a23c]'}`} title={online ? 'Online' : 'Offline'} />
         <ThemeButton dark={dark} onToggle={onToggleDark} />

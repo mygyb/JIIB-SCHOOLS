@@ -65,6 +65,7 @@ type StaffSubject = string | { class?: string; subject?: string };
 type StaffAccount = {
   email: string;
   displayName?: string | null;
+  phone?: string | null;
   role: string;
   subjects?: StaffSubject[];
 };
@@ -228,6 +229,8 @@ function UserManagement({ school }: { school: School }) {
   });
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [initialPassword, setInitialPassword] = useState('');
   const [role, setRole] = useState<StaffRole>('teacher');
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
@@ -272,6 +275,7 @@ function UserManagement({ school }: { school: School }) {
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           displayName: name.trim(),
+          phone: phone.trim() || null,
           role,
           initialPassword,
           subjects: role === 'teacher' ? selectedSubjects.map((key) => {
@@ -280,7 +284,7 @@ function UserManagement({ school }: { school: School }) {
           }) : [],
         }),
       });
-      setEmail(''); setName(''); setInitialPassword(''); setSelectedSubjects([]);
+      setEmail(''); setName(''); setPhone(''); setInitialPassword(''); setSelectedSubjects([]);
       setSuccess(`${result.displayName || result.email} now has school access. Share the initial password securely.`);
       await roster.refetch();
     } catch (cause) {
@@ -291,6 +295,7 @@ function UserManagement({ school }: { school: School }) {
     setEditing(user);
     setEditEmail(user.email);
     setEditName(user.displayName || '');
+    setEditPhone(user.phone || '');
     setEditRole((user.role as StaffRole) || 'teacher');
     const keys = (user.subjects ?? []).flatMap((item) => {
       if (typeof item === 'string') {
@@ -316,6 +321,7 @@ function UserManagement({ school }: { school: School }) {
         body: JSON.stringify({
           email: editEmail.trim().toLowerCase(),
           displayName: editName.trim(),
+          phone: editPhone.trim() || null,
           role: editRole,
           subjects: editRole === 'teacher' ? editSubjects.map((key) => {
             const [className, subject] = key.split('::', 2);
@@ -351,6 +357,7 @@ function UserManagement({ school }: { school: School }) {
           <p className="mt-1 text-sm text-muted-foreground">Name, sign-in email and role.</p>
           <div className="mt-5 grid gap-3">
             <input aria-label="Staff name" value={editName} onChange={(event) => setEditName(event.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+            <input data-testid="input-edit-staff-phone" aria-label="Staff phone number" inputMode="tel" value={editPhone} onChange={(event) => setEditPhone(event.target.value)} placeholder="Phone number (for SMS), e.g. 0772 123 456" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
             <input aria-label="Staff email" type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} placeholder="Email" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
             <select aria-label="Edit staff role" value={editRole} onChange={(event) => { setEditRole(event.target.value as StaffRole); setEditSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
               <option value="teacher">Teacher</option><option value="admin">School administrator</option><option value="headteacher">Head teacher</option><option value="bursar">Bursar</option>
@@ -386,6 +393,7 @@ function UserManagement({ school }: { school: School }) {
         <p className="mt-1 text-sm text-muted-foreground">Set the staff member’s sign-in email and initial password. Share the password securely.</p>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <input data-testid="input-teacher-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
+          <input data-testid="input-staff-phone" aria-label="Staff phone number" inputMode="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Phone number (for SMS)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
           <input data-testid="input-teacher-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="teacher@school.org" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
           <select aria-label="Staff role" value={role} onChange={(event) => { setRole(event.target.value as StaffRole); setSelectedSubjects([]); }} className="h-11 rounded-lg border border-input bg-background px-3 text-sm">
             <option value="teacher">Teacher</option><option value="admin">School administrator</option><option value="headteacher">Head teacher</option><option value="bursar">Bursar</option>
@@ -423,7 +431,7 @@ function UserManagement({ school }: { school: School }) {
         const assigned = (user.subjects ?? []).map((item) => typeof item === 'string' ? item : `${item.class ?? 'Class'}: ${item.subject ?? ''}`).join(', ');
         return <div key={user.email} className="flex items-center gap-3 py-4">
           <span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{(user.displayName || user.email).slice(0, 2).toUpperCase()}</span>
-          <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="truncate text-xs text-muted-foreground">{user.email} · {ROLE_LABELS[user.role] ?? user.role}{assigned ? ` · ${assigned}` : ''}</p></div>
+          <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="truncate text-xs text-muted-foreground">{user.email}{user.phone ? ` · ${user.phone}` : ''} · {ROLE_LABELS[user.role] ?? user.role}{assigned ? ` · ${assigned}` : ''}</p></div>
           <button aria-label={`Edit ${user.email}`} data-testid={`button-edit-user-${user.email}`} onClick={() => openEdit(user)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil size={15} /></button>
           <button aria-label={`Remove ${user.email}`} onClick={() => void remove(user.email)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button>
         </div>;
