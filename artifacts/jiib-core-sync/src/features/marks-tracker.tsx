@@ -9,7 +9,7 @@ import { jiibApi } from '@/lib/jiib-api';
 import { getTerms, type SchoolConfig } from '@/lib/school-data';
 
 type Status = 'complete' | 'partial' | 'none' | 'no_students';
-type Row = { className: string; subject: string; teacherEmail: string | null; teacherName: string | null; students: number; complete: number; partial: number; empty: number; perField: Record<string, number>; status: Status };
+type Row = { className: string; subject: string; teacherEmail: string | null; teacherName: string | null; students: number; complete: number; partial: number; empty: number; perField: Record<string, number>; status: Status; undecided?: number };
 type Progress = { termKey: string; termLabel: string; fields: Array<{ field: string; name: string }>; rows: Row[] };
 
 const LOOK: Record<string, { label: string; chip: string; bar: string; Icon: typeof CircleCheck }> = {
@@ -69,6 +69,7 @@ export function MarksTracker({ school }: { school: School }) {
   const teachers = Array.from(byTeacher.entries()).map(([email, g]) => ({ email, ...g, status: rollup(g.rows) })).sort((a, b) => a.name.localeCompare(b.name));
   const teacherFiltered = teachers.filter((t) => filter === 'all' || t.status === filter);
   const classNames = Array.from(new Set(rows.map((r) => r.className)));
+  const undecided = classNames.map((className) => ({ className, count: rows.find((r) => r.className === className)?.undecided ?? 0 })).filter((item) => item.count > 0);
 
   const filters: Array<['all' | 'complete' | 'partial' | 'none', string]> = [['all', 'All'], ['complete', 'Complete'], ['partial', 'Partial'], ['none', 'Not started']];
   return <div className="fade-up" data-testid="marks-tracker">
@@ -93,6 +94,7 @@ export function MarksTracker({ school }: { school: School }) {
         <Card label="Not started" value={count('none')} hint="no marks yet" tone="border-rose-300/60" />
         <Card label="No teacher assigned" value={unassigned.length} hint="subjects" />
       </div>
+      {undecided.length > 0 && <p role="note" className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-xs text-amber-900">{undecided.map((item) => `${item.count} ${item.className} learner${item.count === 1 ? ' has' : 's have'}`).join(' and ')} not picked subjects yet, so they are left out of the totals above until subjects are set in Students. Learners who already have a mark in a subject are still counted.</p>}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-lg bg-muted p-1" role="tablist">{([['teacher', 'By teacher'], ['class', 'By class']] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={view === id} onClick={() => setView(id)} className={`rounded-md px-4 py-1.5 text-sm font-semibold ${view === id ? 'bg-card shadow-sm' : 'text-muted-foreground'}`}>{label}</button>)}</div>
         <div className="flex flex-wrap gap-1.5">{filters.map(([id, label]) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)} className={`rounded-full border px-3 py-1 text-xs font-semibold ${filter === id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'}`}>{label}</button>)}</div>

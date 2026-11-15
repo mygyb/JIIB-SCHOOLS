@@ -503,10 +503,12 @@ function activeAssessmentFields(config: Record<string, unknown>): AssessmentFiel
   return chosen.filter((field) => selected.has(field.field));
 }
 
+// Which of the switched-on assessments hold a mark. Only the active assessments count, so switching one off never inflates the totals.
 function enteredMarkFields(mark: Record<string, unknown>, fields: AssessmentField[]) {
-  if (Array.isArray(mark.enteredFields)) return mark.enteredFields.map(String);
+  const marked = Array.isArray(mark.enteredFields) ? new Set(mark.enteredFields.map(String)) : new Set<string>();
   return fields
-    .filter((field) => Number(mark[field.field] ?? mark[{ c1: "aoi", c2: "midterm", c3: "end" }[field.field] as "aoi" | "midterm" | "end"] ?? 0) > 0)
+    .filter((field) => marked.has(field.field) ||
+      Number(mark[field.field] ?? mark[{ c1: "aoi", c2: "midterm", c3: "end" }[field.field] as "aoi" | "midterm" | "end"] ?? 0) > 0)
     .map((field) => field.field);
 }
 
@@ -2069,6 +2071,10 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
       for (const subject of subjectsFromMarks.get(className) ?? []) {
         if (!subjects.some((item) => item.name === subject)) subjects.push({ name: subject, teacher: "" });
       }
+      // In classes where learners pick subjects, learners who have not picked any yet are left out of a subject's totals
+      // (unless they already have a mark in it), so they do not hold every optional subject below 100%.
+      const classUsesChoices = classLevel(className) >= classLevel(optionalClass) &&
+        classStudents.some((student) => Array.isArray(student.subjects) && student.subjects.length > 0);
       for (const item of subjects) {
         const owned = assignmentList.some((entry) =>
           typeof entry === "string"
@@ -2085,8 +2091,9 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
         ) ? teacherName : item.teacher;
         const assignedTeacher = assignedToCurrentTeacher || item.teacher;
         const eligibleStudents = classLevel(className) >= classLevel(optionalClass)
-          ? classStudents.filter((student) => !Array.isArray(student.subjects) || student.subjects.length === 0 ||
-            (student.subjects as unknown[]).some((subject) =>
+          ? classStudents.filter((student) => !Array.isArray(student.subjects) || student.subjects.length === 0
+            ? !classUsesChoices || markMap.has(`${String(student.id)}|${item.name}`)
+            : (student.subjects as unknown[]).some((subject) =>
               typeof subject === "string" ? subject === item.name :
                 String((subject as Record<string, unknown>)?.name ?? subject) === item.name))
           : classStudents;
