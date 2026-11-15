@@ -39,7 +39,7 @@ as $$
 declare
   names text[] := array['marks','students','jsa_alevel_marks','jsa_fee_payments','jsa_fee_structures','jsa_fee_overrides','jsa_fee_students',
     'jsa_term_summary','jsa_activity','jsa_push_log','jsa_push_subscriptions','jsa_sms_messages','jsa_sms_recipients','jsa_sms_ledger',
-    'parent_chat','contact_messages','device_sessions','report_verification_codes','jhq_logins','jhq_devices','jhq_audit'];
+    'parent_chat','contact_messages','device_sessions','jhq_logins','jhq_devices','jhq_audit'];
   n text;
   reg regclass;
   bytes bigint;

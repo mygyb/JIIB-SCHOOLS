@@ -2,7 +2,8 @@
 //  1. When a school opens a new term, the detailed marks of terms older than the previous one are removed
 //     (a small per-student summary is saved first). Fee payments, fee structures, receipts, report verification codes and the
 //     student list of every term are kept: unpaid balances from earlier terms are worked out from them.
-//  2. Every day, low-value records older than 30 days are deleted (teacher activity feed, notification log, SMS delivery details, login log).
+//  2. Every day, low-value records older than 30 days are deleted (teacher activity feed, notification log, SMS delivery details, login log),
+//     and SMS credit records older than 7 days (their totals are first added to each school's running totals).
 //  3. The super administrator sees how much space everything uses (Storage panel) and can run the daily cleanup on demand.
 import type { IRouter, Request, Response } from "express";
 import { asRows, jsonBody, supabaseAdminRequest } from "../lib/supabase.js";
@@ -13,6 +14,7 @@ const enc = encodeURIComponent;
 const DAY = 86_400_000;
 export const LOW_VALUE_DAYS = 30;
 const SMS_HISTORY_DAYS = 90;
+const SMS_LEDGER_DAYS = 7;
 
 const isMissingTable = (error: unknown) => /Could not find the (table|function)|schema cache|relation .* does not exist|PGRST20\d|42P01/i.test(error instanceof Error ? error.message : String(error));
 const admin = <T = unknown>(path: string, init: RequestInit = {}) => supabaseAdminRequest<T>(path, init);
@@ -175,6 +177,11 @@ export async function runDailyCleanup(): Promise<{ cleaned: string[] }> {
     cleaned.push("SMS delivery details");
   } catch (error) { if (!isMissingTable(error)) cleaned.push("SMS delivery details (failed)"); }
   await del("old SMS history", `/rest/v1/jsa_sms_messages?created_at=lt.${enc(smsCutoff)}`);
+  try {
+    // Credit records older than 7 days: the database folds them into the school's running totals while deleting them.
+    await admin("/rest/v1/rpc/jsa_sms_roll_ledger", { method: "POST", body: jsonBody({ p_cutoff: new Date(Date.now() - SMS_LEDGER_DAYS * DAY).toISOString() }) });
+    cleaned.push("SMS credit records");
+  } catch (error) { if (!isMissingTable(error)) cleaned.push("SMS credit records (failed)"); }
   await del("cleanup log", `/rest/v1/jsa_cleanup_log?at=lt.${enc(smsCutoff)}`);
   await log("daily", null, cleaned.length ? `Removed records older than ${LOW_VALUE_DAYS} days: ${cleaned.join(", ")}` : "Nothing to clean");
   return { cleaned };
