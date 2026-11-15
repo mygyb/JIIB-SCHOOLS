@@ -802,6 +802,9 @@ function Dashboard() {
     ? Math.round((data.marksEntered / data.marksExpected) * 100)
     : null;
   const subjects = data?.subjectCompletion ?? [];
+  // The percentages only count the assessments switched on in the assessment filter; say which ones.
+  const trackedNames = ((data as unknown as { assessmentFields?: Array<{ name?: string }> } | undefined)?.assessmentFields ?? []).map((field) => String(field.name ?? '')).filter(Boolean);
+  const trackedLabel = trackedNames.length ? trackedNames.join(' + ') : '';
   const events = (data?.events ?? []).filter((item) => {
     if (!item.date) return true;
     return new Date(`${item.date.slice(0, 10)}T23:59:59`).getTime() >= now.getTime();
@@ -831,14 +834,14 @@ function Dashboard() {
       <div className={`grid gap-4 sm:grid-cols-2 ${isTeacher ? 'xl:grid-cols-2' : 'xl:grid-cols-4'}`}>{[{ label: 'Students enrolled', value: data.studentCount, icon: UsersRound, tone: 'text-primary' }, { label: 'Active classes', value: data.classCount, icon: BookOpen, tone: 'text-[#2e8c72]' }, { label: isTeacher ? 'Your marks entered' : 'Marks entered', value: `${data.marksEntered}/${data.marksExpected}`, icon: BarChart3, tone: 'text-[#c88e17]' }, { label: 'Houses', value: data.configuredHouseCount, icon: Building2, tone: 'text-[#a44f47]' }].filter((metric) => !isTeacher || (metric.label !== 'Active classes' && metric.label !== 'Houses')).map(({ label, value, icon: Icon, tone }) => <div key={label} data-testid={`card-metric-${label.toLowerCase().replaceAll(' ', '-')}`} className="rounded-2xl border border-border bg-card p-5 shadow-[0_1px_2px_hsl(var(--foreground)/.03)]"><div className="flex items-start justify-between"><p className="text-xs font-semibold uppercase tracking-[.12em] text-muted-foreground">{label}</p><Icon size={18} className={tone} /></div><p className="mt-5 font-display text-3xl font-semibold tracking-tight">{value}</p><p className="mt-1 text-xs text-muted-foreground">{label.toLowerCase().includes('marks') ? `${completion === null ? 'No expected entries' : `${completion}% complete`} · ${data.activeTerm || 'active term'}` : 'Across the active school'}</p></div>)}</div>
       <div className={`mt-5 grid gap-5 ${isTeacher ? '' : 'xl:grid-cols-[1.2fr_.8fr]'}`}>
         <section aria-labelledby="marks-overview-title" className="rounded-2xl border border-border bg-card p-5 sm:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 id="marks-overview-title" className="font-display text-lg font-semibold">{isTeacher ? 'Your marks completion' : 'Marks completion'}</h3><p className="mt-1 text-sm text-muted-foreground">{data.activeTerm ? `Active term · ${data.activeTerm}` : 'Assessment entry across the active term.'}</p></div><span className="font-display text-2xl font-semibold text-primary">{completion === null ? '—' : `${completion}%`}</span></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 id="marks-overview-title" className="font-display text-lg font-semibold">{isTeacher ? 'Your marks completion' : 'Marks completion'}</h3><p className="mt-1 text-sm text-muted-foreground">{data.activeTerm ? `Active term · ${data.activeTerm}` : 'Assessment entry across the active term.'}</p>{trackedLabel && <p data-testid="tracked-assessments" className="mt-2 inline-flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">Counting: <strong className="rounded-full bg-primary/10 px-2.5 py-0.5 text-primary">{trackedLabel} only</strong></p>}</div><span className="font-display text-2xl font-semibold text-primary">{completion === null ? '—' : `${completion}%`}</span></div>
           <div className="mt-6 grid gap-6 sm:grid-cols-[180px_1fr] sm:items-center">
             <div className="relative mx-auto h-40 w-40">
               {data.marksExpected > 0 ? <Doughnut aria-label={`Marks completion: ${data.marksEntered} of ${data.marksExpected} entries`} role="img" data={{ labels: ['Entered', 'Remaining'], datasets: [{ data: [Math.min(data.marksEntered, data.marksExpected), Math.max(0, data.marksExpected - data.marksEntered)], backgroundColor: ['#284e80', '#e4eaf0'], borderWidth: 0, hoverOffset: 5, borderRadius: 3 }] }} options={chartOptions} /> : <div role="img" aria-label="No assessment entries expected" className="grid h-full w-full place-items-center rounded-full border-[14px] border-muted"><span className="text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">No expected<br />entries</span></div>}
               {data.marksExpected > 0 && <div aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center"><span className="font-display text-xl font-semibold">{completion}%</span></div>}
             </div>
             <div className="space-y-4">
-              <p className="max-w-lg text-sm leading-6 text-muted-foreground">Marks recorded for the active term, against the expected assessment entries.</p>
+              <p className="max-w-lg text-sm leading-6 text-muted-foreground">{trackedLabel ? `This percentage shows ${trackedLabel} marks only (the assessments switched on in the assessment filter), against every learner expected to have them.` : 'Marks recorded for the active term, against the expected assessment entries.'}</p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl bg-[#eef3f8] p-3"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Entered</p><p className="mt-1 font-display text-xl font-semibold">{data.marksEntered}</p></div>
                 <div className="rounded-xl bg-muted/60 p-3"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Remaining</p><p className="mt-1 font-display text-xl font-semibold">{Math.max(0, data.marksExpected - data.marksEntered)}</p></div>
@@ -864,7 +867,7 @@ function Dashboard() {
           <div>
             <p className="mb-1 text-[10px] font-bold uppercase tracking-[.18em] text-primary">Assessment progress</p>
             <h3 id="subject-chart-title" className="font-display text-lg font-semibold">Completion by subject</h3>
-            <p className="mt-1 text-sm text-muted-foreground">All class and subject assignments · {data.activeTerm || 'active term'}</p>
+            <p className="mt-1 text-sm text-muted-foreground">All class and subject assignments · {data.activeTerm || 'active term'}{trackedLabel ? ` · ${trackedLabel} only` : ''}</p>
           </div>
           <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">{rankedSubjects.length} subject rows</span>
         </div>
@@ -922,7 +925,7 @@ function Dashboard() {
       </section>
       <section aria-labelledby="subject-completion-title" className="mt-5 overflow-hidden rounded-2xl border border-border bg-card">
         <div className="flex flex-col justify-between gap-3 border-b border-border px-5 py-5 sm:flex-row sm:items-end sm:px-6">
-          <div><p className="mb-1 text-[10px] font-bold uppercase tracking-[.18em] text-primary">Active term · {data.activeTerm || 'current'}</p><h3 id="subject-completion-title" className="font-display text-xl font-semibold">{isTeacher ? 'Your subject completion' : 'Marks completion by subject'}</h3><p className="mt-1 text-sm text-muted-foreground">Every class and subject returned for this school term.</p></div>
+          <div><p className="mb-1 text-[10px] font-bold uppercase tracking-[.18em] text-primary">Active term · {data.activeTerm || 'current'}</p><h3 id="subject-completion-title" className="font-display text-xl font-semibold">{isTeacher ? 'Your subject completion' : 'Marks completion by subject'}</h3><p className="mt-1 text-sm text-muted-foreground">Every class and subject for this term{trackedLabel ? ` · counting ${trackedLabel} only` : ''}.</p></div>
           {subjects.length > 0 && <div className="text-left sm:text-right"><p className="text-xs text-muted-foreground">Across listed subjects</p><p className="font-display text-lg font-semibold">{subjectTotals.entered} <span className="text-sm font-medium text-muted-foreground">/ {subjectTotals.expected} entries</span></p></div>}
         </div>
         {rankedSubjects.length ? <div className="overflow-x-auto">
