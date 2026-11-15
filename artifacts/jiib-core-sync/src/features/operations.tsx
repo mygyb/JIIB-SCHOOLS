@@ -36,6 +36,7 @@ import { SchoolBadgeField } from '@/features/school-badge';
 import { PerformanceView } from '@/features/performance/performance-page';
 import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
+import { MarksTracker } from '@/features/marks-tracker';
 import { ALevelSetup } from '@/features/alevel-setup';
 import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } from '@/lib/school-data';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, isPrimarySchool, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
@@ -43,6 +44,7 @@ import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, isPrimarySchool, ma
 type Page =
   | 'promote'
   | 'parentsPortal'
+  | 'marksTracker'
   | 'parentMessages'
   | 'userManagement'
   | 'accountSettings'
@@ -217,6 +219,63 @@ const ROLE_NOTES: Record<string, string> = {
 };
 const ROLE_LABELS: Record<string, string> = { admin: 'School administrator', teacher: 'Teacher', headteacher: 'Head teacher', bursar: 'Bursar' };
 
+type SubjectOption = { className: string; subject: string };
+// Class-by-class subject picker: one card per class, tap a subject to give it to the teacher. Subjects already held by another teacher are locked.
+function SubjectPicker({ options, selected, onChange, ownerOf, testId }: {
+  options: SubjectOption[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  ownerOf: (className: string, subject: string) => StaffAccount | undefined;
+  testId: string;
+}) {
+  const key = (o: SubjectOption) => `${o.className}::${o.subject}`;
+  const classes = Array.from(new Set(options.map((o) => o.className)));
+  const [active, setActive] = useState('');
+  const current = classes.includes(active) ? active : classes[0] ?? '';
+  const toggle = (k: string) => onChange(selected.includes(k) ? selected.filter((i) => i !== k) : [...selected, k]);
+  if (!options.length) return <p className="rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">Add class subjects in Manage subjects first.</p>;
+  const inClass = options.filter((o) => o.className === current);
+  const free = inClass.filter((o) => !ownerOf(o.className, o.subject));
+  const allChosen = free.length > 0 && free.every((o) => selected.includes(key(o)));
+  return <div data-testid={testId} className="rounded-xl border border-border bg-card">
+    <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5">
+      <span className="text-xs font-semibold text-muted-foreground">Pick a class, then tap its subjects</span>
+      <span className="flex items-center gap-2"><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{selected.length} selected</span>{selected.length > 0 && <button type="button" onClick={() => onChange([])} className="text-xs font-semibold text-muted-foreground underline">Clear</button>}</span>
+    </div>
+    <div role="tablist" aria-label="Classes" className="flex gap-1.5 overflow-x-auto border-b border-border px-3 py-2.5">
+      {classes.map((className) => {
+        const count = options.filter((o) => o.className === className && selected.includes(key(o))).length;
+        const on = className === current;
+        return <button key={className} type="button" role="tab" aria-selected={on} onClick={() => setActive(className)} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${on ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-foreground hover:bg-muted'}`}>
+          {className}{count > 0 && <span className={`grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] ${on ? 'bg-white/25' : 'bg-primary text-primary-foreground'}`}>{count}</span>}
+        </button>;
+      })}
+    </div>
+    <div className="p-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold">{current} <span className="text-xs font-normal text-muted-foreground">· {inClass.length} subject{inClass.length === 1 ? '' : 's'}</span></p>
+        {free.length > 0 && <button type="button" onClick={() => onChange(allChosen ? selected.filter((k) => !free.some((o) => key(o) === k)) : Array.from(new Set([...selected, ...free.map(key)])))} className="text-xs font-semibold text-primary hover:underline">{allChosen ? 'Unselect all' : 'Select all free subjects'}</button>}
+      </div>
+      <div className="grid max-h-[22rem] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+        {inClass.map((o) => {
+          const k = key(o);
+          const owner = ownerOf(o.className, o.subject);
+          const on = selected.includes(k);
+          return <button key={k} type="button" disabled={Boolean(owner)} aria-pressed={on} onClick={() => toggle(k)}
+            className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-sm transition ${owner ? 'cursor-not-allowed border-dashed border-border bg-muted/40 text-muted-foreground' : on ? 'border-primary bg-primary/10 font-semibold' : 'border-border hover:border-primary hover:bg-primary/5'}`}>
+            <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`}>{on && <Check size={13} />}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate">{o.subject}</span>{owner && <span className="block truncate text-[11px]">Taken by {owner.displayName || owner.email}</span>}</span>
+          </button>;
+        })}
+      </div>
+    </div>
+  </div>;
+}
+
+function StaffStat({ label, value, tone = '' }: { label: string; value: number; tone?: string }) {
+  return <div className={`rounded-xl border border-border bg-card p-4 ${tone}`}><p className="text-xs font-medium text-muted-foreground">{label}</p><p className="mt-1 font-display text-2xl font-semibold tabular-nums">{value}</p></div>;
+}
+
 function UserManagement({ school }: { school: School }) {
   const config = useConfig(school.id);
   const queryClient = useQueryClient();
@@ -241,6 +300,9 @@ function UserManagement({ school }: { school: School }) {
   const [editName, setEditName] = useState('');
   const [editRole, setEditRole] = useState<StaffRole>('teacher');
   const [editSubjects, setEditSubjects] = useState<string[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const users = roster.data ?? [];
@@ -286,6 +348,7 @@ function UserManagement({ school }: { school: School }) {
       });
       setEmail(''); setName(''); setPhone(''); setInitialPassword(''); setSelectedSubjects([]);
       setSuccess(`${result.displayName || result.email} now has school access. Share the initial password securely.`);
+      setShowAdd(false);
       await roster.refetch();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create this staff account.');
@@ -368,26 +431,29 @@ function UserManagement({ school }: { school: School }) {
         </ShellCard>
         <ShellCard>
           <h3 className="font-display text-lg font-semibold">Class subjects</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Teachers can enter marks only for the subjects ticked here.</p>
-        {editRole === 'teacher' ? <div className="mt-4 rounded-xl border border-border p-3">
-          <p className="mb-2 text-xs font-semibold">Assigned class subjects</p>
-          {subjectOptions.length ? <div className="grid max-h-[28rem] gap-1 overflow-y-auto sm:grid-cols-2">{subjectOptions.map((option) => {
-            const key = pairKey(option.className, option.subject);
-            const owner = ownerFor(option.className, option.subject, [editing.email, editEmail]);
-            const checked = editSubjects.includes(key);
-            return <label key={key} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${owner ? 'opacity-50' : 'hover:bg-muted'}`}>
-              <input type="checkbox" checked={checked} disabled={Boolean(owner)} onChange={() => setEditSubjects((items) => checked ? items.filter((item) => item !== key) : [...items, key])} />
-              <span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span>
-            </label>;
-          })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects first.</p>}
-        </div> : <div className="mt-4 rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">{ROLE_NOTES[role] ?? ROLE_NOTES.admin}</div>}
+          <p className="mt-1 text-sm text-muted-foreground">Tap the subjects this teacher teaches, class by class.</p>
+        {editRole === 'teacher' ? <div className="mt-4"><SubjectPicker testId="edit-subject-picker" options={subjectOptions} selected={editSubjects} onChange={setEditSubjects} ownerOf={(c, sub) => ownerFor(c, sub, [editing.email, editEmail])} /></div> : <div className="mt-4 rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground">{ROLE_NOTES[editRole] ?? ROLE_NOTES.admin}</div>}
         </ShellCard>
       </div>
     </div>;
   }
   return <div className="fade-up">
-    <SectionHeading eyebrow="People & roles" title="User management" body="Create staff accounts, assign class subjects, and edit school access." />
-    <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
+    <SectionHeading eyebrow="People & roles" title="User management" body="Add staff, give teachers their classes and subjects, and manage who has access." />
+    <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6" data-testid="staff-stats">
+      <StaffStat label="Active staff" value={users.length} tone="border-primary/40 bg-primary/5" />
+      <StaffStat label="Teachers" value={users.filter((u) => u.role === 'teacher').length} />
+      <StaffStat label="Administrators" value={users.filter((u) => u.role === 'admin').length} />
+      <StaffStat label="Head teacher" value={users.filter((u) => u.role === 'headteacher').length} />
+      <StaffStat label="Bursar" value={users.filter((u) => u.role === 'bursar').length} />
+      <StaffStat label="Subjects without a teacher" value={Math.max(subjectOptions.length - subjectOptions.filter((o) => ownerFor(o.className, o.subject, [])).length, 0)} tone={subjectOptions.length && subjectOptions.some((o) => !ownerFor(o.className, o.subject, [])) ? 'border-amber-400/60 bg-amber-50' : ''} />
+    </div>
+    <div className="mb-5 flex flex-wrap items-center gap-2">
+      <input aria-label="Search staff" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search staff by name, email or phone" className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-sm" />
+      <select aria-label="Filter by role" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} className="h-11 rounded-lg border border-input bg-background px-3 text-sm"><option value="all">All roles</option><option value="teacher">Teachers</option><option value="admin">Administrators</option><option value="headteacher">Head teacher</option><option value="bursar">Bursar</option></select>
+      <button type="button" data-testid="button-show-add-staff" onClick={() => setShowAdd((v) => !v)} className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground"><Plus size={15} /> {showAdd ? 'Close' : 'Add staff'}</button>
+    </div>
+    {success && !showAdd && <p role="status" className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</p>}
+    {showAdd && <div>
       <ShellCard>
         <h3 className="font-display text-lg font-semibold">Add staff account</h3>
         <p className="mt-1 text-sm text-muted-foreground">Set the staff member’s sign-in email and initial password. Share the password securely.</p>
@@ -400,38 +466,22 @@ function UserManagement({ school }: { school: School }) {
           </select>
           <input data-testid="input-teacher-initial-password" type="password" autoComplete="new-password" minLength={8} value={initialPassword} onChange={(event) => setInitialPassword(event.target.value)} placeholder="Initial password (8+ characters)" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" />
         </div>
-        {role === 'teacher' && <div className="mt-4 rounded-xl border border-border p-3">
-          <p className="mb-2 text-xs font-semibold">Assign class subjects</p>
-          {subjectOptions.length ? <div className="grid max-h-52 gap-1 overflow-y-auto sm:grid-cols-2">{subjectOptions.map((option) => {
-            const key = pairKey(option.className, option.subject);
-            const owner = ownerFor(option.className, option.subject);
-            const checked = selectedSubjects.includes(key);
-            return <label key={key} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs ${owner ? 'opacity-50' : 'hover:bg-muted'}`}>
-              <input type="checkbox" checked={checked} disabled={Boolean(owner)} onChange={() => setSelectedSubjects((items) => checked ? items.filter((item) => item !== key) : [...items, key])} />
-              <span className="flex-1">{option.className} · {option.subject}{owner && <span className="block text-[10px] text-muted-foreground">Assigned to {owner.displayName || owner.email}</span>}</span>
-            </label>;
-          })}</div> : <p className="text-xs text-muted-foreground">Add class subjects in Manage subjects before creating teachers.</p>}
-        </div>}
+        {role === 'teacher' && <div className="mt-4"><p className="mb-2 text-xs font-semibold">Classes and subjects</p><SubjectPicker testId="add-subject-picker" options={subjectOptions} selected={selectedSubjects} onChange={setSelectedSubjects} ownerOf={(c, sub) => ownerFor(c, sub)} /></div>}
         <button data-testid="button-add-teacher" onClick={() => void add()} disabled={!email.trim() || !name.trim() || initialPassword.length < 8 || config.saving || roster.isLoading} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Create account</button>
         {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
         {success && <p role="status" className="mt-3 text-sm text-emerald-700">{success}</p>}
       </ShellCard>
-      <ShellCard>
-        <h3 className="font-display text-lg font-semibold">Access rules</h3>
-        <p className="mt-1 text-sm text-muted-foreground">Teachers can enter marks only for their assigned classes and subjects. Administrators manage the school register, settings, and staff.</p>
-        <div className="mt-5 rounded-xl bg-muted/50 p-4 text-sm">
-          <p className="font-semibold">Account security</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">Account provisioning uses a server-only Supabase key. The initial password is sent only to Supabase Auth and is never saved in the school roster.</p>
-        </div>
-      </ShellCard>
-    </div>
+    </div>}
     <ShellCard className="mt-5">
       <LoadingOrError loading={roster.isLoading} error={roster.isError} retry={() => void roster.refetch()} />
-      <div className="divide-y divide-border">{users.length ? users.map((user) => {
-        const assigned = (user.subjects ?? []).map((item) => typeof item === 'string' ? item : `${item.class ?? 'Class'}: ${item.subject ?? ''}`).join(', ');
+      <div className="divide-y divide-border">{users.length ? users.filter((user) => (roleFilter === 'all' || user.role === roleFilter) && `${user.displayName ?? ''} ${user.email} ${user.phone ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())).map((user) => {
+        const assignedCount = (user.subjects ?? []).length;
+        const byClass = new Map<string, string[]>();
+        for (const item of user.subjects ?? []) { const c = typeof item === 'string' ? 'Subjects' : item.class ?? 'Class'; byClass.set(c, [...(byClass.get(c) ?? []), typeof item === 'string' ? item : item.subject ?? '']); }
         return <div key={user.email} className="flex items-center gap-3 py-4">
           <span className="grid h-9 w-9 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{(user.displayName || user.email).slice(0, 2).toUpperCase()}</span>
-          <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="truncate text-xs text-muted-foreground">{user.email}{user.phone ? ` · ${user.phone}` : ''} · {ROLE_LABELS[user.role] ?? user.role}{assigned ? ` · ${assigned}` : ''}</p></div>
+          <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{user.displayName || user.email}</p><p className="truncate text-xs text-muted-foreground">{user.email}{user.phone ? ` · ${user.phone}` : ''} · {ROLE_LABELS[user.role] ?? user.role}{user.role === 'teacher' ? ` · ${assignedCount} subject${assignedCount === 1 ? '' : 's'}` : ''}</p>
+            {assignedCount > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{Array.from(byClass).map(([c, list]) => <span key={c} className="rounded-md bg-muted px-2 py-0.5 text-[11px]"><strong>{c}</strong> {list.join(', ')}</span>)}</div>}</div>
           <button aria-label={`Edit ${user.email}`} data-testid={`button-edit-user-${user.email}`} onClick={() => openEdit(user)} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil size={15} /></button>
           <button aria-label={`Remove ${user.email}`} onClick={() => void remove(user.email)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10"><Trash2 size={15} /></button>
         </div>;
@@ -1171,6 +1221,7 @@ export function OperationsPage({ page, school }: { page: Page; school: School })
   switch (page) {
     case 'promote': return <PromotionWizard school={school} />;
     case 'parentsPortal': return <ParentsPortal school={school} />;
+    case 'marksTracker': return <MarksTracker school={school} />;
     case 'parentMessages': return <ParentMessages school={school} />;
     case 'userManagement': return <UserManagement school={school} />;
     case 'accountSettings': return <AccountSettings school={school} />;

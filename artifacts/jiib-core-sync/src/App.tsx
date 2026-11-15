@@ -6,7 +6,7 @@ import {
   Activity, Archive, LogIn, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
   ClipboardList, GraduationCap, Award, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
   MessageSquare, Moon, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Search, Settings, ShieldCheck, Sun,
-  SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose,
+  SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose, ListChecks,
 } from 'lucide-react';
 import {
   getGetDashboardSummaryQueryKey, getGetSchoolBySlugQueryKey, getGetSchoolConfigQueryKey,
@@ -67,10 +67,8 @@ const navItems = [
   { href: '/students', label: 'Students', icon: UsersRound },
   { href: '/marks', label: 'Marks register', icon: ClipboardList },
   { href: '/account-settings', label: 'Account settings', icon: Settings },
-  { href: '/messages', label: 'Messages', icon: Inbox },
-  { href: '/parent-messages', label: 'Parent conversations', icon: MessageSquare },
   { href: '/promote', label: 'Promote students', icon: GraduationCap },
-  { href: '/parents-portal', label: 'Parents portal', icon: UserRound },
+  { href: '/marks-tracker', label: 'Marks tracker', icon: ListChecks },
   { href: '/user-management', label: 'User management', icon: UsersRound },
   { href: '/performance', label: 'Performance', icon: BarChart3 },
   { href: '/report-studio', label: 'Report studio', icon: Archive },
@@ -89,7 +87,7 @@ const navItems = [
 // Nav items / routes that belong to the school administrator workspace only.
 const ADMIN_ONLY_HREFS = [
   '/messages',
-  '/students', '/promote', '/parents-portal', '/user-management', '/performance',
+  '/students', '/promote', '/marks-tracker', '/user-management', '/performance',
   '/report-studio', '/print-marksheets', '/term-management', '/manage-subjects', '/a-level', '/a-level-results',
   '/grading-system', '/publish-deadline', '/school-events', '/school-settings', '/system-settings',
   '/settings', '/parent-messages',
@@ -343,7 +341,7 @@ function Router() {
         <Route path="/sms"><AppShell><SmsPage /></AppShell></Route>
         <Route path="/promote"><AppShell><OperationsRoute page="promote" /></AppShell></Route>
         <Route path="/overview"><Redirect to="/promote" /></Route>
-        <Route path="/parents-portal"><AppShell><OperationsRoute page="parentsPortal" /></AppShell></Route>
+        <Route path="/marks-tracker"><AppShell><OperationsRoute page="marksTracker" /></AppShell></Route>
         <Route path="/user-management"><AppShell><OperationsRoute page="userManagement" /></AppShell></Route>
         <Route path="/performance"><AppShell><OperationsRoute page="performance" /></AppShell></Route>
         <Route path="/print-marksheets"><AppShell><OperationsRoute page="printMarksheets" /></AppShell></Route>
@@ -719,7 +717,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const titleMap: Record<string, string> = {
     '/dashboard': 'Overview', '/students': 'Students', '/marks': 'Marks register', '/messages': 'Messages',
     '/settings': 'School settings', '/parent': 'Family view', '/parent-view': 'Family view', '/parent-messages': 'Parent conversations', '/super-admin': 'Portfolio',
-    '/promote': 'Promote students', '/parents-portal': 'Parents portal', '/user-management': 'User management',
+    '/promote': 'Promote students', '/marks-tracker': 'Marks tracker', '/user-management': 'User management',
     '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
     '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/a-level': 'A-Level', '/a-level-results': 'A-Level results', '/grading-system': 'Grading system',
     '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',
