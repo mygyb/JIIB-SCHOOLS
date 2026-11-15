@@ -86,10 +86,14 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
       for (const [className, list] of Object.entries(subjectsByClass).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))) {
         if (!Array.isArray(list)) continue;
         const classStudents = Array.from(students.entries()).filter(([, s]) => s.className === className);
+        const usesChoices = level(className) >= optionalFrom && classStudents.some(([, s]) => s.subjects.length > 0);
+        const undecided = usesChoices ? classStudents.filter(([, s]) => s.subjects.length === 0).length : 0;
         for (const item of list) {
           const subject = String(typeof item === "string" ? item : (item as Row)?.name ?? "").trim();
           if (!subject) continue;
-          const takers = classStudents.filter(([, s]) => level(className) < optionalFrom || !s.subjects.length || s.subjects.includes(subject));
+          const takers = classStudents.filter(([id, s]) => level(className) < optionalFrom
+            ? true
+            : s.subjects.length ? s.subjects.includes(subject) : !usesChoices || entered.has(`${id}|${subject}`));
           let complete = 0, partial = 0, empty = 0;
           const perField: Record<string, number> = Object.fromEntries(fields.map((f) => [f.field, 0]));
           for (const [id] of takers) {
@@ -100,7 +104,7 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
           }
           const teacher = teacherOf(className, subject);
           const status = takers.length === 0 ? "no_students" : complete === takers.length ? "complete" : empty === takers.length ? "none" : "partial";
-          rows.push({ className, subject, teacherEmail: teacher ? String(teacher.email) : null, teacherName: teacher ? String(teacher.display_name || teacher.email) : null, students: takers.length, complete, partial, empty, perField, status });
+          rows.push({ className, subject, teacherEmail: teacher ? String(teacher.email) : null, teacherName: teacher ? String(teacher.display_name || teacher.email) : null, students: takers.length, complete, partial, empty, perField, status, undecided });
         }
       }
       res.json({ termKey, termLabel: String(term.label ?? termKey), fields, rows });
