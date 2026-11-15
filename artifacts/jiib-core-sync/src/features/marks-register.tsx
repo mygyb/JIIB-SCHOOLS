@@ -63,7 +63,7 @@ export function MarksRegister({ school }: { school: School }) {
   const [className, setClassName] = useState(() => isTeacher ? readAssignments().find((item) => item.class)?.class ?? "" : "");
   const [subject, setSubject] = useState("");
   const [search, setSearch] = useState("");
-  const [sortOrder, setSortOrder] = useState<"none" | "asc" | "desc">("none");
+  const [sortOrder, setSortOrder] = useState<"none" | "asc" | "desc">("asc");
   const [pendingMarks, setPendingMarks] = useState(() => getPendingMarks(school.id));
   const [error, setError] = useState("");
   const [fieldSaveStates, setFieldSaveStates] = useState<Record<string, "saved" | "unsaved">>({});
