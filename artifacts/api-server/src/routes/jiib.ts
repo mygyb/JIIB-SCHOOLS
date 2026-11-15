@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { parentFeeSummary, registerFinanceRoutes } from "./finance.js";
 import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
 import { registerPublicSmsRoutes, registerSmsRoutes } from "./sms.js";
+import { pruneOldTerms, registerCleanupRoutes } from "./cleanup.js";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -798,7 +799,7 @@ router.put("/schools/:schoolId/admin-password", async (req, res) => {
 
 const SchoolDeleteBody = z.object({ confirmName: z.string().trim().min(1).max(200) });
 // Tables added later (fees, notifications, activity, A-Level) are not linked to the school record, so they are cleared by hand.
-const SCHOOL_OWNED_TABLES = ["jsa_fee_payments", "jsa_fee_overrides", "jsa_fee_students", "jsa_fee_structures", "jsa_alevel_marks", "jsa_activity", "jsa_push_subscriptions", "jsa_push_log", "jhq_devices", "jsa_sms_recipients", "jsa_sms_messages", "jsa_sms_ledger", "jsa_sms_requests", "jsa_sms_accounts"];
+const SCHOOL_OWNED_TABLES = ["jsa_fee_payments", "jsa_fee_overrides", "jsa_fee_students", "jsa_fee_structures", "jsa_alevel_marks", "jsa_activity", "jsa_push_subscriptions", "jsa_push_log", "jhq_devices", "jsa_term_summary", "jsa_cleanup_log", "jsa_sms_recipients", "jsa_sms_messages", "jsa_sms_ledger", "jsa_sms_requests", "jsa_sms_accounts"];
 const tableMissing = (error: unknown) => /does not exist|schema cache|Could not find the table|404/i.test(error instanceof Error ? error.message : "");
 
 // Super administrator only. Permanently removes a school and everything it owns: pupils, marks, fees, staff access and settings.
@@ -1216,6 +1217,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
 registerFinanceRoutes(router, { readSchoolConfig });
 registerPushRoutes(router, { readSchoolConfig, requireSchoolAdmin }, sendError);
 registerSmsRoutes(router, { readSchoolConfig, authorizeSuperAdmin, sendError });
+registerCleanupRoutes(router, { authorizeSuperAdmin, sendError });
 
 // Teacher logins and marks entries for the school's System settings page (administrators only).
 router.get("/schools/:schoolId/activity", requireSchoolViewer, async (req, res) => {
@@ -3277,6 +3279,7 @@ router.patch("/schools/:schoolId/terms/:termKey", requireSchoolAdmin, async (req
       activeTerm = identity.key;
     }
     const saved = await writeSchoolConfig(req, schoolId, { ...config, activeTerm, terms: nextTerms });
+    if (activeTerm !== String(config.activeTerm ?? "")) await pruneOldTerms(schoolId, activeTerm); // opening a new term clears the detailed marks of older terms
     res.json(GetSchoolConfigResponse.parse({
       schoolId,
       data: saved,
@@ -3298,7 +3301,9 @@ router.post("/schools/:schoolId/terms/:termKey/activate", requireSchoolAdmin, as
       res.status(404).json({ error: "Term not found." });
       return;
     }
-    const saved = await writeSchoolConfig(req, schoolId, { ...config, activeTerm: termKey });
+    await writeSchoolConfig(req, schoolId, { ...config, activeTerm: termKey });
+    if (String(config.activeTerm ?? "") !== termKey) await pruneOldTerms(schoolId, termKey); // opening a new term clears the detailed marks of older terms
+    const saved = await readSchoolConfig(req, schoolId);
     res.json(GetSchoolConfigResponse.parse({
       schoolId,
       data: saved,
