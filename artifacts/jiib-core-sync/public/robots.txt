@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://jiib-schools-web.vercel.app/sitemap.xml
+Sitemap: https://j-schools-ug.vercel.app/sitemap.xml

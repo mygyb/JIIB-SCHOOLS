@@ -19,9 +19,9 @@ export type PushDeps = {
 };
 
 const enc = encodeURIComponent;
-const WEB_URL = (process.env.WEB_APP_URL || "https://jiib-schools-web.vercel.app").replace(/\/+$/, "");
+const WEB_URL = (process.env.WEB_APP_URL || "https://j-schools-ug.vercel.app").replace(/\/+$/, "");
 // The push standard needs a secure contact address; it is only shown to the phone makers' push services.
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || (WEB_URL.startsWith("https://") ? WEB_URL : "https://jiib-schools-web.vercel.app");
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || (WEB_URL.startsWith("https://") ? WEB_URL : "https://j-schools-ug.vercel.app");
 const TTL_SECONDS = 2 * 24 * 60 * 60;
 const NON_TEACHER_ROLES = ["admin", "headteacher", "bursar", "super_admin"];
 const TIME_ZONE = "Africa/Kampala"; // the app is for Ugandan schools: deadlines typed without a zone mean East Africa Time (UTC+3)
