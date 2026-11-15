@@ -5,6 +5,7 @@
 // Messages are held by the phone's push service for up to two days, so a teacher who is offline gets the notification
 // the moment their phone gets internet again. Data lives in three tables created by supabase/push-setup.sql and is only
 // ever read or written here with the service key; the signing keys are created automatically on first use.
+import { runDailyCleanup } from "./cleanup.js";
 import type { IRouter, Request, RequestHandler, Response } from "express";
 import * as webpush from "web-push";
 import { z } from "zod";
@@ -226,7 +227,8 @@ export function registerPublicPushRoutes(router: IRouter, sendError: (res: Respo
       if (secret && req.header("authorization") !== `Bearer ${secret}`) { res.status(401).json({ error: "Not allowed." }); return; }
       const reminders = await runDeadlineReminders();
       const update = await runUpdateCheck(true);
-      res.json({ reminders, update });
+      const cleanup = await runDailyCleanup().catch(() => ({ cleaned: [] as string[] })); // low-value records older than 30 days
+      res.json({ reminders, update, cleanup });
     } catch (error) { sendError(res, error); }
   });
 }
