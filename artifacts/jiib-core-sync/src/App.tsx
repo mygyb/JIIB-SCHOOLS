@@ -6,7 +6,7 @@ import {
   Activity, Archive, LogIn, ArrowRight, BarChart3, BookOpen, Building2, CalendarDays, Check, ChevronDown, CircleAlert,
   ClipboardList, GraduationCap, Award, House, Inbox, LayoutDashboard, Loader2, LockKeyhole, LogOut, Menu,
   MessageSquare, Moon, MoreHorizontal, Pencil, Plus, Printer, RefreshCw, Search, Settings, ShieldCheck, Sun,
-  SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose, ListChecks,
+  SlidersHorizontal, Trash2, UserRound, UsersRound, X, Send, PanelLeftClose, ListChecks, CircleHelp,
 } from 'lucide-react';
 import {
   getGetDashboardSummaryQueryKey, getGetSchoolBySlugQueryKey, getGetSchoolConfigQueryKey,
@@ -58,6 +58,7 @@ import { configuredHouses, currentTerm, isPrimarySchool, primaryLabel, DEFAULT_A
 import { flushPendingMarks, getPendingMarks, queueMark } from '@/lib/offline-marks';
 import { OperationsPage } from '@/features/operations';
 import { MarksRegister } from '@/features/marks-register';
+import { TeacherHelp } from '@/features/teacher-help';
 
 const queryClient = new QueryClient();
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
@@ -98,7 +99,7 @@ const HEAD_HREFS = [...HEAD_TABS.map((tab) => tab.href), '/finance/fees', '/fina
 const BURSAR_HREFS = ['/sms', '/finance', '/finance/fees', '/finance/accounts', '/finance/payments', '/finance/defaulters', '/finance/reports', '/students', '/account-settings'];
 
 // Nav items / routes that belong to the teacher workspace only.
-const TEACHER_ONLY_HREFS = ['/marks'];
+const TEACHER_ONLY_HREFS = ['/marks', '/help'];
 
 async function submitPortalRequest(values: PortalRequestValues) {
   if (!registrationSupabase) {
@@ -328,6 +329,7 @@ function Router() {
         <Route path="/students"><AppShell><Students /></AppShell></Route>
         <Route path="/marks"><AppShell><MarksPage /></AppShell></Route>
         <Route path="/messages"><AppShell><Messages /></AppShell></Route>
+        <Route path="/help"><AppShell><TeacherHelp /></AppShell></Route>
         <Route path="/support"><AppShell><SupportPage /></AppShell></Route>
         <Route path="/parent-messages"><AppShell><OperationsRoute page="parentMessages" /></AppShell></Route>
         <Route path="/account-settings"><AppShell><OperationsRoute page="accountSettings" /></AppShell></Route>
@@ -715,7 +717,7 @@ function AppShell({ children }: { children: ReactNode }) {
   );
 
   const titleMap: Record<string, string> = {
-    '/dashboard': 'Overview', '/students': 'Students', '/marks': 'Marks register', '/messages': 'Messages',
+    '/dashboard': 'Overview', '/students': 'Students', '/marks': 'Marks register', '/help': 'Help', '/messages': 'Messages',
     '/settings': 'School settings', '/parent': 'Family view', '/parent-view': 'Family view', '/parent-messages': 'Parent conversations', '/super-admin': 'Portfolio',
     '/promote': 'Promote students', '/marks-tracker': 'Marks tracker', '/user-management': 'User management',
     '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
@@ -758,6 +760,7 @@ function AppShell({ children }: { children: ReactNode }) {
             {!isParent && <button data-testid="button-toggle-theme" aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={dark} onClick={() => setDark((value) => !value)} className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-card px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
               {dark ? <Sun size={16} /> : <Moon size={16} />}<span className="hidden sm:inline">{dark ? 'Light' : 'Dark'}</span>
             </button>}
+            {isTeacher && <Link href="/help" data-testid="button-teacher-help" aria-label="Help: how to use your account" title="Help" className="grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground"><CircleHelp size={17} /></Link>}
             <div className="relative">
               <button data-testid="button-profile" aria-expanded={profileOpen} aria-label="Open user profile menu" onClick={() => setProfileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(userName)}</button>
               {profileOpen && <div role="menu" className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-3 shadow-xl">
