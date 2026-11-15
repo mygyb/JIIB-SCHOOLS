@@ -36,6 +36,7 @@ import { SchoolBadgeField } from '@/features/school-badge';
 import { PerformanceView } from '@/features/performance/performance-page';
 import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
+import { MarksTracker } from '@/features/marks-tracker';
 import { ALevelSetup } from '@/features/alevel-setup';
 import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } from '@/lib/school-data';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, isPrimarySchool, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
@@ -43,6 +44,7 @@ import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, isPrimarySchool, ma
 type Page =
   | 'promote'
   | 'parentsPortal'
+  | 'marksTracker'
   | 'parentMessages'
   | 'userManagement'
   | 'accountSettings'
@@ -1219,6 +1221,7 @@ export function OperationsPage({ page, school }: { page: Page; school: School })
   switch (page) {
     case 'promote': return <PromotionWizard school={school} />;
     case 'parentsPortal': return <ParentsPortal school={school} />;
+    case 'marksTracker': return <MarksTracker school={school} />;
     case 'parentMessages': return <ParentMessages school={school} />;
     case 'userManagement': return <UserManagement school={school} />;
     case 'accountSettings': return <AccountSettings school={school} />;
