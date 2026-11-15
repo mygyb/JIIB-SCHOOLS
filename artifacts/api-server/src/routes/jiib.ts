@@ -1957,9 +1957,8 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
   try {
     const { schoolId } = GetDashboardSummaryParams.parse(req.params);
     const userEmail = String(req.headers["x-verified-user-email"] ?? "").toLowerCase();
-    const [studentRows, markRows, configRows, assignmentRows] = await Promise.all([
-      supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=*`),
-      supabaseRequest(req, "marks", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=*&limit=5000`),
+    // The dashboard only looks at the active term: read the settings first, then every student and mark of that term (all pages).
+    const [configRows, assignmentRows] = await Promise.all([
       supabaseRequest(req, "school_data", {}, `?school_id=eq.${schoolId}&select=data&limit=1`),
       res.locals.jiibRole === "teacher" && userEmail
         ? supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(userEmail)}&select=email,display_name,subjects&limit=1`)
@@ -1967,6 +1966,11 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
     ]);
     const config = (asRows(configRows)[0]?.data as Record<string, unknown> | undefined) ?? {};
     const termKey = String(config?.activeTerm ?? "");
+    const termFilter = `school_id=eq.${encodeURIComponent(schoolId)}${termKey ? `&term_key=eq.${encodeURIComponent(termKey)}` : ""}`;
+    const [studentRows, markRows] = await Promise.all([
+      fetchAllRows(req, "students", `?${termFilter}&select=*&order=id.asc`),
+      fetchAllRows(req, "marks", `?${termFilter}&select=*&order=id.asc`),
+    ]);
     const terms = config?.terms && typeof config.terms === "object"
       ? config.terms as Record<string, Record<string, unknown>>
       : {};
