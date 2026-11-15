@@ -16,7 +16,7 @@ const LABELS: Record<string, string> = {
   marks: 'Marks', students: 'Students', jsa_alevel_marks: 'A-Level marks', jsa_fee_payments: 'Fee payments', jsa_fee_structures: 'Fee structures', jsa_fee_overrides: 'Fee adjustments',
   jsa_fee_students: 'Day/boarding', jsa_term_summary: 'Old-term summaries', jsa_activity: 'Teacher activity', jsa_push_log: 'Notification log', jsa_push_subscriptions: 'Notification devices',
   jsa_sms_messages: 'SMS history', jsa_sms_recipients: 'SMS delivery details', jsa_sms_ledger: 'SMS credits record', parent_chat: 'Parent chat', contact_messages: 'Contact messages',
-  device_sessions: 'Device sessions', report_verification_codes: 'Report codes', jhq_logins: 'Login log', jhq_devices: 'Devices', jhq_audit: 'Audit trail', school_data: 'School settings',
+  device_sessions: 'Device sessions', jhq_logins: 'Login log', jhq_devices: 'Devices', jhq_audit: 'Audit trail', school_data: 'School settings',
 };
 
 export function StorageSection() {
@@ -64,9 +64,9 @@ export function StorageSection() {
       </div>
       <Panel title="Automatic cleanup" action={<button type="button" data-testid="hq-storage-clean" disabled={busy} onClick={() => void clean()} className="h-9 rounded-lg border border-primary px-3 text-sm font-semibold text-primary disabled:opacity-50">{busy ? 'Cleaning…' : 'Clean now'}</button>}>
         <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-          <li>Every day: teacher activity, notification log, login log and SMS delivery details older than <strong>{data?.lowValueDays ?? 30} days</strong> are deleted.</li>
+          <li>Every day: teacher activity, notification log, login log and SMS delivery details older than <strong>{data?.lowValueDays ?? 30} days</strong> are deleted. SMS credit records are deleted after <strong>7 days</strong> (the totals per school are kept).</li>
           <li>When a school opens a new term: the marks of terms older than the previous term are deleted. A small summary per student (average, position) is kept first.</li>
-          <li>Never deleted: fee payments and receipts, fee structures, report verification codes, student lists and SMS credit records.</li>
+          <li>Never deleted: fee payments and receipts, fee structures, student lists and each school's SMS balance and totals.</li>
         </ul>
         {note && <p role="status" className="mt-3 text-sm text-emerald-700">{note}</p>}
         {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}

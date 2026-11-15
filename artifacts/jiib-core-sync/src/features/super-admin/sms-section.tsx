@@ -15,6 +15,8 @@ export function SmsSection() {
   const overview = useQuery({ queryKey: ['hq', 'sms'], queryFn: () => jiibApi<Overview>('/api/sms-admin/overview'), retry: 1 });
   const [target, setTarget] = useState<SmsSchool | null>(null);
   const [amount, setAmount] = useState('');
+  const [mode, setMode] = useState<'add' | 'remove'>('add');
+  const [sure, setSure] = useState(false);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -25,15 +27,17 @@ export function SmsSection() {
   const totalHeld = data?.schools.reduce((t, s) => t + s.balance, 0) ?? 0;
   const requests = data?.schools.filter((s) => s.openRequest) ?? [];
 
-  const open = (school: SmsSchool, suggested?: number) => { setTarget(school); setAmount(suggested ? String(suggested) : ''); setNote(''); setError(''); };
+  const open = (school: SmsSchool, suggested?: number, nextMode: 'add' | 'remove' = 'add') => { setMode(nextMode); setSure(false); setTarget(school); setAmount(suggested ? String(suggested) : ''); setNote(''); setError(''); };
   const assign = async () => {
     if (!target) return;
     const value = Math.round(Number(amount));
-    if (!Number.isFinite(value) || value === 0) { setError('Enter the number of SMS to add (use a minus sign to take some back).'); return; }
+    if (!Number.isFinite(value) || value <= 0) { setError(mode === 'add' ? 'Enter the number of SMS to add.' : 'Enter the number of SMS to take back.'); return; }
+    if (mode === 'remove' && value > target.balance) { setError(`${target.name} only has ${n(target.balance)} SMS left. You can take back at most that.`); return; }
+    if (mode === 'remove' && !sure) { setSure(true); return; }
     setBusy(true); setError('');
     try {
-      const result = await jiibApi<{ balance: number }>(`/api/sms-admin/${target.id}/assign`, { method: 'POST', body: JSON.stringify({ amount: value, note: note.trim() || undefined }) });
-      setDone(`${target.name} now has ${n(result.balance)} SMS.`); setTarget(null);
+      const result = await jiibApi<{ balance: number }>(`/api/sms-admin/${target.id}/assign`, { method: 'POST', body: JSON.stringify({ amount: mode === 'remove' ? -value : value, note: note.trim() || undefined }) });
+      setDone(`${mode === 'remove' ? 'Took back' : 'Added'} ${n(value)} SMS. ${target.name} now has ${n(result.balance)} SMS.`); setTarget(null);
       await queryClient.invalidateQueries({ queryKey: ['hq', 'sms'] });
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not assign the SMS.'); }
     finally { setBusy(false); }
@@ -60,23 +64,23 @@ export function SmsSection() {
             <td className="py-2.5 pr-3 font-medium">{s.name}{s.openRequest && <span className="ml-2"><Badge tone="amber">asked for more</Badge></span>}</td>
             <td className="px-3 text-right tabular-nums"><span className={s.balance <= 0 ? 'font-semibold text-destructive' : 'font-semibold'}>{n(s.balance)}</span></td>
             <td className="px-3 text-right tabular-nums">{n(s.assigned)}</td><td className="px-3 text-right tabular-nums">{n(s.used)}</td>
-            <td className="space-x-2 pl-3 text-right whitespace-nowrap"><button type="button" onClick={() => setLedgerFor(s)} className="text-xs text-primary underline">History</button><button type="button" data-testid={`hq-sms-assign-${s.id}`} onClick={() => open(s)} className="h-8 rounded-lg border border-primary px-3 text-xs font-semibold text-primary">Assign SMS</button></td></tr>)}</tbody>
+            <td className="space-x-2 pl-3 text-right whitespace-nowrap"><button type="button" onClick={() => setLedgerFor(s)} className="text-xs text-primary underline">History</button>{s.balance > 0 && <button type="button" data-testid={`hq-sms-unassign-${s.id}`} onClick={() => open(s, undefined, 'remove')} className="h-8 rounded-lg border border-destructive px-3 text-xs font-semibold text-destructive">Unassign</button>}<button type="button" data-testid={`hq-sms-assign-${s.id}`} onClick={() => open(s)} className="h-8 rounded-lg border border-primary px-3 text-xs font-semibold text-primary">Assign SMS</button></td></tr>)}</tbody>
         </table></div>
       </QueryState>
     </Panel>
-    {target && <Drawer title={`Assign SMS · ${target.name}`} onClose={() => setTarget(null)}>
-      <p className="text-sm text-muted-foreground">Current balance: <strong>{n(target.balance)}</strong> SMS. The school can only send what you assign here, even if you still have credits at EgoSMS.</p>
-      <label className="mt-4 block"><span className="mb-1 block text-xs font-semibold text-muted-foreground">Number of SMS to add</span>
-        <input data-testid="hq-sms-amount" type="number" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g. 300" className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
-      <div className="mt-2 flex gap-2">{[100, 300, 500, 1000].map((v) => <button key={v} type="button" onClick={() => setAmount(String(v))} className="h-8 rounded-full border border-border px-3 text-xs font-semibold">{v}</button>)}</div>
+    {target && <Drawer title={`${mode === 'remove' ? 'Unassign SMS' : 'Assign SMS'} · ${target.name}`} onClose={() => setTarget(null)}>
+      <p className="text-sm text-muted-foreground">Current balance: <strong>{n(target.balance)}</strong> SMS. {mode === 'add' ? 'The school can only send what you assign here, even if you still have credits at EgoSMS.' : 'Use this if you assigned SMS by mistake. The SMS are taken back from the school balance.'}</p>
+      <label className="mt-4 block"><span className="mb-1 block text-xs font-semibold text-muted-foreground">{mode === 'add' ? 'Number of SMS to add' : 'Number of SMS to take back'}</span>
+        <input data-testid="hq-sms-amount" type="number" value={amount} onChange={(event) => { setAmount(event.target.value); setSure(false); }} placeholder="e.g. 300" className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
+      <div className="mt-2 flex flex-wrap gap-2">{(mode === 'add' ? [100, 300, 500, 1000] : []).map((v) => <button key={v} type="button" onClick={() => setAmount(String(v))} className="h-8 rounded-full border border-border px-3 text-xs font-semibold">{v}</button>)}{mode === 'remove' && <button type="button" data-testid="hq-sms-remove-all" onClick={() => { setAmount(String(target.balance)); setSure(false); }} className="h-8 rounded-full border border-border px-3 text-xs font-semibold">Take back all ({n(target.balance)})</button>}</div>
       <label className="mt-4 block"><span className="mb-1 block text-xs font-semibold text-muted-foreground">Note (payment reference, optional)</span>
         <input data-testid="hq-sms-note" value={note} maxLength={300} onChange={(event) => setNote(event.target.value)} className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm" /></label>
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
-      <button type="button" data-testid="hq-sms-assign-confirm" disabled={busy} onClick={() => void assign()} className="mt-5 h-11 w-full rounded-lg bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50">{busy ? 'Saving…' : 'Add to school'}</button>
+      <button type="button" data-testid="hq-sms-assign-confirm" disabled={busy} onClick={() => void assign()} className={`mt-5 h-11 w-full rounded-lg text-sm font-semibold disabled:opacity-50 ${mode === 'remove' ? 'bg-destructive text-white' : 'bg-primary text-primary-foreground'}`}>{busy ? 'Saving…' : mode === 'add' ? 'Add to school' : sure ? `Yes, take back ${n(Number(amount))} SMS` : 'Take back from school'}</button>
     </Drawer>}
     {ledgerFor && <Drawer title={`SMS history · ${ledgerFor.name}`} onClose={() => setLedgerFor(null)}>
       <QueryState query={ledger}>{(ledger.data ?? []).length === 0 ? <p className="text-sm text-muted-foreground">No SMS activity yet.</p> : <ul className="divide-y divide-border text-sm">{(ledger.data ?? []).map((row, index) => <li key={index} className="flex items-center justify-between gap-3 py-2.5">
-        <span><strong>{KIND[row.kind] ?? row.kind}</strong><span className="block text-xs text-muted-foreground">{timeAgo(row.createdAt)} · {row.by}{row.note ? ` · ${row.note}` : ''}</span></span>
+        <span><strong>{row.kind === 'adjust' && row.amount < 0 ? 'Taken back' : KIND[row.kind] ?? row.kind}</strong><span className="block text-xs text-muted-foreground">{timeAgo(row.createdAt)} · {row.by}{row.note ? ` · ${row.note}` : ''}</span></span>
         <span className="text-right tabular-nums"><span className={row.amount > 0 ? 'font-semibold text-emerald-700' : 'font-semibold text-muted-foreground'}>{row.amount > 0 ? '+' : ''}{n(row.amount)}</span><span className="block text-xs text-muted-foreground">balance {n(row.balanceAfter)}</span></span></li>)}</ul>}</QueryState>
     </Drawer>}
   </div>;

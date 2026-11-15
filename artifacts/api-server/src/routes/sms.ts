@@ -373,15 +373,18 @@ export function registerSmsRoutes(router: IRouter, deps: SmsDeps) {
   router.get("/sms-admin/overview", async (req, res) => {
     try {
       if (!await deps.authorizeSuperAdmin(req, res)) return;
+      // assigned_total / used_total hold the totals of credit records already cleaned up (supabase/cleanup-update.sql).
+      const readAccounts = () => db("/rest/v1/jsa_sms_accounts?select=school_id,balance,assigned_total,used_total&limit=1000")
+        .catch(() => db("/rest/v1/jsa_sms_accounts?select=school_id,balance&limit=1000"));
       const [schools, accounts, ledger, requests, provider] = await Promise.all([
         db("/rest/v1/schools?select=id,name&order=name.asc&limit=1000"),
-        db("/rest/v1/jsa_sms_accounts?select=school_id,balance,pay_code&limit=1000"),
+        readAccounts(),
         pagedRows("/rest/v1/jsa_sms_ledger?select=school_id,kind,amount&order=created_at.asc,id.asc"),
         db("/rest/v1/jsa_sms_requests?status=eq.open&select=id,school_id,amount,note,requested_by,created_at&order=created_at.desc&limit=200"),
         egoBalance(),
       ]);
       const balances = new Map(asRows(accounts).map((row) => [String(row.school_id), Number(row.balance ?? 0)]));
-      const totals = new Map<string, { assigned: number; used: number }>();
+      const totals = new Map<string, { assigned: number; used: number }>(asRows(accounts).map((row) => [String(row.school_id), { assigned: Number(row.assigned_total ?? 0), used: Number(row.used_total ?? 0) }]));
       for (const row of ledger) {
         const entry = totals.get(String(row.school_id)) ?? { assigned: 0, used: 0 };
         const amount = Number(row.amount ?? 0);
