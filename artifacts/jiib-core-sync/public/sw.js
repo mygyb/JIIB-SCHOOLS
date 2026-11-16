@@ -56,14 +56,23 @@ self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : "" }; }
   const title = String(data.title || "J-SCHOOLS");
-  event.waitUntil(self.registration.showNotification(title, {
-    body: String(data.body || ""),
-    tag: String(data.tag || "jiib-message"),
-    renotify: true,
-    icon: "/icons/icon-192.png",
-    badge: "/icons/badge-96.png",
-    data: { url: String(data.url || "/") },
-  }));
+  event.waitUntil((async () => {
+    await self.registration.showNotification(title, {
+      body: String(data.body || ""),
+      tag: String(data.tag || "jiib-message"),
+      renotify: true,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/badge-96.png",
+      data: { url: String(data.url || "/") },
+    });
+    // Show how many notifications are waiting on the app icon, and let any open window refresh its bell.
+    try {
+      const waiting = await self.registration.getNotifications();
+      if (self.navigator && self.navigator.setAppBadge) await self.navigator.setAppBadge(Math.max(waiting.length, 1));
+    } catch (e) {}
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    windows.forEach((client) => client.postMessage({ type: "jiib-push" }));
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {
