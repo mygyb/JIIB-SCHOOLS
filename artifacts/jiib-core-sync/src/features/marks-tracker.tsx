@@ -10,7 +10,7 @@ import { getTerms, type SchoolConfig } from '@/lib/school-data';
 
 type Status = 'complete' | 'partial' | 'none' | 'no_students';
 type Row = { className: string; subject: string; teacherEmail: string | null; teacherName: string | null; students: number; complete: number; partial: number; empty: number; perField: Record<string, number>; status: Status; undecided?: number };
-type Progress = { termKey: string; termLabel: string; fields: Array<{ field: string; name: string }>; rows: Row[] };
+type Progress = { termKey: string; termLabel: string; fields: Array<{ field: string; name: string }>; rows: Row[]; undecidedStudents?: Array<{ id: string; name: string; className: string }> };
 
 const LOOK: Record<string, { label: string; chip: string; bar: string; Icon: typeof CircleCheck }> = {
   complete: { label: 'Complete', chip: 'bg-emerald-100 text-emerald-800', bar: 'bg-emerald-500', Icon: CircleCheck },
@@ -52,6 +52,7 @@ export function MarksTracker({ school }: { school: School }) {
   const [view, setView] = useState<'teacher' | 'class'>('teacher');
   const [filter, setFilter] = useState<'all' | 'complete' | 'partial' | 'none'>('all');
   const [open, setOpen] = useState<string>('');
+  const [showUndecided, setShowUndecided] = useState(false);
   const query = useQuery({
     queryKey: ['marks-progress', school.id, termKey],
     queryFn: () => jiibApi<Progress>(`/api/schools/${encodeURIComponent(school.id)}/marks-progress?termKey=${encodeURIComponent(termKey)}`),
@@ -94,7 +95,20 @@ export function MarksTracker({ school }: { school: School }) {
         <Card label="Not started" value={count('none')} hint="no marks yet" tone="border-rose-300/60" />
         <Card label="No teacher assigned" value={unassigned.length} hint="subjects" />
       </div>
-      {undecided.length > 0 && <p role="note" className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-xs text-amber-900">{undecided.map((item) => `${item.count} ${item.className} learner${item.count === 1 ? ' has' : 's have'}`).join(' and ')} not picked subjects yet, so they are left out of the totals above until subjects are set in Students. Learners who already have a mark in a subject are still counted.</p>}
+      {undecided.length > 0 && <div className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 text-amber-900">
+        <button type="button" data-testid="button-undecided" aria-expanded={showUndecided} onClick={() => setShowUndecided((v) => !v)} className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left text-xs">
+          <span role="note">{undecided.map((item) => `${item.count} ${item.className} learner${item.count === 1 ? ' has' : 's have'}`).join(' and ')} not picked subjects yet, so they are left out of the totals above until subjects are set in Students. Learners who already have a mark in a subject are still counted. <strong className="underline">{showUndecided ? 'Hide the list' : 'Tap to see who'}</strong></span>
+          <ChevronDown size={16} className={`mt-0.5 shrink-0 transition ${showUndecided ? 'rotate-180' : ''}`} />
+        </button>
+        {showUndecided && <div className="space-y-3 border-t border-amber-300/60 px-4 py-3" data-testid="undecided-list">
+          {undecided.map((item) => {
+            const people = (data.undecidedStudents ?? []).filter((p) => p.className === item.className);
+            return <div key={item.className}><p className="text-xs font-semibold">{item.className} · {people.length} learner{people.length === 1 ? '' : 's'} with no subjects picked</p>
+              <ol className="mt-1.5 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">{people.map((p, i) => <li key={p.id}><span className="mr-2 text-xs text-amber-700">{i + 1}.</span>{p.name}</li>)}</ol></div>;
+          })}
+          <p className="text-[11px]">To fix this, open Students, choose the learner and tick the subjects they take.</p>
+        </div>}
+      </div>}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-lg bg-muted p-1" role="tablist">{([['teacher', 'By teacher'], ['class', 'By class']] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={view === id} onClick={() => setView(id)} className={`rounded-md px-4 py-1.5 text-sm font-semibold ${view === id ? 'bg-card shadow-sm' : 'text-muted-foreground'}`}>{label}</button>)}</div>
         <div className="flex flex-wrap gap-1.5">{filters.map(([id, label]) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)} className={`rounded-full border px-3 py-1 text-xs font-semibold ${filter === id ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'}`}>{label}</button>)}</div>

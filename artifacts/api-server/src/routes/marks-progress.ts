@@ -41,20 +41,20 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
       const optionalFrom = level(String(settings.optionalSubjectsClass ?? "S.3"));
 
       const [studentRows, markRows, userRows] = await Promise.all([
-        pages(req, "students", `?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=id,class,subjects&order=id.asc`),
+        pages(req, "students", `?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=id,name,class,subjects&order=id.asc`),
         pages(req, "marks", `?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=*&order=id.asc`),
         pages(req, "allowed_users", `?school_id=eq.${enc(schoolId)}&select=email,display_name,role,subjects&order=email.asc`),
       ]);
       const terms = config.terms && typeof config.terms === "object" ? (config.terms as Record<string, Row>) : {};
       const term = terms[termKey] ?? {};
 
-      const students = new Map<string, { className: string; subjects: string[] }>();
-      const addStudent = (id: string, className: string, subjects: unknown) => {
+      const students = new Map<string, { className: string; name: string; subjects: string[] }>();
+      const addStudent = (id: string, className: string, subjects: unknown, name = "") => {
         if (!id || students.has(id)) return;
-        students.set(id, { className, subjects: Array.isArray(subjects) ? subjects.map((s) => String(typeof s === "object" && s ? (s as Row).name ?? "" : s)).filter(Boolean) : [] });
+        students.set(id, { className, name, subjects: Array.isArray(subjects) ? subjects.map((s) => String(typeof s === "object" && s ? (s as Row).name ?? "" : s)).filter(Boolean) : [] });
       };
-      for (const row of studentRows) addStudent(String(row.id), String(row.class ?? ""), row.subjects);
-      if (Array.isArray(term.students)) for (const item of term.students as Row[]) addStudent(String(item?.id ?? ""), String(item?.class ?? item?.className ?? ""), item?.subjects);
+      for (const row of studentRows) addStudent(String(row.id), String(row.class ?? ""), row.subjects, String(row.name ?? ""));
+      if (Array.isArray(term.students)) for (const item of term.students as Row[]) addStudent(String(item?.id ?? ""), String(item?.class ?? item?.className ?? ""), item?.subjects, String(item?.name ?? ""));
 
       // entered[studentId|subject] = set of field ids that hold a mark
       const entered = new Map<string, Set<string>>();
@@ -83,11 +83,14 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
 
       const subjectsByClass = config.subjects && typeof config.subjects === "object" && !Array.isArray(config.subjects) ? (config.subjects as Record<string, unknown>) : {};
       const rows: Array<Record<string, unknown>> = [];
+      const undecidedStudents: Array<{ id: string; name: string; className: string }> = [];
       for (const [className, list] of Object.entries(subjectsByClass).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))) {
         if (!Array.isArray(list)) continue;
         const classStudents = Array.from(students.entries()).filter(([, s]) => s.className === className);
         const usesChoices = level(className) >= optionalFrom && classStudents.some(([, s]) => s.subjects.length > 0);
-        const undecided = usesChoices ? classStudents.filter(([, s]) => s.subjects.length === 0).length : 0;
+        const undecidedList = usesChoices ? classStudents.filter(([, s]) => s.subjects.length === 0) : [];
+        const undecided = undecidedList.length;
+        for (const [id, s] of undecidedList) undecidedStudents.push({ id, name: s.name || id, className });
         for (const item of list) {
           const subject = String(typeof item === "string" ? item : (item as Row)?.name ?? "").trim();
           if (!subject) continue;
@@ -107,7 +110,8 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
           rows.push({ className, subject, teacherEmail: teacher ? String(teacher.email) : null, teacherName: teacher ? String(teacher.display_name || teacher.email) : null, students: takers.length, complete, partial, empty, perField, status, undecided });
         }
       }
-      res.json({ termKey, termLabel: String(term.label ?? termKey), fields, rows });
+      undecidedStudents.sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true }) || a.name.localeCompare(b.name));
+      res.json({ termKey, termLabel: String(term.label ?? termKey), fields, rows, undecidedStudents });
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : "Could not load marks progress." });
     }
