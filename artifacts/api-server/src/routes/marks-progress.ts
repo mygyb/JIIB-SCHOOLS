@@ -8,7 +8,7 @@ const enc = encodeURIComponent;
 const DEFAULT_FIELDS = [{ field: "c1", name: "AOI" }, { field: "c2", name: "Midterm" }, { field: "c3", name: "End of Term" }];
 const COLUMNS: Record<string, string[]> = { c1: ["aoi", "c1"], c2: ["midterm", "c2"], c3: ["end", "c3"] };
 
-async function pages(req: Request, table: string, query: string): Promise<Row[]> {
+export async function pages(req: Request, table: string, query: string): Promise<Row[]> {
   const rows: Row[] = [];
   for (let offset = 0; offset < 200_000; offset += 1000) {
     const page = asRows(await supabaseRequest(req, table, {}, `${query}&limit=1000&offset=${offset}`));
@@ -17,13 +17,13 @@ async function pages(req: Request, table: string, query: string): Promise<Row[]>
   }
   return rows;
 }
-const level = (value: string) => Number(value.match(/\d+/)?.[0] ?? 0);
+export const level = (value: string) => Number(value.match(/\d+/)?.[0] ?? 0);
 
 export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolConfig: (req: Request, schoolId: string) => Promise<Row> }) {
   router.get("/schools/:schoolId/marks-progress", async (req: Request, res: Response) => {
     try {
       const role = res.locals.jiibRole;
-      if (role !== "admin" && role !== "super_admin" && role !== "headteacher") {
+      if (role !== "admin" && role !== "headteacher") { // marks are private to the school, so the system administrator is not let in
         res.status(403).json({ error: "Only the school administrator and the Head teacher can see marks progress." });
         return;
       }
