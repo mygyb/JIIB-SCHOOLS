@@ -279,8 +279,13 @@ export function registerPushRoutes(router: IRouter, deps: PushDeps, sendError: (
       // "New version ready" announcements are sent to every school (no school id), so they are read separately.
       const updateRows = await db(`/rest/v1/jsa_push_log?school_id=is.null&kind=eq.update&created_at=gte.${enc(since)}&select=id,kind,title,body,created_at&order=created_at.desc&limit=2`).then((r) => asRows(r)).catch(() => [] as ReturnType<typeof asRows>);
       const rows = [...schoolRows, ...updateRows].sort((a, b) => Date.parse(String(b.created_at)) - Date.parse(String(a.created_at)));
+      // Deadline notices and reminders stay only while the marks deadline is still ahead; once it passes (or is removed) they disappear.
+      const cfg = asRows(await db(`/rest/v1/school_data?school_id=eq.${enc(String(req.params.schoolId))}&select=data&limit=1`).catch(() => []))[0]?.data;
+      const due = parseDeadline(cfg && typeof cfg === "object" ? (cfg as Row).deadline : null);
+      const deadlineOpen = Boolean(due && due.getTime() > Date.now());
       let sawReminder = false;
       const notices = rows.filter((row) => {
+        if ((String(row.kind) === "deadline" || String(row.kind) === "reminder") && !deadlineOpen) return false;
         if (String(row.kind) !== "reminder") return true;
         if (sawReminder) return false; // daily reminders repeat: only the latest one is useful
         sawReminder = true;
