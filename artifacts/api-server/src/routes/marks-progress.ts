@@ -50,8 +50,13 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
 
       const students = new Map<string, { className: string; name: string; subjects: string[] }>();
       const addStudent = (id: string, className: string, subjects: unknown, name = "") => {
-        if (!id || students.has(id)) return;
-        students.set(id, { className, name, subjects: Array.isArray(subjects) ? subjects.map((s) => String(typeof s === "object" && s ? (s as Row).name ?? "" : s)).filter(Boolean) : [] });
+        if (!id) return;
+        const list = Array.isArray(subjects) ? subjects.map((s) => String(typeof s === "object" && s ? (s as Row).name ?? "" : s)).filter(Boolean) : [];
+        const existing = students.get(id);
+        // Learners registered recently keep their subjects only in the saved-settings copy of the term, so a table row
+        // without subjects takes them from there (the same rule the Students page uses).
+        if (existing) { if (!existing.subjects.length && list.length) existing.subjects = list; return; }
+        students.set(id, { className, name, subjects: list });
       };
       for (const row of studentRows) addStudent(String(row.id), String(row.class ?? ""), row.subjects, String(row.name ?? ""));
       if (Array.isArray(term.students)) for (const item of term.students as Row[]) addStudent(String(item?.id ?? ""), String(item?.class ?? item?.className ?? ""), item?.subjects, String(item?.name ?? ""));
