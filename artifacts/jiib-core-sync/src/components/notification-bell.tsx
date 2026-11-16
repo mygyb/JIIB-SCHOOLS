@@ -48,7 +48,10 @@ export function useNotices(schoolId: string, email: string) {
     };
   }, [load, seenKey]);
 
-  const unread = notices.filter((notice) => Date.parse(notice.createdAt) > seenAt);
+  // "New version" announcements are only useful until they have been seen, so they disappear once read.
+  // Deadline notices and reminders stay until the server stops sending them (when the marks deadline has passed).
+  const visible = notices.filter((notice) => notice.kind !== 'update' || Date.parse(notice.createdAt) > seenAt);
+  const unread = visible.filter((notice) => Date.parse(notice.createdAt) > seenAt);
   useEffect(() => { showBadge(unread.length); }, [unread.length]);
 
   const markAllRead = useCallback(() => {
@@ -58,7 +61,7 @@ export function useNotices(schoolId: string, email: string) {
     window.dispatchEvent(new Event(SEEN_EVENT));
   }, [notices, seenKey]);
 
-  return { notices, unread, seenAt, markAllRead };
+  return { notices: visible, unread, seenAt, markAllRead };
 }
 
 const when = (iso: string) => {
@@ -74,22 +77,30 @@ const when = (iso: string) => {
 export function NotificationBell({ schoolId, email }: { schoolId: string; email: string }) {
   const { notices, unread, seenAt, markAllRead } = useNotices(schoolId, email);
   const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState<{ list: Notice[]; since: number } | null>(null);
   const count = unread.length;
+  // Opening the list counts as seeing everything: the number clears at once, the list keeps showing what was new until it is closed.
+  const toggle = () => {
+    if (open) { setOpen(false); setShown(null); return; }
+    setShown({ list: notices, since: seenAt });
+    setOpen(true);
+    if (count > 0) markAllRead();
+  };
   return <div className="relative">
     <button type="button" data-testid="button-notifications" aria-label={count ? `${count} new notification${count === 1 ? '' : 's'}` : 'Notifications'} aria-expanded={open}
-      onClick={() => setOpen((value) => !value)} className="relative grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground">
+      onClick={toggle} className="relative grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground">
       <Bell size={17} />
       {count > 0 && <span data-testid="notification-count" className="absolute -right-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white">{count > 9 ? '9+' : count}</span>}
     </button>
     {open && <>
-      <button type="button" aria-label="Close notifications" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
-      <div role="dialog" aria-label="Notifications" data-testid="notification-panel" className="absolute right-0 z-50 mt-2 w-[min(22rem,calc(100vw-1.5rem))] rounded-2xl border border-border bg-card shadow-2xl">
+      <button type="button" aria-label="Close notifications" className="fixed inset-0 z-40 cursor-default" onClick={toggle} />
+      <div role="dialog" aria-label="Notifications" data-testid="notification-panel" className="fixed inset-x-3 top-16 z-50 rounded-2xl border border-border bg-card shadow-2xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[22rem]">
         <div className="flex items-center justify-between border-b border-border px-4 py-3"><p className="text-sm font-semibold">Notifications</p>
           {count > 0 && <button type="button" data-testid="button-mark-all-read" onClick={markAllRead} className="text-xs font-semibold text-primary hover:underline">Mark all as read</button>}</div>
         <ul className="max-h-80 divide-y divide-border overflow-y-auto">
-          {notices.length === 0 && <li className="px-4 py-6 text-center text-sm text-muted-foreground">No notifications yet.</li>}
-          {notices.map((notice) => {
-            const isNew = Date.parse(notice.createdAt) > seenAt;
+          {(shown?.list ?? notices).length === 0 && <li className="px-4 py-6 text-center text-sm text-muted-foreground">No notifications yet.</li>}
+          {(shown?.list ?? notices).map((notice) => {
+            const isNew = Date.parse(notice.createdAt) > (shown?.since ?? seenAt);
             return <li key={notice.id} className={`px-4 py-3 ${isNew ? 'bg-primary/5' : ''}`}>
               <div className="flex items-start justify-between gap-2"><p className="text-sm font-semibold">{isNew && <span aria-hidden="true" className="mr-1.5 inline-block h-2 w-2 rounded-full bg-destructive align-middle" />}{notice.title}</p><span className="shrink-0 text-[11px] text-muted-foreground">{when(notice.createdAt)}</span></div>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{notice.body}</p>
