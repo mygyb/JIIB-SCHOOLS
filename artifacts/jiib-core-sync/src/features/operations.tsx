@@ -37,6 +37,7 @@ import { PerformanceView } from '@/features/performance/performance-page';
 import { ALevelGradingCard } from '@/features/alevel-grading';
 import { ALevelResults } from '@/features/alevel-results';
 import { MarksTracker } from '@/features/marks-tracker';
+import { Marksheets } from '@/features/marksheets';
 import { ALevelSetup } from '@/features/alevel-setup';
 import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } from '@/lib/school-data';
 import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, isPrimarySchool, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
@@ -1226,7 +1227,7 @@ export function OperationsPage({ page, school }: { page: Page; school: School })
     case 'userManagement': return <UserManagement school={school} />;
     case 'accountSettings': return <AccountSettings school={school} />;
     case 'performance': return <Performance school={school} />;
-    case 'printMarksheets': return <PrintMarksheets school={school} />;
+    case 'printMarksheets': return <Marksheets school={school} />;
     case 'reportStudio': return <ReportStudio school={school} />;
     case 'termManagement': return <TermManagement school={school} />;
     case 'manageSubjects': return <ManageSubjects school={school} />;

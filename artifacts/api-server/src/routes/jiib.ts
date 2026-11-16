@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { parentFeeSummary, registerFinanceRoutes } from "./finance.js";
 import { registerMarksProgressRoutes } from "./marks-progress.js";
+import { registerMarksheetRoutes } from "./marksheets.js";
 import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
 import { registerPublicSmsRoutes, registerSmsRoutes } from "./sms.js";
 import { pruneOldTerms, registerCleanupRoutes } from "./cleanup.js";
@@ -1219,6 +1220,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
 // Finance (Bursar full access, Head teacher read-only; administrators and teachers are refused inside the gate).
 registerFinanceRoutes(router, { readSchoolConfig });
 registerMarksProgressRoutes(router, { readSchoolConfig });
+registerMarksheetRoutes(router, { readSchoolConfig });
 registerPushRoutes(router, { readSchoolConfig, requireSchoolAdmin }, sendError);
 registerSmsRoutes(router, { readSchoolConfig, authorizeSuperAdmin, sendError });
 registerCleanupRoutes(router, { authorizeSuperAdmin, sendError });

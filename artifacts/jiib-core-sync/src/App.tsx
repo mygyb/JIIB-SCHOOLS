@@ -90,7 +90,7 @@ const navItems = [
 const ADMIN_ONLY_HREFS = [
   '/messages',
   '/students', '/promote', '/marks-tracker', '/user-management', '/performance',
-  '/report-studio', '/print-marksheets', '/term-management', '/manage-subjects', '/a-level', '/a-level-results',
+  '/report-studio', '/term-management', '/manage-subjects', '/a-level', '/a-level-results',
   '/grading-system', '/publish-deadline', '/school-events', '/school-settings', '/system-settings',
   '/settings', '/parent-messages',
 ];
