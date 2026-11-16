@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Bell, X } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { jiibApi } from '@/lib/jiib-api';
+import { useNotices } from '@/components/notification-bell';
 import { notificationPermission } from '@/lib/pwa';
 import { enablePush, pushSupported, syncPushSubscription } from '@/lib/push';
 
@@ -19,7 +19,6 @@ function signedInStaff(): { schoolId: string; email: string } | null {
   } catch { return null; }
 }
 
-type Notice = { id: string; kind: string; title: string; body: string; createdAt: string };
 
 /** Phone notifications for signed-in staff. No switch to find: the phone's own "Allow notifications?" box appears on the first tap
  *  after signing in (browsers do not allow asking sooner). Once allowed, this phone stays registered. */
@@ -56,31 +55,9 @@ export function NotificationPrompt() {
 
 /** School messages shown inside the app, so everyone gets them even if they never allowed phone notifications. */
 function InAppNotices({ schoolId, email }: { schoolId: string; email: string }) {
-  const seenKey = `jiib.notices-seen:${schoolId}:${email}`;
-  const [notices, setNotices] = useState<Notice[]>([]);
-  const [seenAt, setSeenAt] = useState(() => Number(read(seenKey) || 0) || Date.now() - 3 * 86_400_000);
-
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      void jiibApi<{ notices: Notice[] }>(`/api/schools/${encodeURIComponent(schoolId)}/push/notices`)
-        .then((result) => { if (alive) setNotices(result.notices ?? []); })
-        .catch(() => undefined); // offline or not set up: the phone notification still works
-    };
-    load();
-    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
-    window.addEventListener('online', load);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => { alive = false; window.removeEventListener('online', load); document.removeEventListener('visibilitychange', onVisible); };
-  }, [schoolId]);
-
-  const unseen = notices.filter((notice) => Date.parse(notice.createdAt) > seenAt).slice(0, 3);
+  const { unread, markAllRead } = useNotices(schoolId, email);
+  const unseen = unread.slice(0, 3);
   if (!unseen.length) return null;
-  const dismiss = () => {
-    const latest = Math.max(...notices.map((notice) => Date.parse(notice.createdAt)), Date.now());
-    write(seenKey, String(latest));
-    setSeenAt(latest);
-  };
   return (
     <div role="region" aria-label="School notices" data-testid="in-app-notices" className="fixed inset-x-3 top-3 z-[8000] mx-auto flex max-w-md flex-col gap-2 sm:left-auto sm:right-4 sm:mx-0">
       {unseen.map((notice) => (
@@ -90,7 +67,7 @@ function InAppNotices({ schoolId, email }: { schoolId: string; email: string }) 
             <p className="text-sm font-semibold">{notice.title}</p>
             <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{notice.body}</p>
           </div>
-          <button data-testid="button-dismiss-notices" aria-label="Mark as read" onClick={dismiss} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={16} /></button>
+          <button data-testid="button-dismiss-notices" aria-label="Mark as read" onClick={markAllRead} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={16} /></button>
         </div>
       ))}
     </div>

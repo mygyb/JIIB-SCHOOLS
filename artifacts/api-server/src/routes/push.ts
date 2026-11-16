@@ -275,7 +275,10 @@ export function registerPushRoutes(router: IRouter, deps: PushDeps, sendError: (
       if (role === "admin" || role === "super_admin") { res.json({ notices: [] }); return; } // administrators see their own history on the Publish page
       const audiences = role === "teacher" ? "teachers,staff" : "staff";
       const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
-      const rows = asRows(await db(`/rest/v1/jsa_push_log?school_id=eq.${enc(String(req.params.schoolId))}&kind=in.(message,deadline,reminder)&audience=in.(${audiences})&created_at=gte.${enc(since)}&select=id,kind,title,body,created_at&order=created_at.desc&limit=12`));
+      const schoolRows = asRows(await db(`/rest/v1/jsa_push_log?school_id=eq.${enc(String(req.params.schoolId))}&kind=in.(message,deadline,reminder)&audience=in.(${audiences})&created_at=gte.${enc(since)}&select=id,kind,title,body,created_at&order=created_at.desc&limit=12`));
+      // "New version ready" announcements are sent to every school (no school id), so they are read separately.
+      const updateRows = await db(`/rest/v1/jsa_push_log?school_id=is.null&kind=eq.update&created_at=gte.${enc(since)}&select=id,kind,title,body,created_at&order=created_at.desc&limit=2`).then((r) => asRows(r)).catch(() => [] as ReturnType<typeof asRows>);
+      const rows = [...schoolRows, ...updateRows].sort((a, b) => Date.parse(String(b.created_at)) - Date.parse(String(a.created_at)));
       let sawReminder = false;
       const notices = rows.filter((row) => {
         if (String(row.kind) !== "reminder") return true;

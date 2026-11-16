@@ -32,6 +32,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { PwaUi } from '@/components/pwa-ui';
 import { NotificationPrompt } from '@/components/notification-prompt';
+import { NotificationBell } from '@/components/notification-bell';
 import { dropPushSubscription, enablePush } from '@/lib/push';
 import { SuperAdminPortal } from '@/features/super-admin/portal';
 import { HqLogin } from '@/pages/hq-login';
@@ -760,6 +761,7 @@ function AppShell({ children }: { children: ReactNode }) {
             {!isParent && <button data-testid="button-toggle-theme" aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={dark} onClick={() => setDark((value) => !value)} className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-card px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground">
               {dark ? <Sun size={16} /> : <Moon size={16} />}<span className="hidden sm:inline">{dark ? 'Light' : 'Dark'}</span>
             </button>}
+            {!isParent && !isSuperAdmin && role !== 'School administrator' && school?.id && <NotificationBell schoolId={school.id} email={accountEmail} />}
             {isTeacher && <Link href="/help" data-testid="button-teacher-help" aria-label="Help: how to use your account" title="Help" className="grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground"><CircleHelp size={17} /></Link>}
             <div className="relative">
               <button data-testid="button-profile" aria-expanded={profileOpen} aria-label="Open user profile menu" onClick={() => setProfileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{initials(userName)}</button>
