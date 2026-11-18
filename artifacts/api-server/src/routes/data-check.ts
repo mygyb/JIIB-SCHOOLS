@@ -30,7 +30,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       const [configRows, studentRows, markRows] = await Promise.all([
         supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=data&limit=1`),
         pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class,house,parent_phone,subjects&order=id.asc`),
-        pagedRows(`/rest/v1/marks?school_id=eq.${enc(schoolId)}&select=term_key,student_id,subject,aoi,midterm,end&order=id.asc`),
+        pagedRows(`/rest/v1/marks?school_id=eq.${enc(schoolId)}&select=*&order=id.asc`),
       ]);
       const config = (asRows(configRows)[0]?.data ?? {}) as Row;
       const terms = (config.terms && typeof config.terms === "object" ? config.terms : {}) as Record<string, Row>;
