@@ -206,6 +206,7 @@ export function registerCleanupRoutes(router: IRouter, deps: { authorizeSuperAdm
       const names = new Map(asRows(schools).map((row) => [String(row.id), String(row.name ?? "")]));
       const limitMb = Number(process.env.DB_LIMIT_MB) > 0 ? Number(process.env.DB_LIMIT_MB) : 500;
       res.json({
+        directory: Array.from(names, ([id, name]) => ({ id, name })),
         problem, limitBytes: limitMb * 1024 * 1024, usedBytes: report ? Number(report.databaseBytes) : 0, lowValueDays: LOW_VALUE_DAYS,
         tables: (report?.tables ?? []).map((t) => ({ name: t.name, bytes: Number(t.bytes), rows: Number(t.rows) })).sort((a, b) => b.bytes - a.bytes),
         schools: Object.entries(report?.schools ?? {}).map(([id, bytes]) => ({ id, name: names.get(id) ?? "Removed school", bytes: Math.round(Number(bytes)) })).sort((a, b) => b.bytes - a.bytes),

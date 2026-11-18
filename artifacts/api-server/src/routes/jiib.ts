@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { parentFeeSummary, registerFinanceRoutes } from "./finance.js";
 import { registerMarksProgressRoutes } from "./marks-progress.js";
 import { registerMarksheetRoutes } from "./marksheets.js";
+import { registerDataCheckRoutes } from "./data-check.js";
 import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
 import { registerPublicSmsRoutes, registerSmsRoutes } from "./sms.js";
 import { pruneOldTerms, registerCleanupRoutes } from "./cleanup.js";
@@ -1245,6 +1246,7 @@ registerMarksheetRoutes(router, { readSchoolConfig });
 registerPushRoutes(router, { readSchoolConfig, requireSchoolAdmin }, sendError);
 registerSmsRoutes(router, { readSchoolConfig, authorizeSuperAdmin, sendError });
 registerCleanupRoutes(router, { authorizeSuperAdmin, sendError });
+registerDataCheckRoutes(router, { authorizeSuperAdmin, sendError });
 
 // Teacher logins and marks entries for the school's System settings page (administrators only).
 router.get("/schools/:schoolId/activity", requireSchoolViewer, async (req, res) => {

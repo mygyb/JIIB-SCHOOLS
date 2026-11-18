@@ -8,6 +8,7 @@ type Overview = {
   problem: string; limitBytes: number; usedBytes: number; lowValueDays: number;
   tables: Array<{ name: string; bytes: number; rows: number }>;
   schools: Array<{ id: string; name: string; bytes: number }>;
+  directory?: Array<{ id: string; name: string }>;
   log: Array<{ at: string; kind: string; school: string; detail: string }>;
 };
 
@@ -72,6 +73,56 @@ export function StorageSection() {
         {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
         {(data?.log ?? []).length > 0 && <ul className="mt-4 divide-y divide-border text-sm" data-testid="hq-storage-log">{data!.log.map((row, index) => <li key={index} className="py-2"><span className="text-xs text-muted-foreground">{timeAgo(row.at)}{row.school ? ` · ${row.school}` : ''}</span><p>{row.detail}</p></li>)}</ul>}
       </Panel>
+      <DataCheckPanel schools={data?.directory ?? data?.schools ?? []} />
     </QueryState>
   </div>;
+}
+
+type TermCheck = {
+  termKey: string; label: string;
+  students: { inTable: number; inRecord: number; onlyInRecord: number; onlyInTable: number; subjectsToCopy: number; aLevelToCopy: number; differ: Record<string, number> };
+  marks: { inTable: number; inRecord: number; onlyInRecord: number; differ: number };
+};
+type SchoolCheck = { schoolId: string; name: string; recordBytes: number; terms: TermCheck[] } | { schoolId: string; name: string; error: string };
+
+/** Dry run for the planned move of learners and marks into the real tables. It only reads and counts; it changes nothing. */
+function DataCheckPanel({ schools }: { schools: Array<{ id: string; name: string }> }) {
+  const [results, setResults] = useState<SchoolCheck[]>([]);
+  const [running, setRunning] = useState(false);
+  const run = async () => {
+    setRunning(true); setResults([]);
+    for (const school of schools) {
+      try {
+        const result = await jiibApi<Exclude<SchoolCheck, { error: string }>>(`/api/storage-admin/data-check?schoolId=${encodeURIComponent(school.id)}`);
+        setResults((list) => [...list, { ...result, name: school.name }]);
+      } catch (cause) {
+        setResults((list) => [...list, { schoolId: school.id, name: school.name, error: cause instanceof Error ? cause.message : 'Could not check this school.' }]);
+      }
+    }
+    setRunning(false);
+  };
+  const need = (term: TermCheck) => term.students.onlyInRecord + term.students.subjectsToCopy + term.marks.onlyInRecord;
+  const mismatch = (term: TermCheck) => Object.values(term.students.differ).reduce((a, b) => a + b, 0) + term.marks.differ;
+  return <Panel title="Data check (dry run)" action={<button type="button" data-testid="hq-data-check" disabled={running || !schools.length} onClick={() => void run()} className="h-9 rounded-lg border border-primary px-3 text-sm font-semibold text-primary disabled:opacity-50">{running ? 'Checking…' : results.length ? 'Run again' : 'Run check'}</button>}>
+    <p className="text-sm text-muted-foreground">Shows what would have to be copied from each school's saved-settings record into the learner and marks tables. It only reads and counts: nothing is changed, and no names or marks are shown.</p>
+    <div className="mt-4 space-y-4">
+      {results.map((result) => 'error' in result
+        ? <p key={result.schoolId} role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{result.name}: {result.error}</p>
+        : <section key={result.schoolId} className="rounded-xl border border-border" data-testid="hq-data-check-school">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5"><p className="text-sm font-semibold">{result.name}</p><span className="text-xs text-muted-foreground">Settings record {formatBytes(result.recordBytes)}</span></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[34rem] text-left text-xs">
+            <thead className="text-muted-foreground"><tr><th className="px-4 py-2">Term</th><th className="px-2 py-2">Learners (table / record)</th><th className="px-2 py-2">To copy</th><th className="px-2 py-2">Marks (table / record)</th><th className="px-2 py-2">Marks to copy</th><th className="px-2 py-2">Differences</th></tr></thead>
+            <tbody className="divide-y divide-border">{result.terms.map((term) => <tr key={term.termKey}>
+              <td className="px-4 py-2 font-medium">{term.label}</td>
+              <td className="px-2 py-2 tabular-nums">{term.students.inTable} / {term.students.inRecord}</td>
+              <td className="px-2 py-2 tabular-nums">{term.students.onlyInRecord} learners · {term.students.subjectsToCopy} subject lists{term.students.aLevelToCopy ? ` · ${term.students.aLevelToCopy} A-Level` : ''}</td>
+              <td className="px-2 py-2 tabular-nums">{term.marks.inTable} / {term.marks.inRecord}</td>
+              <td className="px-2 py-2 tabular-nums">{term.marks.onlyInRecord}</td>
+              <td className="px-2 py-2">{mismatch(term) ? <span className="font-semibold text-amber-700">{mismatch(term)} to review</span> : <span className="text-emerald-700">None</span>}</td>
+            </tr>)}</tbody>
+          </table></div>
+          <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">{result.terms.reduce((sum, term) => sum + need(term), 0) === 0 ? 'Nothing to copy: the tables already hold everything in the record.' : `${result.terms.reduce((sum, term) => sum + need(term), 0)} items exist only in the record and would be copied.`}</p>
+        </section>)}
+    </div>
+  </Panel>;
 }
