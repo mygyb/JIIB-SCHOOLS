@@ -282,19 +282,32 @@ const ParentChatBody = z.object({
 });
 type SchoolConfig = Record<string, unknown>;
 
+// ---- Saving school settings without losing other people's changes -------------------------------------------------
+// The school's settings are one record, and every save used to read it, change a part, and write all of it back, so two
+// people saving in the same moment could wipe out each other's change. Now each read remembers the record as it was
+// (and its version, the updated_at stamp). A save only goes through if nobody saved in between; if somebody did, the
+// changes this save made are applied on top of the newest record instead of replacing it.
+import { mergeConfig } from "../lib/config-merge.js";
+type ConfigBase = { version: string | null; json: string };
+const configBases = new WeakMap<Request, Map<string, ConfigBase>>();
+
 async function readSchoolConfig(req: Request, schoolId: string): Promise<SchoolConfig> {
   const rows = asRows(
     await supabaseRequest(
       req,
       "school_data",
       {},
-      `?school_id=eq.${encodeURIComponent(schoolId)}&select=data&limit=1`,
+      `?school_id=eq.${encodeURIComponent(schoolId)}&select=data,updated_at&limit=1`,
     ),
   );
   const data = rows[0]?.data;
-  return data && typeof data === "object" && !Array.isArray(data)
-    ? (data as SchoolConfig)
-    : {};
+  const config = data && typeof data === "object" && !Array.isArray(data) ? (data as SchoolConfig) : {};
+  if (rows[0]) {
+    const bases = configBases.get(req) ?? new Map<string, ConfigBase>();
+    bases.set(schoolId, { version: rows[0].updated_at ? String(rows[0].updated_at) : null, json: JSON.stringify(config) });
+    configBases.set(req, bases);
+  }
+  return config;
 }
 
 async function writeSchoolConfig(
@@ -302,30 +315,38 @@ async function writeSchoolConfig(
   schoolId: string,
   data: SchoolConfig,
 ): Promise<SchoolConfig> {
-  const now = new Date().toISOString();
-  const rows = asRows(
-    await supabaseRequest(
-      req,
-      "school_data",
-      {
-        method: "POST",
-        body: jsonBody({
-          school_id: schoolId,
-          data,
-          updated_at: now,
-          updated_by: req.header("x-verified-user-email") ?? "app",
-        }),
-      },
-      "?on_conflict=school_id",
-    ),
-  );
-  if (!rows[0]) {
-    throw new Error("School settings were not saved. Check the signed-in account's database access.");
+  const email = req.header("x-verified-user-email") ?? "app";
+  const base = configBases.get(req)?.get(schoolId);
+  let next: SchoolConfig = data;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const now = new Date().toISOString();
+    let rows: Array<Record<string, unknown>>;
+    if (base?.version) {
+      // Only replace the record if it is still the version this request read.
+      const current = configBases.get(req)!.get(schoolId)!;
+      rows = asRows(await supabaseRequest(req, "school_data", { method: "PATCH", headers: { Prefer: "return=representation" }, body: jsonBody({ data: next, updated_at: now, updated_by: email }) },
+        `?school_id=eq.${encodeURIComponent(schoolId)}&updated_at=eq.${encodeURIComponent(current.version ?? "")}&select=data,updated_at`));
+      if (!rows[0]) {
+        // Somebody saved in between: apply this save's changes on top of their newest record, then try again.
+        const latest = asRows(await supabaseRequest(req, "school_data", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&select=data,updated_at&limit=1`))[0];
+        if (!latest) throw new Error("School settings were not saved. Check the signed-in account's database access.");
+        next = mergeConfig(JSON.parse(current.json), next, latest.data) as SchoolConfig;
+        configBases.get(req)!.set(schoolId, { version: latest.updated_at ? String(latest.updated_at) : null, json: JSON.stringify(latest.data) });
+        continue;
+      }
+    } else {
+      rows = asRows(await supabaseRequest(req, "school_data", { method: "POST", body: jsonBody({ school_id: schoolId, data: next, updated_at: now, updated_by: email }) }, "?on_conflict=school_id"));
+      if (!rows[0]) throw new Error("School settings were not saved. Check the signed-in account's database access.");
+    }
+    const saved = rows[0].data;
+    const result = saved && typeof saved === "object" && !Array.isArray(saved) ? (saved as SchoolConfig) : next;
+    // Later saves in the same request build on what was just stored.
+    const bases = configBases.get(req) ?? new Map<string, ConfigBase>();
+    bases.set(schoolId, { version: rows[0].updated_at ? String(rows[0].updated_at) : null, json: JSON.stringify(result) });
+    configBases.set(req, bases);
+    return result;
   }
-  const saved = rows[0].data;
-  return saved && typeof saved === "object" && !Array.isArray(saved)
-    ? (saved as SchoolConfig)
-    : data;
+  throw new Error("The school settings are being changed by several people at once. Please try again in a moment.");
 }
 
 function normalizedPhone(value: unknown): string {
@@ -2247,6 +2268,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
             class: body.className,
             house: body.house,
             parent_phone: body.parentPhone ?? null,
+            subjects,
             updated_at: new Date().toISOString(),
           }),
         },
@@ -2314,6 +2336,7 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
     if (body.className !== undefined) update.class = body.className;
     if (body.house !== undefined) update.house = body.house;
     if (body.parentPhone !== undefined) update.parent_phone = body.parentPhone;
+    if (newSubjects !== undefined) update.subjects = newSubjects;
     let rows = asRows(
       await supabaseRequest(
         req,
