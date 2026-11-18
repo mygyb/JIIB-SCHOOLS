@@ -412,14 +412,8 @@ async function getParentPortalData(req: Request, schoolId: string, phoneInput: s
 
   if (!students.length) throw new Error("No student record matches that phone number.");
   const studentIds = new Set(students.map((student) => student.id));
-  const markRows = asRows(
-    await supabaseRequest(
-      req,
-      "marks",
-      {},
-      `?school_id=eq.${encodeURIComponent(schoolId)}&select=*&order=updated_at.desc`,
-    ),
-  );
+  // Every page of marks: the database returns at most 1,000 rows per request, so a single request silently dropped marks.
+  const markRows = await fetchAllRows(req, "marks", `?school_id=eq.${encodeURIComponent(schoolId)}&select=*&order=updated_at.desc,id.asc`);
   const legacyMarks: Array<Record<string, unknown> & { termKey: string }> = Object.entries(terms).flatMap(([termKey, term]) =>
     Array.isArray(term.marks)
       ? (term.marks as Array<Record<string, unknown>>).map((mark) => ({
@@ -2183,14 +2177,7 @@ router.get("/schools/:schoolId/students", async (req, res) => {
     if (className) filters.push(`class=eq.${encodeURIComponent(className)}`);
     if (house) filters.push(`house=eq.${encodeURIComponent(house)}`);
     if (search) filters.push(`name=ilike.*${encodeURIComponent(search)}*`);
-    const databaseRows = asRows(
-      await supabaseRequest(
-        req,
-        "students",
-        {},
-        `?${filters.join("&")}&select=*&order=updated_at.desc.nullslast,created_at.desc`,
-      ),
-    );
+    const databaseRows = await fetchAllRows(req, "students", `?${filters.join("&")}&select=*&order=updated_at.desc.nullslast,created_at.desc,id.asc`);
     const term = config.terms && typeof config.terms === "object"
       ? (config.terms as Record<string, Record<string, unknown>>)[termKey]
       : undefined;
@@ -2474,13 +2461,9 @@ router.get("/schools/:schoolId/marks", async (req, res) => {
     ];
     if (className) filters.push(`class=eq.${encodeURIComponent(className)}`);
     if (subject) filters.push(`subject=eq.${encodeURIComponent(subject)}`);
+    // All pages: reports and the performance views load a whole term at once, which is far more than 1,000 marks.
     const [rows, config] = await Promise.all([
-      await supabaseRequest(
-        req,
-        "marks",
-        {},
-        `?${filters.join("&")}&select=*&order=updated_at.desc`,
-      ),
+      fetchAllRows(req, "marks", `?${filters.join("&")}&select=*&order=updated_at.desc,id.asc`),
       readSchoolConfig(req, schoolId),
     ]);
     const databaseMarks = asRows(rows).map(mapMark);
