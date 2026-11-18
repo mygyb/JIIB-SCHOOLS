@@ -71,7 +71,8 @@ function assessmentFields(config: Config): Field[] {
 function markTotal(mark: Row, fields: Field[]): number {
   const alias = { c1: "aoi", c2: "midterm", c3: "end" } as const;
   return fields.reduce((sum, field) => {
-    const raw = Number(mark[alias[field.field]] ?? 0);
+    // The marks table names its columns either aoi/midterm/end or c1/c2/c3, depending on how the school's database was set up.
+    const raw = Number(mark[alias[field.field]] ?? mark[field.field] ?? 0);
     const entry = field.entryMax && field.entryMax > 0 ? field.entryMax : field.max;
     return sum + (entry === field.max ? raw : (raw * field.max) / entry);
   }, 0);
@@ -112,7 +113,7 @@ async function pruneOne(schoolId: string, termKey: string): Promise<{ ok: boolea
   const config = (dataRow?.data && typeof dataRow.data === "object" ? dataRow.data : {}) as Config;
   const [students, marks] = await Promise.all([
     pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=id,name,class&order=id.asc`),
-    pagedRows(`/rest/v1/marks?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=id,student_id,aoi,midterm,end&order=id.asc`),
+    pagedRows(`/rest/v1/marks?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=*&order=id.asc`),
   ]);
   // The summary must be safely saved before anything is deleted.
   const summary = buildSummary(schoolId, termKey, students, marks, assessmentFields(config));
