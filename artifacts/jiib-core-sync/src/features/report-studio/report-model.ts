@@ -1,6 +1,6 @@
 // Turns the school's students, marks, subjects and grading into the numbers printed on a report.
 // Ported from the Report Studio design file, using the app's own data instead of browser storage.
-import { competenceFor, finalTotal, getAssessmentFields, plePointsFor, pleDivision, pleSubjectKind, primaryStage, weightedScore, type AssessmentField, type AssessmentFieldId, type SchoolConfig } from "@/lib/school-data";
+import { competenceFor, finalTotal, getAssessmentFields, isSubjectAssessed, plePointsFor, pleDivision, pleSubjectKind, primaryStage, weightedScore, type AssessmentField, type AssessmentFieldId, type SchoolConfig } from "@/lib/school-data";
 
 export type ReportType = "midterm" | "endterm";
 
@@ -110,7 +110,7 @@ function subjectRecordsFor(config: SchoolConfig, className: string) {
   });
 }
 
-export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], config: SchoolConfig, options: { primary?: boolean } = {}): ReportDataset {
+export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], config: SchoolConfig, options: { primary?: boolean; termKey?: string } = {}): ReportDataset {
   const primary = Boolean(options.primary);
   const fields = getAssessmentFields(config);
   const grading = readGrading(config);
@@ -121,7 +121,8 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
   marks.forEach((mark) => markIndex.set(`${mark.studentId}|${norm(mark.subject)}`, mark));
 
   const subjectsFor = (student: ReportStudent) => {
-    const all = subjectRecordsFor(config, student.className);
+    const all = subjectRecordsFor(config, student.className)
+      .filter((subject) => !options.termKey || isSubjectAssessed(config, options.termKey, student.className, subject.name));
     const classNumber = numberFromClass(student.className);
     // Primary pupils always take every subject of their class; optional subjects are a secondary-school idea.
     const optional = !primary && classNumber !== null && optionalFrom !== null && classNumber >= optionalFrom;

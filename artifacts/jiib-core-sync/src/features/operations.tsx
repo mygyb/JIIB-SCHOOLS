@@ -40,7 +40,7 @@ import { MarksTracker } from '@/features/marks-tracker';
 import { Marksheets } from '@/features/marksheets';
 import { ALevelSetup } from '@/features/alevel-setup';
 import { aLevelProblem, isALevelClass, isALevelEnabled, type ALevelSubject } from '@/lib/school-data';
-import { currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, isPrimarySchool, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
+import { assessedSubjectKey, getAssessedSubjects, currentTerm, DEFAULT_ASSESSMENT_FIELDS, entryMaxOf, isPrimarySchool, markTotal, getAssessmentFields, getAssessmentStructure, getTerms, normalizePhone, subjectNames, subjectRecords, type AssessmentFieldId, type SchoolConfig } from '@/lib/school-data';
 
 type Page =
   | 'promote'
@@ -1205,8 +1205,74 @@ function SchoolSettings({ school }: { school: School }) {
           }}
         />
       </ShellCard>
+      <AssessedSubjectsCard config={config} />
     </div>
   </div>;
+}
+
+// "Assessed subjects": choose, term by term, which class subjects are being assessed. When the switch is on, only the ticked
+// subjects count on the dashboard percentage, marks tracker, marksheets and reports for that term.
+function AssessedSubjectsCard({ config }: { config: ReturnType<typeof useConfig> }) {
+  const data = config.data as SchoolConfig;
+  const terms = getTerms(data);
+  const activeKey = currentTerm(data);
+  const [termKey, setTermKey] = useState('');
+  const key = termKey || activeKey || terms[0]?.key || '';
+  const classes = Object.keys((data.subjects && typeof data.subjects === 'object' && !Array.isArray(data.subjects)) ? data.subjects as Record<string, unknown> : {})
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const saved = getAssessedSubjects(data, key);
+  const [on, setOn] = useState(saved.on);
+  const [items, setItems] = useState<string[]>(saved.items);
+  const [dirty, setDirty] = useState(false);
+  const [notice, setNotice] = useState('');
+  const savedKey = `${key}|${saved.on}|${saved.items.join(',')}`;
+  useEffect(() => { if (!dirty) { setOn(saved.on); setItems(saved.items); } }, [savedKey, dirty]);
+  useEffect(() => { setDirty(false); setNotice(''); }, [key]);
+  const every = classes.flatMap((className) => subjectNames(data, className).map((subject) => assessedSubjectKey(className, subject)));
+  const toggle = (value: string, checked: boolean) => { setItems((current) => checked ? Array.from(new Set([...current, value])) : current.filter((item) => item !== value)); setDirty(true); setNotice(''); };
+  const setMany = (values: string[], checked: boolean) => { setItems((current) => checked ? Array.from(new Set([...current, ...values])) : current.filter((item) => !values.includes(item))); setDirty(true); setNotice(''); };
+  const save = () => {
+    const settings = data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings) ? data.settings as Record<string, unknown> : {};
+    const all = settings.assessedSubjects && typeof settings.assessedSubjects === 'object' && !Array.isArray(settings.assessedSubjects) ? settings.assessedSubjects as Record<string, unknown> : {};
+    config.save({ ...data, settings: { ...settings, assessedSubjects: { ...all, [key]: { on, items: items.filter((item) => every.includes(item)) } } } } as Config,
+      () => { setDirty(false); setNotice(on ? 'Saved. Only the ticked subjects are counted for this term.' : 'Saved. All subjects are counted for this term.'); });
+  };
+  return <ShellCard className="mt-5">
+    <h3 className="font-display text-lg font-semibold">Assessed classes &amp; subjects</h3>
+    <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">Choose the classes and subjects being assessed in a term (use All / None to switch a whole class on or off). When this is on, only the ticked ones are counted on the dashboard percentage, marks tracker, print marksheets and reports for that term. Marks already entered for other subjects are kept.</p>
+    <div className="mt-4 flex flex-wrap items-end gap-4">
+      <label><span className="mb-1 block text-xs font-semibold text-muted-foreground">Term</span>
+        <select data-testid="select-assessed-term" value={key} onChange={(event) => setTermKey(event.target.value)} className="h-10 rounded-lg border border-input bg-background px-3 text-sm">
+          {terms.map((term) => <option key={term.key} value={term.key}>{term.label}{term.key === activeKey ? ' (active)' : ''}</option>)}
+        </select></label>
+      <label className="flex cursor-pointer items-center gap-2.5 pb-2 text-sm font-semibold">
+        <input data-testid="switch-assessed-subjects" type="checkbox" role="switch" checked={on} onChange={(event) => { setOn(event.target.checked); if (event.target.checked && !items.length) setItems(every); setDirty(true); setNotice(''); }} className="h-4 w-4 accent-primary" />
+        Count only selected classes &amp; subjects
+      </label>
+    </div>
+    {on && <div className="mt-4 space-y-4">
+      {classes.map((className) => {
+        const subjects = subjectNames(data, className);
+        const keys = subjects.map((subject) => assessedSubjectKey(className, subject));
+        return <div key={className} className="rounded-xl border border-border p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">{className} <span className="font-normal text-muted-foreground">· {keys.filter((value) => items.includes(value)).length}/{keys.length} selected</span></p>
+            <span className="flex gap-3 text-xs font-semibold text-primary"><button type="button" onClick={() => setMany(keys, true)}>All</button><button type="button" onClick={() => setMany(keys, false)}>None</button></span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {subjects.map((subject) => { const value = assessedSubjectKey(className, subject); return <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${items.includes(value) ? 'border-primary/40 bg-primary/5' : 'border-border'}`}>
+              <input type="checkbox" checked={items.includes(value)} onChange={(event) => toggle(value, event.target.checked)} className="accent-primary" />{subject}</label>; })}
+            {!subjects.length && <p className="text-xs text-muted-foreground">No subjects configured.</p>}
+          </div>
+        </div>;
+      })}
+      {!items.length && <p className="text-xs text-destructive">No subject is ticked, so nothing will be counted for this term.</p>}
+    </div>}
+    <div className="mt-4 flex flex-wrap items-center gap-3">
+      <button data-testid="button-save-assessed-subjects" onClick={save} disabled={!dirty || config.saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><Check size={15} /> {config.saving ? 'Saving…' : 'Save assessed subjects'}</button>
+      {notice && <p role="status" className="text-sm text-emerald-800">{notice}</p>}
+    </div>
+  </ShellCard>;
 }
 
 function SystemSettings({ school }: { school: School }) {

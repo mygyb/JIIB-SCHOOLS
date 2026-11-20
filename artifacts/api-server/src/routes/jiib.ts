@@ -1,3 +1,4 @@
+import { assessedFilter } from "../lib/assessed-subjects.js";
 import { randomUUID } from "node:crypto";
 import { parentFeeSummary, registerFinanceRoutes } from "./finance.js";
 import { registerMarksProgressRoutes } from "./marks-progress.js";
@@ -2060,6 +2061,7 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
       : undefined;
     const globalSubjects = Array.isArray(subjectMap) ? subjectMap : [];
     const assessmentFields = activeAssessmentFields(config);
+    const isAssessed = assessedFilter(settings, termKey);
     const assignments = asRows(assignmentRows)[0]?.subjects;
     const assignmentList = Array.isArray(assignments) ? assignments : [];
     const teacherName = String(asRows(assignmentRows)[0]?.display_name ?? "");
@@ -2099,6 +2101,7 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
       const classUsesChoices = classLevel(className) >= classLevel(optionalClass) &&
         classStudents.some((student) => Array.isArray(student.subjects) && student.subjects.length > 0);
       for (const item of subjects) {
+        if (!isAssessed(className, item.name)) continue;
         const owned = assignmentList.some((entry) =>
           typeof entry === "string"
             ? entry === item.name

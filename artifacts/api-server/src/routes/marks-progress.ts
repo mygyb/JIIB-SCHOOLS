@@ -1,5 +1,6 @@
 // Marks progress: for the assessments switched on in the assessment filter, which teachers and subjects have entered full marks,
 // partial marks, or nothing yet. Read-only; for the school administrator and the Head teacher.
+import { assessedFilter } from "../lib/assessed-subjects.js";
 import type { IRouter, Request, Response } from "express";
 import { asRows, supabaseRequest } from "../lib/supabase.js";
 
@@ -39,6 +40,7 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
       const active = Array.isArray(settings.activeMarkColumns) ? (settings.activeMarkColumns as unknown[]).map(String) : null;
       const fields = active ? structure.filter((item) => active.includes(item.field)) : structure;
       const optionalFrom = level(String(settings.optionalSubjectsClass ?? "S.3"));
+      const isAssessed = assessedFilter(settings, termKey);
 
       const [studentRows, markRows, userRows] = await Promise.all([
         pages(req, "students", `?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=id,name,class,subjects&order=id.asc`),
@@ -104,7 +106,7 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
         for (const [id, s] of undecidedList) undecidedStudents.push({ id, name: s.name || id, className });
         for (const item of list) {
           const subject = String(typeof item === "string" ? item : (item as Row)?.name ?? "").trim();
-          if (!subject) continue;
+          if (!subject || !isAssessed(className, subject)) continue;
           const takers = classStudents.filter(([id, s]) => level(className) < optionalFrom
             ? true
             : s.subjects.length ? s.subjects.some((x) => norm(x) === norm(subject)) : !usesChoices || entered.has(`${id}|${norm(subject)}`));
