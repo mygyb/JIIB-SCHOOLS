@@ -49,7 +49,12 @@ export function registerMarksheetRoutes(router: IRouter, deps: { readSchoolConfi
         students.set(id, { className, name, subjects: list });
       };
       for (const row of studentRows) addStudent(String(row.id), text(row.class), row.subjects, text(row.name));
-      if (Array.isArray(term.students)) for (const item of term.students as Row[]) addStudent(text(item?.id), text(item?.class ?? item?.className), item?.subjects, text(item?.name));
+      if (Array.isArray(term.students)) for (const item of term.students as Row[]) {
+        const id = text(item?.id);
+        addStudent(id, text(item?.class ?? item?.className), item?.subjects, text(item?.name));
+        // The Students page treats the saved-settings subject list (what the edit page writes) as the latest, so do the same here.
+        if (Array.isArray(item?.subjects) && students.has(id)) students.get(id)!.subjects = (item.subjects as unknown[]).map((x) => text(typeof x === "object" && x ? (x as Row).name : x)).filter(Boolean);
+      }
 
       // marks[studentId|subject][field] = the typed mark (the table's value wins over the settings copy)
       const marks = new Map<string, Record<string, number>>();
