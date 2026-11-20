@@ -9,6 +9,7 @@ const enc = encodeURIComponent;
 const DEFAULT_FIELDS = [{ field: "c1", name: "AOI", max: 10 }, { field: "c2", name: "Midterm", max: 10 }, { field: "c3", name: "End of Term", max: 80 }];
 const COLUMNS: Record<string, string[]> = { c1: ["aoi", "c1"], c2: ["midterm", "c2"], c3: ["end", "c3"] };
 const text = (value: unknown) => String(value ?? "").trim();
+const norm = (value: unknown) => text(value).toLowerCase();
 
 export function registerMarksheetRoutes(router: IRouter, deps: { readSchoolConfig: (req: Request, schoolId: string) => Promise<Row> }) {
   router.get("/schools/:schoolId/marksheets", async (req: Request, res: Response) => {
@@ -53,7 +54,7 @@ export function registerMarksheetRoutes(router: IRouter, deps: { readSchoolConfi
       // marks[studentId|subject][field] = the typed mark (the table's value wins over the settings copy)
       const marks = new Map<string, Record<string, number>>();
       const put = (studentId: string, subject: string, field: string, value: number, force = false) => {
-        const key = `${studentId}|${subject}`;
+        const key = `${studentId}|${norm(subject)}`;
         const record = marks.get(key) ?? {};
         if (value > 0 || force) { if (value > 0 || record[field] === undefined) record[field] = value; }
         marks.set(key, record);
@@ -70,7 +71,7 @@ export function registerMarksheetRoutes(router: IRouter, deps: { readSchoolConfi
       for (const row of markRows) {
         for (const field of ["c1", "c2", "c3"]) {
           const value = Number(COLUMNS[field].map((column) => row[column]).find((v) => v !== undefined && v !== null) ?? 0);
-          if (Number.isFinite(value) && value > 0) { const key = `${text(row.student_id)}|${text(row.subject)}`; const record = marks.get(key) ?? {}; record[field] = value; marks.set(key, record); }
+          if (Number.isFinite(value) && value > 0) { const key = `${text(row.student_id)}|${norm(row.subject)}`; const record = marks.get(key) ?? {}; record[field] = value; marks.set(key, record); }
         }
       }
 
@@ -97,7 +98,7 @@ export function registerMarksheetRoutes(router: IRouter, deps: { readSchoolConfi
           if (allowed && !allowed.some((pair) => pair.className === className && pair.subject === subject)) continue;
           const takers = classStudents.filter(([id, s]) => level(className) < optionalFrom
             ? true
-            : s.subjects.length ? s.subjects.includes(subject) : !usesChoices || marks.has(`${id}|${subject}`))
+            : s.subjects.length ? s.subjects.some((x) => norm(x) === norm(subject)) : !usesChoices || marks.has(`${id}|${norm(subject)}`))
             .sort(([, a], [, b]) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
           if (!takers.length) continue;
           const teacher = teacherOf(className, subject);
@@ -105,7 +106,7 @@ export function registerMarksheetRoutes(router: IRouter, deps: { readSchoolConfi
             className, subject,
             teacherName: teacher ? text(teacher.display_name) || text(teacher.email) : null,
             learners: takers.map(([id, s]) => {
-              const record = marks.get(`${id}|${subject}`) ?? {};
+              const record = marks.get(`${id}|${norm(subject)}`) ?? {};
               return { id, name: s.name, marks: Object.fromEntries(fields.map((f) => [f.field, record[f.field] ?? null])) };
             }),
           });
