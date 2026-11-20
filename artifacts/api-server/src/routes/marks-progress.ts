@@ -60,7 +60,12 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
         students.set(id, { className, name, subjects: list });
       };
       for (const row of studentRows) addStudent(String(row.id), String(row.class ?? ""), row.subjects, String(row.name ?? ""));
-      if (Array.isArray(term.students)) for (const item of term.students as Row[]) addStudent(String(item?.id ?? ""), String(item?.class ?? item?.className ?? ""), item?.subjects, String(item?.name ?? ""));
+      if (Array.isArray(term.students)) for (const item of term.students as Row[]) {
+        const id = String(item?.id ?? "");
+        addStudent(id, String(item?.class ?? item?.className ?? ""), item?.subjects, String(item?.name ?? ""));
+        // The Students page treats the saved-settings subject list (what the edit page writes) as the latest, so do the same here.
+        if (Array.isArray(item?.subjects) && students.has(id)) students.get(id)!.subjects = (item.subjects as unknown[]).map((x) => String(typeof x === "object" && x ? (x as Row).name ?? "" : x)).filter(Boolean);
+      }
 
       // entered[studentId|subject] = set of field ids that hold a mark
       const entered = new Map<string, Set<string>>();
