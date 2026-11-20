@@ -182,7 +182,7 @@ export function MarksRegister({ school }: { school: School }) {
     classes.filter((item) => isALevelClass(item)).some((item) => subjectRecords(configData, item).some((record) => record.name === selectedSubject && record.aLevel));
   const students = (studentsQuery.data ?? []).filter((student) =>
     !usesOptionalSubjects || !selectedSubject || !student.subjects?.length ||
-    student.subjects.includes(selectedSubject),
+    student.subjects.some((item) => String(item).trim().toLowerCase() === selectedSubject.trim().toLowerCase()),
   );
   if (sortOrder !== "none") {
     const direction = sortOrder === "asc" ? 1 : -1;

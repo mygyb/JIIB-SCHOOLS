@@ -48,6 +48,7 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
       const terms = config.terms && typeof config.terms === "object" ? (config.terms as Record<string, Row>) : {};
       const term = terms[termKey] ?? {};
 
+      const norm = (value: unknown) => String(value ?? "").trim().toLowerCase();
       const students = new Map<string, { className: string; name: string; subjects: string[] }>();
       const addStudent = (id: string, className: string, subjects: unknown, name = "") => {
         if (!id) return;
@@ -64,7 +65,7 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
       // entered[studentId|subject] = set of field ids that hold a mark
       const entered = new Map<string, Set<string>>();
       const note = (studentId: string, subject: string, field: string) => {
-        const k = `${studentId}|${subject}`;
+        const k = `${studentId}|${norm(subject)}`;
         const set = entered.get(k) ?? new Set<string>();
         set.add(field);
         entered.set(k, set);
@@ -101,11 +102,11 @@ export function registerMarksProgressRoutes(router: IRouter, deps: { readSchoolC
           if (!subject) continue;
           const takers = classStudents.filter(([id, s]) => level(className) < optionalFrom
             ? true
-            : s.subjects.length ? s.subjects.includes(subject) : !usesChoices || entered.has(`${id}|${subject}`));
+            : s.subjects.length ? s.subjects.some((x) => norm(x) === norm(subject)) : !usesChoices || entered.has(`${id}|${norm(subject)}`));
           let complete = 0, partial = 0, empty = 0;
           const perField: Record<string, number> = Object.fromEntries(fields.map((f) => [f.field, 0]));
           for (const [id] of takers) {
-            const set = entered.get(`${id}|${subject}`) ?? new Set<string>();
+            const set = entered.get(`${id}|${norm(subject)}`) ?? new Set<string>();
             const count = fields.filter((f) => set.has(f.field)).length;
             for (const f of fields) if (set.has(f.field)) perField[f.field] += 1;
             if (count === fields.length && fields.length > 0) complete += 1; else if (count > 0) partial += 1; else empty += 1;
