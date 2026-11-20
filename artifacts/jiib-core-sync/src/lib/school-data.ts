@@ -395,3 +395,20 @@ export function pleSubjectKind(subject: string): "english" | "maths" | "science"
 
 /** Class order for lists: nursery, then P.1 upward (or S.1 upward), then streams by name. */
 export const compareClasses = (a: string, b: string) => classLevel(a) - classLevel(b) || a.localeCompare(b, undefined, { numeric: true });
+
+// "Assessed subjects": a per-term list of the class subjects being assessed (settings.assessedSubjects[termKey]).
+export const assessedSubjectKey = (className: string, subject: string) => `${className.trim().toLowerCase()}|${subject.trim().toLowerCase()}`;
+
+export function getAssessedSubjects(config: SchoolConfig | null | undefined, termKey: string): { on: boolean; items: string[] } {
+  const settings = config?.settings && typeof config.settings === "object" ? config.settings : {};
+  const all = (settings as Record<string, unknown>).assessedSubjects;
+  const entry = all && typeof all === "object" && !Array.isArray(all) ? (all as Record<string, unknown>)[termKey] : null;
+  if (!entry || typeof entry !== "object") return { on: false, items: [] };
+  const item = entry as Record<string, unknown>;
+  return { on: Boolean(item.on), items: Array.isArray(item.items) ? item.items.map(String) : [] };
+}
+
+export function isSubjectAssessed(config: SchoolConfig | null | undefined, termKey: string, className: string, subject: string) {
+  const state = getAssessedSubjects(config, termKey);
+  return !state.on || state.items.includes(assessedSubjectKey(className, subject));
+}

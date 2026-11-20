@@ -98,8 +98,8 @@ export function ReportStudio({ school }: { school: School }) {
     const students = (studentsQuery.data ?? []).map((student) => ({
       id: student.id, name: student.name, className: student.className, house: student.house, subjects: student.subjects ?? [],
     }));
-    return buildDataset(students, marksQuery.data ?? [], config, { primary });
-  }, [studentsQuery.data, marksQuery.data, config, primary]);
+    return buildDataset(students, marksQuery.data ?? [], config, { primary, termKey: activeKey });
+  }, [studentsQuery.data, marksQuery.data, config, primary, activeKey]);
 
   const classes = useMemo(() => Array.from(new Set(dataset.students.map((student) => student.className))).filter(Boolean).sort(compareClasses), [dataset]);
   const classStudents = dataset.students

@@ -1,5 +1,6 @@
 // Marksheets: for every class and subject, the learners who take it (A-Z) with any marks already entered, ready to print as PDF.
 // The school administrator and the Head teacher get every subject; a teacher only gets the subjects assigned to them.
+import { assessedFilter } from "../lib/assessed-subjects.js";
 import type { IRouter, Request, Response } from "express";
 import { asRows } from "../lib/supabase.js";
 import { level, pages } from "./marks-progress.js";
@@ -31,6 +32,7 @@ export function registerMarksheetRoutes(router: IRouter, deps: { readSchoolConfi
       const active = Array.isArray(settings.activeMarkColumns) ? (settings.activeMarkColumns as unknown[]).map(String) : null;
       const fields = active ? structure.filter((item) => active.includes(item.field)) : structure;
       const optionalFrom = level(text(settings.optionalSubjectsClass) || "S.3");
+      const isAssessed = assessedFilter(settings, termKey);
 
       const [studentRows, markRows, userRows] = await Promise.all([
         pages(req, "students", `?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=id,name,class,subjects&order=id.asc`),
@@ -99,7 +101,7 @@ export function registerMarksheetRoutes(router: IRouter, deps: { readSchoolConfi
         const usesChoices = level(className) >= optionalFrom && classStudents.some(([, s]) => s.subjects.length > 0);
         for (const item of list) {
           const subject = text(typeof item === "string" ? item : (item as Row)?.name);
-          if (!subject) continue;
+          if (!subject || !isAssessed(className, subject)) continue;
           if (allowed && !allowed.some((pair) => pair.className === className && pair.subject === subject)) continue;
           const takers = classStudents.filter(([id, s]) => level(className) < optionalFrom
             ? true
