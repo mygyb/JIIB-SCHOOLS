@@ -13,9 +13,10 @@ import {
 } from "@workspace/api-client-react";
 import type { Mark, School, Student } from "@workspace/api-client-react";
 import { ArrowDownAZ, ArrowUpAZ, ArrowUpDown, CalendarDays, CircleAlert, ClipboardList, Loader2, LockKeyhole, RefreshCw, Search, Trash2, X } from "lucide-react";
-import { configuredHouses, currentTerm, entryMaxOf, finalTotal, getAssessmentFields, getTerms, isALevelClass, isALevelEnabled, isTermLocked, subjectNames, subjectRecords, weightedScore, type AssessmentField, type SchoolConfig } from "@/lib/school-data";
+import { configuredHouses, currentTerm, entryMaxOf, finalTotal, getAssessmentFields, getTerms, isALevelClass, isALevelEnabled, isPrimarySchool, isTermLocked, primaryStage, subjectNames, subjectRecords, weightedScore, type AssessmentField, type SchoolConfig } from "@/lib/school-data";
 import { getPendingMarks, queueMark } from "@/lib/offline-marks";
 import { jiibApi } from "@/lib/jiib-api";
+import { NurseryRatingsTable } from "@/features/nursery-ratings";
 
 type SubjectAssignment = { class: string; subject: string };
 
@@ -63,6 +64,7 @@ export function MarksRegister({ school }: { school: School }) {
   const [className, setClassName] = useState(() => isTeacher ? readAssignments().find((item) => item.class)?.class ?? "" : "");
   const [subject, setSubject] = useState("");
   const [search, setSearch] = useState("");
+  const [nurseryView, setNurseryView] = useState<"marks" | "activities">("marks");
   const [sortOrder, setSortOrder] = useState<"none" | "asc" | "desc">("asc");
   const [pendingMarks, setPendingMarks] = useState(() => getPendingMarks(school.id));
   const [error, setError] = useState("");
@@ -188,6 +190,8 @@ export function MarksRegister({ school }: { school: School }) {
     const direction = sortOrder === "asc" ? 1 : -1;
     students.sort((a, b) => direction * String(a.name ?? "").localeCompare(String(b.name ?? ""), undefined, { sensitivity: "base", numeric: true }));
   }
+  const isNurseryClass = isPrimarySchool(school) && Boolean(className) && primaryStage(className) === "nursery";
+  const showActivities = isNurseryClass && nurseryView === "activities";
   const refreshing = configQuery.isFetching || studentsQuery.isFetching || marksQuery.isFetching || allStudents.isFetching;
   const marks = marksQuery.data ?? [];
   const locked = Boolean(configData.marksLocked || isTermLocked(configData, selectedTerm));
@@ -360,8 +364,12 @@ export function MarksRegister({ school }: { school: School }) {
     </div>
 
     {error && <p role="alert" className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
+    {isNurseryClass && <div className="mb-3 inline-flex rounded-xl border border-border bg-card p-1" role="tablist" aria-label="Nursery register view">
+      {([["marks", "Learning area scores"], ["activities", "Activities & comments"]] as const).map(([id, name]) => <button key={id} type="button" role="tab" aria-selected={nurseryView === id} data-testid={`tab-nursery-${id}`} onClick={() => setNurseryView(id)} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${nurseryView === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}>{name}</button>)}
+    </div>}
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
-      {configQuery.isLoading || studentsQuery.isLoading || marksQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <div key={item} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>
+      {showActivities ? <NurseryRatingsTable schoolId={school.id} termKey={selectedTerm} pupils={students.map((student) => ({ id: student.id, name: student.name }))} locked={locked} />
+        : configQuery.isLoading || studentsQuery.isLoading || marksQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <div key={item} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>
         : configQuery.isError || studentsQuery.isError || marksQuery.isError ? <div className="p-5 text-center"><CircleAlert className="mx-auto text-destructive" size={22} /><p className="mt-2 text-sm">Marks could not be loaded.</p><button onClick={retry} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><RefreshCw size={14} /> Retry</button></div>
         : !availableSubjects.length ? <div className="p-10 text-center"><ClipboardList className="mx-auto text-muted-foreground" size={25} /><p className="mt-3 font-semibold">No subjects assigned</p><p className="mt-1 text-sm text-muted-foreground">{isTeacher ? "Ask your school administrator to assign a class and subject to your account." : "Add subjects under Manage subjects before entering marks."}</p></div>
         : needsALevelClass ? <div className="p-10 text-center"><p className="font-semibold">Choose an A-Level class</p><p className="mt-1 text-sm text-muted-foreground">Pick S.5 or S.6 above to enter {selectedSubject} marks paper by paper.</p></div>
