@@ -1,5 +1,5 @@
 // Builds the printable report card markup (A4, 794px wide). Ported from the Report Studio design file.
-import type { GradeBand, StudentReport, SubjectResult } from "./report-model";
+import { DEFAULT_DESCRIPTIONS, type GradeBand, type GradingScheme, type StudentReport, type SubjectResult } from "./report-model";
 
 export type TemplateId = "classic" | "modern" | "elegant" | "bold";
 
@@ -22,6 +22,7 @@ export type ReportContext = {
   stamp: string;
   template: TemplateId;
   grading: GradeBand[];
+  scheme?: GradingScheme;
   bills?: { label: string }[];
   /** Primary school: pupil wording, PLE division or competence ratings instead of the secondary result categories. */
   primary?: boolean;
@@ -60,7 +61,22 @@ function termNumber(label: string) {
   return (label.match(/term\s*(\d)/i) || [])[1] ?? "";
 }
 
-function classTeacherComment(report: StudentReport) {
+const DEFAULT_BAND_WORD: Record<string, string> = { A: "EXCEPTIONAL", B: "OUTSTANDING", C: "SATISFACTORY", D: "BASIC", E: "ELEMENTARY" };
+
+/** The school's own remark for this learner's overall average, if the school has written remarks. */
+function schoolRemark(report: StudentReport, ctx: ReportContext, who: "classTeacher" | "headTeacher") {
+  const remarks = ctx.scheme?.remarks ?? [];
+  if (!remarks.length || report.averagePercent === null) return "";
+  const band = remarks.find((item) => report.averagePercent! >= item.min) ?? remarks[remarks.length - 1];
+  const text = band[who];
+  if (!text) return "";
+  const first = report.student.name.split(/\s+/)[0] || (report.primary ? "The pupil" : "The student");
+  return esc(text).replace(/\{name\}/g, esc(first)).replace(/\{weak\}/g, esc(report.weakSubjects.join(", ")));
+}
+
+function classTeacherComment(report: StudentReport, ctx: ReportContext) {
+  const custom = schoolRemark(report, ctx, "classTeacher");
+  if (custom) return custom;
   const first = esc(report.student.name.split(/\s+/)[0] || (report.primary ? "The pupil" : "The student"));
   const red = (value: string) => `<span style="color:#c0392b;font-weight:800;font-style:normal;">${esc(value)}</span>`;
   const weak = report.weakSubjects;
@@ -72,7 +88,9 @@ function classTeacherComment(report: StudentReport) {
   return `${first} has shown encouraging effort.`;
 }
 
-function headTeacherComment(report: StudentReport) {
+function headTeacherComment(report: StudentReport, ctx: ReportContext) {
+  const custom = schoolRemark(report, ctx, "headTeacher");
+  if (custom) return custom;
   switch (report.overallDescriptor?.label) {
     case "DISTINCTION":
     case "EXCEPTIONAL":
@@ -131,7 +149,7 @@ function slipMarkup(report: StudentReport, ctx: ReportContext, qr: string) {
     </table>
     <div style="border:1.5px solid #1a3a6b;">
       <div style="background:#1a3a6b;color:white;font-size:6.5pt;font-weight:800;padding:2px 6px;text-transform:uppercase;">Class Teacher's Comment</div>
-      <div style="min-height:28px;padding:4px 6px;font-size:8pt;font-style:italic;font-weight:bold;color:#000;">${classTeacherComment(report)}</div>
+      <div style="min-height:28px;padding:4px 6px;font-size:8pt;font-style:italic;font-weight:bold;color:#000;">${classTeacherComment(report, ctx)}</div>
     </div>
   </div>`;
 }
@@ -203,8 +221,13 @@ export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: 
   }).join("");
   const colCount = fields.length + (ctx.primary ? 5 : 6);
 
+  const scaleRows = ctx.grading.map((band) => {
+    const saved = ctx.scheme?.descriptions?.[band.grade];
+    const text = saved !== undefined ? saved : (DEFAULT_BAND_WORD[band.grade] === band.descriptor.toUpperCase() ? DEFAULT_DESCRIPTIONS[band.grade] ?? "" : "");
+    return `<tr><td style="font-weight:900;">${esc(band.grade)}</td><td><b>${esc(band.descriptor.toUpperCase())}</b></td><td><i>${esc(text)}</i></td></tr>`;
+  }).join("");
   const gradingRows = ctx.grading.map((band) => `<tr><td style="font-weight:700;text-align:center;">${esc(band.grade)}</td><td>${band.min}–${band.max}</td><td>${esc(band.descriptor)}</td></tr>`).join("");
-  const billRows = (ctx.bills ?? DEFAULT_BILLS).map((bill) => {
+  const billRows = (ctx.scheme ? ctx.scheme.categories.map((item) => ({ label: item.text ? `${item.label} - ${item.text}` : item.label })) : (ctx.bills ?? DEFAULT_BILLS)).map((bill) => {
     const [head, ...rest] = bill.label.split(" - ");
     return `<tr><td colspan="3" style="font-size:6pt;color:#1a1a1a;padding:3px 5px;line-height:1.4;"><strong style="color:#1a3a6b;">${esc(head)} -</strong> ${esc(rest.join(" - "))}</td></tr>`;
   }).join("");
@@ -276,11 +299,7 @@ ${ctx.primary ? primaryScale(report, ctx) : `<div style="color:#111124;text-alig
     <table class="rc-descriptor-system-table">
       <thead><tr><th style="width:70px;">GRADE</th><th style="width:130px;">ACHIEVEMENT LEVEL</th><th>DESCRIPTOR</th></tr></thead>
       <tbody>
-        <tr><td style="font-weight:900;">A</td><td><b>EXCEPTIONAL</b></td><td><i>Applies innovatory and creativity of the acquired knowledge and skills.</i></td></tr>
-        <tr><td style="font-weight:900;">B</td><td><b>OUTSTANDING</b></td><td><i>Applies high level of acquired knowledge &amp; skills in life situations.</i></td></tr>
-        <tr><td style="font-weight:900;">C</td><td><b>SATISFACTORY</b></td><td><i>Applies adequate level of acquired knowledge and skills in real life.</i></td></tr>
-        <tr><td style="font-weight:900;">D</td><td><b>BASIC</b></td><td><i>Demonstrates minimum level of acquired knowledge &amp; skills in life</i></td></tr>
-        <tr><td style="font-weight:900;">E</td><td><b>ELEMENTARY</b></td><td><i>Demonstrates basic level of acquired knowledge and skills in real life.</i></td></tr>
+        ${scaleRows}
       </tbody>
     </table>`}
 
@@ -298,6 +317,7 @@ ${ctx.primary ? primaryScale(report, ctx) : `<div style="color:#111124;text-alig
           <thead class="rc-grading-key"><tr><td style="font-weight:700;">GRD</td><td style="font-weight:700;">RANGE</td><td style="font-weight:700;">DESCRIPTOR</td></tr></thead>
           <tbody>${gradingRows}</tbody>
         </table>
+        ${ctx.scheme ? `<div style="font-size:6pt;margin-top:2px;"><b>Pass mark:</b> ${ctx.scheme.passMark}%</div>` : ""}
         <div class="rc-bottom-title" style="margin-top:3px;">Keys to Rating</div>
         <table class="rc-bottom-table"><tbody>
           <tr><td style="font-weight:800;text-align:center;">5</td><td>= EXCELLENT</td></tr>
@@ -315,8 +335,8 @@ ${ctx.primary ? primaryScale(report, ctx) : `<div style="color:#111124;text-alig
 
     <div class="rc-comments">
       <div style="flex:1;display:flex;flex-direction:column;gap:3px;">
-        <div class="rc-comment-box"><div class="rc-comment-title">Class Teacher's Comment</div><div class="rc-comment-body">${classTeacherComment(report)}</div></div>
-        <div class="rc-comment-box"><div class="rc-comment-title">Head Teacher's Comment</div><div class="rc-comment-body">${headTeacherComment(report)}</div></div>
+        <div class="rc-comment-box"><div class="rc-comment-title">Class Teacher's Comment</div><div class="rc-comment-body">${classTeacherComment(report, ctx)}</div></div>
+        <div class="rc-comment-box"><div class="rc-comment-title">Head Teacher's Comment</div><div class="rc-comment-body">${headTeacherComment(report, ctx)}</div></div>
       </div>
       <div class="rc-sig-box"><div class="rc-sig-title">Signature &amp; Stamp</div><div class="rc-sig-body">${stamp}</div></div>
     </div>
