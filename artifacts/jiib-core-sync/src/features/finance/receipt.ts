@@ -1,3 +1,4 @@
+import { JSCHOOLS_SEAL } from '@/lib/jschools-seal';
 import type { Payment } from './types';
 import { formatDate, METHOD_LABELS, ugx } from './money';
 
@@ -28,6 +29,7 @@ export function printReceipt(payment: Payment, opts: { schoolName: string; logoU
     ${opts.balance !== undefined && !cancelled ? `<table>${opts.expected !== undefined ? row('Fees this term', esc(ugx(opts.expected))) : ''}${row('Balance after this payment', esc(ugx(Math.max(0, opts.balance))))}</table>` : ''}
     ${cancelled ? `<p style="color:#a11;font-size:13px">Cancelled${payment.cancelReason ? `: ${esc(payment.cancelReason)}` : ''}</p>` : ''}
     <div class="foot"><span>Received by${payment.recordedBy ? `<br>${esc(payment.recordedBy)}` : ''}</span><span>Stamp</span></div>
+    <div style="text-align:center;margin-top:22px"><img src="${JSCHOOLS_SEAL}" alt="J-SCHOOLS" style="width:64px;height:64px;opacity:.32"></div>
   </div><script>window.onload=function(){setTimeout(function(){window.print()},250)}</script></body></html>`);
   win.document.close();
   return true;
