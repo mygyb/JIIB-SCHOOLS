@@ -148,11 +148,15 @@ function slipMarkup(report: StudentReport, ctx: ReportContext, qr: string) {
       </tr></thead>
       <tbody>${rows || `<tr><td colspan="4" style="text-align:center;padding:8px;color:#999;">No subjects configured</td></tr>`}</tbody>
     </table>
+    <div style="position:relative;">
+    <img src="${JSCHOOLS_SEAL}" alt="" style="position:absolute;left:50%;top:50%;width:110px;height:110px;margin:-55px 0 0 -55px;opacity:0.14;z-index:0;pointer-events:none;">
+    <div style="position:relative;z-index:1;">
     <div style="border:1.5px solid #1a3a6b;">
       <div style="background:#1a3a6b;color:white;font-size:6.5pt;font-weight:800;padding:2px 6px;text-transform:uppercase;">Class Teacher's Comment</div>
       <div style="min-height:28px;padding:4px 6px;font-size:8pt;font-style:italic;font-weight:bold;color:#000;">${classTeacherComment(report, ctx)}</div>
     </div>
-    <div style="text-align:center;margin-top:3px;"><img src="${JSCHOOLS_SEAL}" alt="J-SCHOOLS" style="width:40px;height:40px;opacity:.32;"></div>
+    </div>
+    </div>
   </div>`;
 }
 
@@ -335,6 +339,9 @@ ${ctx.primary ? primaryScale(report, ctx) : `<div style="color:#111124;text-alig
       </div>
     </div>
 
+    <div style="position:relative;">
+    <img src="${JSCHOOLS_SEAL}" alt="" style="position:absolute;left:50%;top:50%;width:140px;height:140px;margin:-70px 0 0 -70px;opacity:0.14;z-index:0;pointer-events:none;">
+    <div style="position:relative;z-index:1;">
     <div class="rc-comments">
       <div style="flex:1;display:flex;flex-direction:column;gap:3px;">
         <div class="rc-comment-box"><div class="rc-comment-title">Class Teacher's Comment</div><div class="rc-comment-body">${classTeacherComment(report, ctx)}</div></div>
@@ -343,6 +350,7 @@ ${ctx.primary ? primaryScale(report, ctx) : `<div style="color:#111124;text-alig
       <div class="rc-sig-box"><div class="rc-sig-title">Signature &amp; Stamp</div><div class="rc-sig-body">${stamp}</div></div>
     </div>
     ${ctx.motto ? `<div class="rc-school-motto" style="text-align:center;margin-top:4px;">${esc(ctx.motto.toUpperCase())}</div>` : ""}
-    <div style="text-align:center;margin-top:5px;"><img src="${JSCHOOLS_SEAL}" alt="J-SCHOOLS" style="width:62px;height:62px;opacity:.32;"></div>
+    </div>
+    </div>
   </div>`;
 }
