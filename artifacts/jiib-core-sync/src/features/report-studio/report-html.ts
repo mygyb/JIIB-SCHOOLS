@@ -1,4 +1,5 @@
 // Builds the printable report card markup (A4, 794px wide). Ported from the Report Studio design file.
+import { JSCHOOLS_SEAL } from "@/lib/jschools-seal";
 import { DEFAULT_DESCRIPTIONS, type GradeBand, type GradingScheme, type StudentReport, type SubjectResult } from "./report-model";
 
 export type TemplateId = "classic" | "modern" | "elegant" | "bold";
@@ -151,6 +152,7 @@ function slipMarkup(report: StudentReport, ctx: ReportContext, qr: string) {
       <div style="background:#1a3a6b;color:white;font-size:6.5pt;font-weight:800;padding:2px 6px;text-transform:uppercase;">Class Teacher's Comment</div>
       <div style="min-height:28px;padding:4px 6px;font-size:8pt;font-style:italic;font-weight:bold;color:#000;">${classTeacherComment(report, ctx)}</div>
     </div>
+    <div style="text-align:center;margin-top:3px;"><img src="${JSCHOOLS_SEAL}" alt="J-SCHOOLS" style="width:40px;height:40px;opacity:.32;"></div>
   </div>`;
 }
 
@@ -341,5 +343,6 @@ ${ctx.primary ? primaryScale(report, ctx) : `<div style="color:#111124;text-alig
       <div class="rc-sig-box"><div class="rc-sig-title">Signature &amp; Stamp</div><div class="rc-sig-body">${stamp}</div></div>
     </div>
     ${ctx.motto ? `<div class="rc-school-motto" style="text-align:center;margin-top:4px;">${esc(ctx.motto.toUpperCase())}</div>` : ""}
+    <div style="text-align:center;margin-top:5px;"><img src="${JSCHOOLS_SEAL}" alt="J-SCHOOLS" style="width:62px;height:62px;opacity:.32;"></div>
   </div>`;
 }
