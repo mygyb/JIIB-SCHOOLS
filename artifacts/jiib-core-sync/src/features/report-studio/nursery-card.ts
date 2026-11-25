@@ -59,6 +59,7 @@ export type NurseryContext = {
 
 const esc = (value: unknown) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const hand = "font-family:'Comic Sans MS','Segoe Print','Bradley Hand',cursive;color:#c0392b;";
+const initialsOf = (name: string) => String(name ?? "").replace(/@.*$/, "").split(/[\s._-]+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase()).slice(0, 3).join(".");
 const BORDER = "1.5px solid #1a3a6b";
 
 const TINTS = ["#fff3e0", "#e3f2fd", "#fce4ec", "#e8f5e9", "#f3e5f5", "#fffde7", "#e0f7fa", "#fbe9e7", "#e8eaf6", "#f1f8e9"];
@@ -78,7 +79,7 @@ export function buildNurseryCard(report: StudentReport, ctx: NurseryContext) {
   const rows = report.subjects.map((subject, index) => `<tr>
       <td style="border:2px solid ${NAVY};padding:8px 10px;font-size:10pt;font-weight:700;vertical-align:middle;background:${rowColors[index % rowColors.length]}55;"><span style="display:inline-block;background:${NAVY};color:#fff;border-radius:10px;padding:1px 8px;font-size:7.5pt;font-weight:900;margin-bottom:3px;">Learning Area ${index + 1}</span><br>${esc(subject.name)}</td>
       <td style="border:2px solid ${NAVY};padding:8px 10px;font-size:10.5pt;vertical-align:middle;">SCORE: <b style="${hand}font-size:13pt;">${subject.total === null ? "—" : `${esc(subject.total)}/100`}</b><br>Remark: <span style="${hand}font-weight:700;font-size:11.5pt;">${esc(subject.descriptor ? subject.descriptor.label.charAt(0) + subject.descriptor.label.slice(1).toLowerCase() : "—")}</span></td>
-      <td style="border:2px solid ${NAVY};width:70px;"></td>
+      <td style="border:2px solid ${NAVY};width:70px;text-align:center;vertical-align:middle;"><span style="${hand}color:${NAVY};font-size:15pt;font-weight:700;letter-spacing:1px;">${esc(initialsOf(subject.teacher))}</span></td>
     </tr>`).join("") || `<tr><td colspan="3" style="border:2px solid ${NAVY};padding:14px;text-align:center;color:#999;font-size:9pt;">No learning areas set for this class</td></tr>`;
 
   const cells = NURSERY_ACTIVITIES.map((item, index) => {
