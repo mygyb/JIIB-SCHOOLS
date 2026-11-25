@@ -8,6 +8,16 @@ export type ReportStudent = { id: string; name: string; className: string; house
 export type ReportMarkRow = { studentId: string; subject: string; aoi?: number; midterm?: number; end?: number; enteredFields?: string[] };
 
 export type GradeBand = { grade: string; min: number; max: number; descriptor: string };
+/** The school's own grading extras, saved once for the whole school (so every new term keeps using them). */
+export type GradingScheme = {
+  passMark: number;
+  /** Longer wording per grade letter, printed in the grading scale on the report card. */
+  descriptions: Record<string, string>;
+  /** Result categories printed on the card; a category with a minimum average is given to learners at or above it. */
+  categories: Array<{ label: string; text: string; minAverage: number | null }>;
+  /** Comments by overall average. {name} and {weak} can be used in the text. */
+  remarks: Array<{ min: number; classTeacher: string; headTeacher: string }>;
+};
 export type Descriptor = { label: string; cls: "rc-descriptor-outstanding" | "rc-descriptor-moderate" | "rc-descriptor-basic" };
 
 export type SubjectResult = {
@@ -39,6 +49,8 @@ export type StudentReport = {
   resultCategory: string;
   weakSubjects: string[];
   lowestPercent: number | null;
+  /** Overall average as a percentage (null when nothing is marked). */
+  averagePercent: number | null;
   /** Primary P.7 only: the four PLE subjects, their points, the aggregate and the division. */
   ple: { subjects: Array<{ name: string; points: number | null }>; aggregate: number | null; division: string } | null;
   /** Primary schools: the stage of the pupil's class decides whether PLE or competence wording is shown. */
@@ -50,6 +62,7 @@ export type ReportDataset = {
   students: ReportStudent[];
   fields: AssessmentField[];
   grading: GradeBand[];
+  scheme: GradingScheme;
   reports: (type: ReportType) => Map<string, StudentReport>;
 };
 
@@ -81,11 +94,64 @@ export function readGrading(config: SchoolConfig | null | undefined): GradeBand[
   }));
 }
 
+export const DEFAULT_DESCRIPTIONS: Record<string, string> = {
+  A: "Applies innovatory and creativity of the acquired knowledge and skills.",
+  B: "Applies high level of acquired knowledge & skills in life situations.",
+  C: "Applies adequate level of acquired knowledge and skills in real life.",
+  D: "Demonstrates minimum level of acquired knowledge & skills in life",
+  E: "Demonstrates basic level of acquired knowledge and skills in real life.",
+};
+export const DEFAULT_CATEGORIES: GradingScheme["categories"] = [
+  { label: "RESULT 1", text: "Would fulfill all stipulated conditions for a UCE certificate at UNEB.", minAverage: 66.67 },
+  { label: "RESULT 2", text: "Did not sit for some compulsory subjects, or did not sit for a minimum of 8 subjects, or does not have Project Work scores.", minAverage: 0 },
+  { label: "RESULT 3", text: "Achieved basic level E in all subjects taken.", minAverage: null },
+  { label: "RESULT 4", text: "Registered but missed all assessments.", minAverage: null },
+];
+
+/** Reads the school-wide grading extras; anything not set falls back to the standard wording. */
+export function readScheme(config: SchoolConfig | null | undefined): GradingScheme {
+  const settings = (config?.settings && typeof config.settings === "object" ? config.settings : {}) as Record<string, unknown>;
+  const raw = (settings.gradingScheme && typeof settings.gradingScheme === "object" ? settings.gradingScheme : {}) as Record<string, unknown>;
+  const pass = Number(raw.passMark);
+  const descriptions: Record<string, string> = {};
+  if (raw.descriptions && typeof raw.descriptions === "object") for (const [key, value] of Object.entries(raw.descriptions as Record<string, unknown>)) descriptions[key] = String(value ?? "");
+  const categories = Array.isArray(raw.categories)
+    ? (raw.categories as Array<Record<string, unknown>>).flatMap((item) => {
+        const label = String(item?.label ?? "").trim();
+        if (!label) return [];
+        const min = item?.minAverage === null || item?.minAverage === undefined || item?.minAverage === "" ? null : Number(item.minAverage);
+        return [{ label, text: String(item?.text ?? "").trim(), minAverage: min !== null && Number.isFinite(min) ? min : null }];
+      })
+    : DEFAULT_CATEGORIES;
+  const remarks = Array.isArray(raw.remarks)
+    ? (raw.remarks as Array<Record<string, unknown>>).flatMap((item) => {
+        const min = Number(item?.min);
+        return Number.isFinite(min) ? [{ min, classTeacher: String(item?.classTeacher ?? "").trim(), headTeacher: String(item?.headTeacher ?? "").trim() }] : [];
+      }).sort((a, b) => b.min - a.min)
+    : [];
+  return { passMark: Number.isFinite(pass) && pass >= 0 && pass <= 100 ? pass : 50, descriptions, categories, remarks };
+}
+
+/** The category a learner falls in, from the overall average percentage. */
+export function categoryFor(scheme: GradingScheme, percent: number | null): string {
+  if (percent === null) return "—";
+  const rated = scheme.categories.filter((item) => item.minAverage !== null).sort((a, b) => (b.minAverage ?? 0) - (a.minAverage ?? 0));
+  return (rated.find((item) => percent >= (item.minAverage ?? 0)) ?? rated[rated.length - 1])?.label ?? "—";
+}
+
 export function gradeFor(total: number, grading: GradeBand[]): GradeBand {
   return grading.find((band) => total >= band.min) ?? grading[grading.length - 1] ?? DEFAULT_GRADING[4];
 }
 
 const DESCRIPTOR_BY_GRADE: Record<string, string> = { A: "EXCEPTIONAL", B: "OUTSTANDING", C: "SATISFACTORY", D: "BASIC", E: "ELEMENTARY" };
+
+/** Colour class by where the band sits in the school's scale: top bands good, the lowest band weak. */
+export function descriptorOfBand(grading: GradeBand[], grade: GradeBand): Descriptor {
+  const index = grading.findIndex((band) => band.grade === grade.grade);
+  const label = (grade.descriptor || grade.grade).toUpperCase();
+  const good = Math.max(1, Math.ceil(grading.length * 0.4));
+  return { label, cls: index < 0 ? "rc-descriptor-moderate" : index < good ? "rc-descriptor-outstanding" : index === grading.length - 1 && grading.length > 2 ? "rc-descriptor-basic" : "rc-descriptor-moderate" };
+}
 
 export function descriptorFor(percent: number, gradeLetter?: string): Descriptor {
   const label = (gradeLetter && DESCRIPTOR_BY_GRADE[gradeLetter.toUpperCase()])
@@ -114,6 +180,7 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
   const primary = Boolean(options.primary);
   const fields = getAssessmentFields(config);
   const grading = readGrading(config);
+  const scheme = readScheme(config);
   const settings = (config.settings && typeof config.settings === "object" ? config.settings : {}) as Record<string, unknown>;
   const optionalFrom = numberFromClass(String(settings.optionalSubjectsClass ?? "S.3"));
 
@@ -168,7 +235,7 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
           : primary && grade?.descriptor && /^[DCPF]\d$/.test(grade.grade)
             // PLE-style grade tables: the descriptor printed is the school's own word (Distinction, Credit, Pass, Fail).
             ? { label: grade.descriptor.toUpperCase(), cls: (/^D|^C/.test(grade.grade) ? "rc-descriptor-outstanding" : grade.grade.startsWith("P") ? "rc-descriptor-moderate" : "rc-descriptor-basic") as Descriptor["cls"] }
-            : descriptorFor(percent, grade?.grade);
+            : grade ? descriptorOfBand(grading, grade) : descriptorFor(percent, undefined);
         const outOf3 = total === null ? "" : Math.min(3, (total / maxPossible) * 3).toFixed(2);
         return { name: subject.name, teacher: subject.teacher, cols, total, grade, descriptor, outOf3 };
       });
@@ -196,8 +263,8 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
         counts.set(key, { d: item.descriptor!, n: (counts.get(key)?.n ?? 0) + 1 });
       });
       // Most frequent descriptor; when several tie, the one closest to the student's average level wins.
-      const levels = ["ELEMENTARY", "BASIC", "SATISFACTORY", "OUTSTANDING", "EXCEPTIONAL"];
-      const averageLevel = levels.indexOf(descriptorFor((averageValue / maxPossible) * 100).label);
+      const levels = [...grading].reverse().map((band) => (band.descriptor || band.grade).toUpperCase());
+      const averageLevel = levels.indexOf((gradeFor(type === "endterm" ? averageValue : (averageValue / maxPossible) * 100, grading).descriptor || gradeFor(averageValue, grading).grade).toUpperCase());
       const overallDescriptor = [...counts.values()].sort((a, b) => b.n - a.n || Math.abs(levels.indexOf(a.d.label) - averageLevel) - Math.abs(levels.indexOf(b.d.label) - averageLevel))[0]?.d ?? null;
 
       const stage = primary ? primaryStage(student.className) : null;
@@ -234,7 +301,8 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
         badgeRank: rank !== null && rank <= 3 ? rank : null,
         overallOutOf3: overall === null ? "—" : overall.toFixed(2),
         overallDescriptor,
-        resultCategory: overall === null ? "—" : overall >= 2 ? "RESULT 1" : "RESULT 2",
+        resultCategory: overall === null ? "—" : categoryFor(scheme, (averageValue / maxPossible) * 100),
+        averagePercent: subjectCount ? Math.min(100, (averageValue / maxPossible) * 100) : null,
         weakSubjects,
         lowestPercent: lowest === null ? null : (lowest / maxPossible) * 100,
         ple,
@@ -250,6 +318,7 @@ export function buildDataset(students: ReportStudent[], marks: ReportMarkRow[], 
     students,
     fields,
     grading,
+    scheme,
     reports: (type) => {
       if (!cache.has(type)) cache.set(type, build(type));
       return cache.get(type)!;

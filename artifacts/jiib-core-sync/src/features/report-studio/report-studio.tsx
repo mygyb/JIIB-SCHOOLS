@@ -121,8 +121,9 @@ export function ReportStudio({ school }: { school: School }) {
     stamp,
     template: type === "midterm" ? "classic" : template,
     grading: dataset.grading,
+    scheme: dataset.scheme,
     primary,
-  }), [primary, school.name, school.logoUrl, details, year, termLabel, stamp, template, type, dataset.grading]);
+  }), [primary, school.name, school.logoUrl, details, year, termLabel, stamp, template, type, dataset.grading, dataset.scheme]);
 
   // ── Preview ──
   const [previewHtml, setPreviewHtml] = useState("");

@@ -35,6 +35,7 @@ import { TeacherNotifications, describePush, pushStatusKey, sendDeadlineNotice }
 import { SchoolBadgeField } from '@/features/school-badge';
 import { PerformanceView } from '@/features/performance/performance-page';
 import { ALevelGradingCard } from '@/features/alevel-grading';
+import { GradingEditor } from '@/features/grading-editor';
 import { ALevelResults } from '@/features/alevel-results';
 import { MarksTracker } from '@/features/marks-tracker';
 import { Marksheets } from '@/features/marksheets';
@@ -877,10 +878,7 @@ function ManageSubjects({ school }: { school: School }) {
 
 function GradingSystem({ school }: { school: School }) {
   const config = useConfig(school.id);
-  const grades = Array.isArray(config.data.grading) ? (config.data.grading as Array<Record<string, unknown>>) : [];
-  const [grade, setGrade] = useState(''); const [min, setMin] = useState('');
-  const add = () => { if (!grade.trim() || !min) return; config.save({ ...config.data, grading: [...grades, { grade: grade.trim(), min: Number(min), descriptor: 'Custom descriptor' }] }, () => { setGrade(''); setMin(''); }); };
-  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Grading system" body="Define the thresholds and descriptors used in school reports." /><ShellCard><div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input data-testid="input-grade-name" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="Grade" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><input data-testid="input-grade-min" type="number" min="0" max="100" value={min} onChange={(e) => setMin(e.target.value)} placeholder="Minimum score" className="h-11 rounded-lg border border-input bg-background px-3 text-sm" /><button data-testid="button-add-grade" onClick={add} disabled={!grade.trim() || !min || config.saving} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add</button></div><div className="mt-6 divide-y divide-border">{[...grades].sort((a, b) => Number(b.min) - Number(a.min)).map((item) => <div key={String(item.grade)} className="flex items-center gap-3 py-4"><span className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 font-display font-semibold text-primary">{String(item.grade)}</span><div className="flex-1"><p className="text-sm font-semibold">From {String(item.min)} points</p><p className="text-xs text-muted-foreground">{String(item.descriptor ?? '')}</p></div><button aria-label={`Remove grade ${String(item.grade)}`} onClick={() => config.save({ ...config.data, grading: grades.filter((value) => value.grade !== item.grade) })} className="text-destructive"><Trash2 size={15} /></button></div>)}</div>{!grades.length && <p className="mt-4 text-sm text-muted-foreground">No grading bands are configured yet.</p>}</ShellCard></div>;
+  return <div className="fade-up"><SectionHeading eyebrow="Academics & marks" title="Grading system" body="Set this school's own grades, pass mark, result categories and report card remarks. They are used on every report and carry over to every new term." />{config.isSuccess ? <GradingEditor data={config.data as SchoolConfig} saving={config.saving} save={config.save as never} /> : <p className="text-sm text-muted-foreground">Loading grading…</p>}</div>;
 }
 
 function PublishDeadline({ school }: { school: School }) {
