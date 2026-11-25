@@ -11,7 +11,6 @@ import {
 import type { School } from "@workspace/api-client-react";
 import { compareClasses, currentTerm, getTerms, isPrimarySchool, primaryLabel, type SchoolConfig } from "@/lib/school-data";
 import { REPORT_CARD_CSS } from "./report-css";
-import { NurseryEntry } from "./nursery-entry";
 import type { NurseryExtras } from "./nursery-card";
 import { buildEndTermCard, buildSlipPage, TEMPLATES, type ReportContext, type TemplateId } from "./report-html";
 import { buildDataset, classOverview, type ReportType, type StudentReport } from "./report-model";
@@ -241,20 +240,6 @@ export function ReportStudio({ school }: { school: School }) {
     try { setStamp(await readStamp(file)); setNotice(""); } catch (error) { setNotice(error instanceof Error ? error.message : "The stamp could not be added."); }
   };
 
-  const [nurserySave, setNurserySave] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const saveNursery = (extras: NurseryExtras) => {
-    if (!studentId) return;
-    const all = (settings.nurseryExtras as Record<string, Record<string, NurseryExtras>> | undefined) ?? {};
-    setNurserySave("saving");
-    updateConfig.mutate(
-      { schoolId: school.id, data: { data: { ...config, settings: { ...settings, nurseryExtras: { ...all, [activeKey]: { ...(all[activeKey] ?? {}), [studentId]: extras } } } } } },
-      {
-        onSuccess: (result) => { queryClient.setQueryData(getGetSchoolConfigQueryKey(school.id), result); setNurserySave("saved"); setTimeout(() => setNurserySave("idle"), 2500); },
-        onError: () => setNurserySave("error"),
-      },
-    );
-  };
-
   const loading = configQuery.isLoading || studentsQuery.isLoading;
 
   return <div className="fade-up">
@@ -299,11 +284,6 @@ export function ReportStudio({ school }: { school: School }) {
             {([[word("Students"), overview.students], ["Class avg", overview.average], ["Marks in", `${overview.complete}%`]] as const).map(([name, value]) => <div key={name} className="rounded-lg bg-muted/60 px-2 py-2"><dd className="font-display text-lg font-semibold">{value}</dd><dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{name}</dt></div>)}
           </dl>}
         </section>
-
-        {primary && type === "endterm" && selected?.stage === "nursery" && <>
-          <NurseryEntry key={`${activeKey}-${studentId}`} name={selected.student.name} extras={ctx.nursery?.[studentId]} saving={nurserySave === "saving"} saved={nurserySave === "saved"} onSave={saveNursery} />
-          {nurserySave === "error" && <p role="alert" className="text-xs text-destructive">The nursery details could not be saved. Please try again.</p>}
-        </>}
 
         <section className="rounded-2xl border border-border bg-card p-4">
           <p className={label}>Report details</p>
