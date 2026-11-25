@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { parentFeeSummary, registerFinanceRoutes } from "./finance.js";
 import { registerMarksProgressRoutes } from "./marks-progress.js";
 import { registerMarksheetRoutes } from "./marksheets.js";
+import { registerNurseryExtrasRoutes } from "./nursery-extras.js";
 import { registerDataCheckRoutes } from "./data-check.js";
 import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
 import { registerPublicSmsRoutes, registerSmsRoutes } from "./sms.js";
@@ -1238,6 +1239,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
 registerFinanceRoutes(router, { readSchoolConfig });
 registerMarksProgressRoutes(router, { readSchoolConfig });
 registerMarksheetRoutes(router, { readSchoolConfig });
+registerNurseryExtrasRoutes(router, { readSchoolConfig });
 registerPushRoutes(router, { readSchoolConfig, requireSchoolAdmin }, sendError);
 registerSmsRoutes(router, { readSchoolConfig, authorizeSuperAdmin, sendError });
 registerCleanupRoutes(router, { authorizeSuperAdmin, sendError });
