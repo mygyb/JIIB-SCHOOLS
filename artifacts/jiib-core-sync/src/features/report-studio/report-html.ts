@@ -1,4 +1,5 @@
 // Builds the printable report card markup (A4, 794px wide). Ported from the Report Studio design file.
+import { buildNurseryCard, type NurseryExtras } from "./nursery-card";
 import { JSCHOOLS_SEAL } from "@/lib/jschools-seal";
 import { DEFAULT_DESCRIPTIONS, type GradeBand, type GradingScheme, type StudentReport, type SubjectResult } from "./report-model";
 
@@ -24,6 +25,8 @@ export type ReportContext = {
   template: TemplateId;
   grading: GradeBand[];
   scheme?: GradingScheme;
+  /** Nursery report cards: per-learner activity ratings, attendance and comments for the chosen term. */
+  nursery?: Record<string, NurseryExtras>;
   bills?: { label: string }[];
   /** Primary school: pupil wording, PLE division or competence ratings instead of the secondary result categories. */
   primary?: boolean;
@@ -202,6 +205,9 @@ function primaryScale(report: StudentReport, ctx: ReportContext) {
 
 /** A full end-of-term report card in the chosen template. */
 export function buildEndTermCard(report: StudentReport, ctx: ReportContext, qr: string) {
+  if (ctx.primary && report.stage === "nursery") {
+    return buildNurseryCard(report, { schoolName: ctx.schoolName, address: ctx.address, motto: ctx.motto, year: ctx.year, termLabel: ctx.termLabel, closingDate: ctx.closingDate, nextTermDate: ctx.nextTermDate, logoUrl: ctx.logoUrl, stamp: ctx.stamp, extras: ctx.nursery?.[report.student.id], classComment: classTeacherComment(report, ctx), headComment: headTeacherComment(report, ctx) });
+  }
   const { student, fields } = report;
   const logo = logoMarkup(ctx);
   const watermark = ctx.logoUrl ? `<img class="rc-watermark" src="${esc(ctx.logoUrl)}" alt="" crossorigin="anonymous">` : `<div class="rc-watermark-placeholder">🏫</div>`;
