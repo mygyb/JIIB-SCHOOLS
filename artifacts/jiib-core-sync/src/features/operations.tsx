@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { LogoLoader } from '@/components/logo-loader';
 import { Bar } from 'react-chartjs-2';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArrowRight, CalendarDays, Check, Download, LockKeyhole, Megaphone, MessageSquare, Pencil, Plus, Printer, Send, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react';
@@ -103,7 +104,7 @@ function SectionHeading({ eyebrow, title, body }: { eyebrow: string; title: stri
 }
 
 function LoadingOrError({ loading, error, retry }: { loading: boolean; error: boolean; retry: () => void }) {
-  if (loading) return <div className="rounded-xl bg-muted p-6 text-sm text-muted-foreground">Loading records…</div>;
+  if (loading) return <LogoLoader label="Loading records…" />;
   if (error) return <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive">This section could not load. <button className="ml-2 font-semibold underline" onClick={retry}>Retry</button></div>;
   return null;
 }

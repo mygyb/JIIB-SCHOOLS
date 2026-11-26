@@ -1,4 +1,5 @@
 import { ALevelMarksTable } from "@/features/alevel-marks";
+import { LogoLoader } from '@/components/logo-loader';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -369,7 +370,7 @@ export function MarksRegister({ school }: { school: School }) {
     </div>}
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
       {showActivities ? <NurseryRatingsTable schoolId={school.id} termKey={selectedTerm} pupils={students.map((student) => ({ id: student.id, name: student.name }))} locked={locked} />
-        : configQuery.isLoading || studentsQuery.isLoading || marksQuery.isLoading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((item) => <div key={item} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>
+        : configQuery.isLoading || studentsQuery.isLoading || marksQuery.isLoading ? <LogoLoader label="Loading marks…" compact />
         : configQuery.isError || studentsQuery.isError || marksQuery.isError ? <div className="p-5 text-center"><CircleAlert className="mx-auto text-destructive" size={22} /><p className="mt-2 text-sm">Marks could not be loaded.</p><button onClick={retry} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><RefreshCw size={14} /> Retry</button></div>
         : !availableSubjects.length ? <div className="p-10 text-center"><ClipboardList className="mx-auto text-muted-foreground" size={25} /><p className="mt-3 font-semibold">No subjects assigned</p><p className="mt-1 text-sm text-muted-foreground">{isTeacher ? "Ask your school administrator to assign a class and subject to your account." : "Add subjects under Manage subjects before entering marks."}</p></div>
         : needsALevelClass ? <div className="p-10 text-center"><p className="font-semibold">Choose an A-Level class</p><p className="mt-1 text-sm text-muted-foreground">Pick S.5 or S.6 above to enter {selectedSubject} marks paper by paper.</p></div>

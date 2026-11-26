@@ -434,3 +434,8 @@
 .readonly-students input[type="checkbox"],
 .readonly-students th:last-child,
 .readonly-students td:last-child { display: none; }
+
+/* Logo box used on loading states (see LogoLoader): turns smoothly, still for people who prefer no motion. */
+.logo-loader-box { animation: logo-loader-spin 1.8s cubic-bezier(.65, 0, .35, 1) infinite; }
+@keyframes logo-loader-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .logo-loader-box { animation: none; } }

@@ -1,4 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { LogoLoader } from '@/components/logo-loader';
 import type { ReactNode } from 'react';
 import { Laptop, Smartphone, Tablet } from 'lucide-react';
 import { jiibApi } from '@/lib/jiib-api';
@@ -75,7 +76,7 @@ export function Bar({ percent, tone = 'bg-primary' }: { percent: number; tone?: 
 }
 
 export function QueryState({ query, children, empty }: { query: UseQueryResult<unknown>; children: ReactNode; empty?: ReactNode }) {
-  if (query.isLoading) return <div className="space-y-2">{[1, 2, 3].map((n) => <div key={n} className="h-12 animate-pulse rounded-xl bg-muted" />)}</div>;
+  if (query.isLoading) return <LogoLoader label="Loading…" compact />;
   if (query.isError) return <p className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">{query.error instanceof Error ? query.error.message : 'Could not load this.'}</p>;
   return <>{empty ?? children}</>;
 }

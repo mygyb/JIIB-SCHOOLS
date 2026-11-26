@@ -1,5 +1,6 @@
 // Teacher activity (logins and marks entries) for a school, shown on the System settings page with filters.
 import { useMemo, useState } from 'react';
+import { LogoLoader } from '@/components/logo-loader';
 import { useQuery } from '@tanstack/react-query';
 import { ClipboardList, LogIn, RefreshCw, Search } from 'lucide-react';
 import type { School } from '@workspace/api-client-react';
@@ -74,7 +75,7 @@ export function ActivityLog({ school }: { school: School }) {
       </div>
 
       <div className="mt-5">
-        {query.isLoading ? <div className="space-y-2">{[1, 2, 3].map((n) => <div key={n} className="h-12 animate-pulse rounded-xl bg-muted" />)}</div>
+        {query.isLoading ? <LogoLoader label="Loading activity…" compact />
           : query.isError ? <p className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">Activity could not be loaded. Make sure the activity setup script has been run in Supabase.</p>
           : !visible.length ? <p className="text-sm text-muted-foreground">No activity matches these filters.</p>
           : <>

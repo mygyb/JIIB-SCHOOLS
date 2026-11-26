@@ -1,5 +1,6 @@
 // A-Level results: a class table and printable report cards. Grades and points come from the school's A-Level grading.
 import { useMemo, useState } from 'react';
+import { LogoLoader } from '@/components/logo-loader';
 import { useQuery } from '@tanstack/react-query';
 import { getGetSchoolConfigQueryKey, useGetSchoolConfig, type School } from '@workspace/api-client-react';
 import { Printer } from 'lucide-react';
@@ -85,7 +86,7 @@ export function ALevelResults({ school }: { school: School }) {
       </div>
     </div>
 
-    {loading ? <div className="mt-5 space-y-3">{[1, 2, 3].map((item) => <div key={item} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>
+    {loading ? <LogoLoader label="Loading results…" compact />
       : failed ? <p role="alert" className="mt-5 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{(marks.error ?? students.error) instanceof Error ? (marks.error ?? students.error as Error).message : 'Results could not be loaded.'}</p>
       : !results.length ? <p className="mt-5 text-sm text-muted-foreground">No students to show. Enrol S.5 / S.6 students in a combination first.</p>
       : view === 'class'
