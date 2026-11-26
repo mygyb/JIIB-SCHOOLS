@@ -13,7 +13,7 @@ export function PwaUi() {
   useEffect(() => {
     const splash = document.getElementById('jiib-splash');
     if (!splash) return;
-    const timer = window.setTimeout(() => { splash.classList.add('hide'); window.setTimeout(() => splash.remove(), 400); }, 900);
+    const timer = window.setTimeout(() => { splash.classList.add('hide'); window.setTimeout(() => splash.remove(), 400); }, 500);
     return () => window.clearTimeout(timer);
   }, []);
 
