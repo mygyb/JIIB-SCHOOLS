@@ -33,16 +33,14 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <style>
-      /* Launch screen: only when opened as an installed app, so the website never flashes before the login page. */
-      #jiib-splash{display:none}
-      html.is-app #jiib-splash{position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#15203e;transition:opacity .35s ease}
-      #jiib-splash img{width:min(46vw,200px);height:auto;border-radius:22%;animation:jiib-pop .6s ease both}
-      #jiib-splash .bar{margin-top:28px;width:96px;height:3px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
-      #jiib-splash .bar i{display:block;height:100%;width:40%;background:#fff;border-radius:3px;animation:jiib-load 1s ease-in-out infinite}
+      /* Loading screen: the J-SCHOOLS logo box turning smoothly until the app is ready (website and installed app). */
+      #jiib-splash{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:#15203e;transition:opacity .4s ease}
+      #jiib-splash img{width:min(30vw,120px);height:auto;border-radius:22%;box-shadow:0 10px 40px rgba(0,0,0,.35);animation:jiib-spin 1.8s cubic-bezier(.65,0,.35,1) infinite}
       #jiib-splash.hide{opacity:0;pointer-events:none}
-      @keyframes jiib-pop{from{opacity:0;transform:scale(.86)}to{opacity:1;transform:none}}
-      @keyframes jiib-load{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+      @keyframes jiib-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+      @media (prefers-reduced-motion:reduce){#jiib-splash img{animation:none}}
     </style>
+    <noscript><style>#jiib-splash{display:none}</style></noscript>
     <script>
       try{if(matchMedia('(display-mode: standalone)').matches||navigator.standalone)document.documentElement.classList.add('is-app')}catch(e){}
     </script>
@@ -51,7 +49,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div id="jiib-splash" aria-hidden="true"><img src="/icons/icon-512.png" alt="J-SCHOOLS" width="200" height="200"><div class="bar"><i></i></div></div>
+    <div id="jiib-splash" role="status" aria-label="Loading J-SCHOOLS"><img src="/icons/jschools-mark.png" alt="J-SCHOOLS" width="120" height="120"></div>
     <div id="root"></div>
     <noscript>
       <main style="max-width:720px;margin:40px auto;padding:0 20px;font-family:Arial,sans-serif;line-height:1.6">
