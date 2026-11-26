@@ -1,5 +1,6 @@
 // A-Level marks entry: one box per paper of the subject (Paper 1, Paper 2 ...). The subject mark is worked out from the papers.
 import { useState } from "react";
+import { LogoLoader } from '@/components/logo-loader';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
 import { jiibApi } from "@/lib/jiib-api";
@@ -55,7 +56,7 @@ export function ALevelMarksTable({ schoolId, termKey, subject, config, students,
     }
   };
 
-  if (marks.isLoading) return <div className="space-y-3 p-5">{[1, 2, 3].map((item) => <div key={item} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>;
+  if (marks.isLoading) return <LogoLoader label="Loading marks…" compact />;
   if (marks.isError) return <div className="p-5 text-center"><CircleAlert className="mx-auto text-destructive" size={22} /><p role="alert" className="mt-2 text-sm">{marks.error instanceof Error ? marks.error.message : "Marks could not be loaded."}</p><button type="button" onClick={() => void marks.refetch()} className="mt-3 rounded-lg border border-border px-3 py-2 text-sm">Retry</button></div>;
   if (!students.length) return <div className="p-10 text-center"><p className="font-semibold">No students take {subject}</p><p className="mt-1 text-sm text-muted-foreground">Students appear here once they are enrolled in a combination that includes this subject.</p></div>;
 

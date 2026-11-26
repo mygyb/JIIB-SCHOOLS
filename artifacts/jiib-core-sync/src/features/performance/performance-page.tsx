@@ -1,5 +1,6 @@
 // Performance: school and class results for a term, the academic giants honour roll (PDF per class), subjects, and students needing support.
 import { useMemo, useState, type ReactNode } from 'react';
+import { LogoLoader } from '@/components/logo-loader';
 import { Bar } from 'react-chartjs-2';
 import { Award, BarChart3, Download, FileSpreadsheet, LifeBuoy, Printer, Trophy } from 'lucide-react';
 import type { Mark, School, Student } from '@workspace/api-client-react';
@@ -134,7 +135,7 @@ export function PerformanceView({ school, config, students, marks, loading, erro
       </div>
     </div>
 
-    {loading ? <div className="rounded-xl bg-muted p-6 text-sm text-muted-foreground">Loading results…</div>
+    {loading ? <LogoLoader label="Loading results…" />
       : error ? <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive">Results could not load. <button className="ml-2 font-semibold underline" onClick={retry}>Retry</button></div>
       : !perf.rows.length ? <div data-testid="performance-empty" className={`${card} text-center`}><p className="font-display text-lg font-semibold">No marks for {termLabel} yet</p><p className="mt-1 text-sm text-muted-foreground">Once teachers enter marks, rankings and the honour roll appear here. You can also pick another term above.</p></div>
       : <>

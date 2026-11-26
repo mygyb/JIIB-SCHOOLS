@@ -1,5 +1,6 @@
 // Pieces shared by the Finance screens: school/term context, data hook, sub-navigation, small UI parts.
 import { useEffect, useState, type ReactNode } from 'react';
+import { LogoLoader } from '@/components/logo-loader';
 import { Link } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getGetSchoolConfigQueryKey, useGetSchoolConfig } from '@workspace/api-client-react';
@@ -67,8 +68,8 @@ export function TermPicker({ fin }: { fin: FinanceContext }) {
   </select>;
 }
 
-export function Loading({ rows = 3 }: { rows?: number }) {
-  return <div className="space-y-3" aria-busy="true">{Array.from({ length: rows }).map((_, index) => <div key={index} className="h-16 animate-pulse rounded-xl bg-muted" />)}</div>;
+export function Loading({ label = 'Loading…' }: { rows?: number; label?: string }) {
+  return <LogoLoader label={label} compact />;
 }
 
 export function ErrorNote({ error }: { error: unknown }) {

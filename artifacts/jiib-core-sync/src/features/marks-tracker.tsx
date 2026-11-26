@@ -1,6 +1,7 @@
 // Marks tracker: which teachers and subjects have entered full marks, partial marks, or nothing yet,
 // for the assessments switched on in the assessment filter.
 import { useState } from 'react';
+import { LogoLoader } from '@/components/logo-loader';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, CircleCheck, CircleDashed, CircleDot } from 'lucide-react';
 import { getGetSchoolConfigQueryKey, useGetSchoolConfig } from '@workspace/api-client-react';
@@ -85,7 +86,7 @@ export function MarksTracker({ school }: { school: School }) {
       {(data?.fields ?? []).map((f) => <span key={f.field} className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{f.name}</span>)}
       <span className="text-[11px] text-muted-foreground">Change this in Publish deadline → assessment filter.</span>
     </div>
-    {query.isLoading && <div className="rounded-xl bg-muted p-6 text-sm text-muted-foreground">Checking marks…</div>}
+    {query.isLoading && <LogoLoader label="Checking marks…" />}
     {query.isError && <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive">Could not load marks progress. <button className="ml-2 font-semibold underline" onClick={() => void query.refetch()}>Try again</button></div>}
     {data && <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5" data-testid="tracker-stats">

@@ -1,6 +1,7 @@
 // Print marksheets: a PDF per class and subject listing the learners who take it, with a box for every mark
 // (marks already entered are filled in). Administrators see every subject; a teacher sees only their own.
 import { useState } from 'react';
+import { LogoLoader } from '@/components/logo-loader';
 import { useQuery } from '@tanstack/react-query';
 import { Download, FileText, Loader2 } from 'lucide-react';
 import { getGetSchoolConfigQueryKey, useGetSchoolConfig } from '@workspace/api-client-react';
@@ -60,7 +61,7 @@ export function Marksheets({ school }: { school: School }) {
       </button>
     </div>
     {error && <p role="alert" className="mb-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-    {query.isLoading && <div className="rounded-xl bg-muted p-6 text-sm text-muted-foreground">Loading marksheets…</div>}
+    {query.isLoading && <LogoLoader label="Loading marksheets…" />}
     {query.isError && <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive">Could not load the marksheets. <button className="ml-2 font-semibold underline" onClick={() => void query.refetch()}>Try again</button></div>}
     {data && !shown.length && <p className="rounded-xl bg-muted/50 p-5 text-sm text-muted-foreground">{teacherView ? 'No subjects have been assigned to you yet. Ask the school administrator to assign your classes and subjects.' : 'No class subjects with learners were found for this term.'}</p>}
     <div className="space-y-4">
