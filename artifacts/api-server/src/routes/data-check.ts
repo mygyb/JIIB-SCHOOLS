@@ -102,6 +102,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
             if (!/^[0-9a-f-]{36}$/i.test(id) || !name || !className) {
               skipped += 1;
               if (!/^[0-9a-f-]{36}$/i.test(id)) why.badId += 1; if (!name) why.noName += 1; if (!className) why.noClass += 1;
+              if (!/^[0-9a-f-]{36}$/i.test(id) && nameClass.has(`${name.toLowerCase()}|${className.toLowerCase()}`)) legacyMatchesTable += 1;
               if (!sampleKeys.length) { sampleKeys = Object.keys(item); sampleId = id.replace(/[0-9a-z]/gi, (c) => (/\d/.test(c) ? "9" : "x")).slice(0, 40); }
               continue;
             }
@@ -118,7 +119,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
         await supabaseAdminRequest(`/rest/v1/students?on_conflict=id,school_id,term_key`, { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify(toInsert.slice(i, i + 200)) });
         inserted += Math.min(200, toInsert.length - i);
       }
-      res.json({ schoolId, inserted, subjectsUpdated, skipped, why, sampleKeys, sampleId });
+      res.json({ schoolId, inserted, subjectsUpdated, skipped, why, sampleKeys, sampleId, legacyMatchesTable });
     } catch (error) { deps.sendError(res, error); }
   });
 }
