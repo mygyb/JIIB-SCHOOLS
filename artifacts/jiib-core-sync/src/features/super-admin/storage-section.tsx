@@ -118,7 +118,7 @@ function DataCheckPanel({ schools }: { schools: Array<{ id: string; name: string
               <td className="px-2 py-2 tabular-nums">{term.students.onlyInRecord} learners · {term.students.subjectsToCopy} subject lists{term.students.aLevelToCopy ? ` · ${term.students.aLevelToCopy} A-Level` : ''}</td>
               <td className="px-2 py-2 tabular-nums">{term.marks.inTable} / {term.marks.inRecord}</td>
               <td className="px-2 py-2 tabular-nums">{term.marks.onlyInRecord}</td>
-              <td className="px-2 py-2">{mismatch(term) ? <span className="font-semibold text-amber-700">{mismatch(term)} to review</span> : <span className="text-emerald-700">None</span>}</td>
+              <td className="px-2 py-2">{mismatch(term) ? <span className="font-semibold text-amber-700">{mismatch(term)} to review<span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">{[...Object.entries(term.students.differ).filter(([, count]) => count > 0).map(([field, count]) => `${field}: ${count}`), term.marks.differ ? `marks: ${term.marks.differ}` : ''].filter(Boolean).join(' · ')}</span></span> : <span className="text-emerald-700">None</span>}</td>
             </tr>)}</tbody>
           </table></div>
           <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">{result.terms.reduce((sum, term) => sum + need(term), 0) === 0 ? 'Nothing to copy: the tables already hold everything in the record.' : `${result.terms.reduce((sum, term) => sum + need(term), 0)} items exist only in the record and would be copied.`}</p>
