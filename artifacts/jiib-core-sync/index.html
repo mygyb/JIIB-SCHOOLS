@@ -35,10 +35,16 @@
     <style>
       /* Loading screen: the J-SCHOOLS logo box turning smoothly until the app is ready (website and installed app). */
       #jiib-splash{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:#15203e;transition:opacity .4s ease}
-      #jiib-splash img{width:min(30vw,120px);height:auto;border-radius:22%;box-shadow:0 10px 40px rgba(0,0,0,.35);animation:jiib-spin 1.8s cubic-bezier(.65,0,.35,1) infinite}
+      #jiib-splash .sc{width:76px;height:76px;perspective:520px}
+      #jiib-splash .cb{position:relative;width:100%;height:100%;transform-style:preserve-3d;animation:jiib-cube 3.2s linear infinite}
+      #jiib-splash .cb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:6px;backface-visibility:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.55)}
+      #jiib-splash .cb img:nth-child(1){transform:translateZ(38px)}
+      #jiib-splash .cb img:nth-child(2){transform:rotateY(90deg) translateZ(38px)}
+      #jiib-splash .cb img:nth-child(3){transform:rotateY(180deg) translateZ(38px)}
+      #jiib-splash .cb img:nth-child(4){transform:rotateY(270deg) translateZ(38px)}
       #jiib-splash.hide{opacity:0;pointer-events:none}
-      @keyframes jiib-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-      @media (prefers-reduced-motion:reduce){#jiib-splash img{animation:none}}
+      @keyframes jiib-cube{from{transform:rotateX(-14deg) rotateY(0deg)}to{transform:rotateX(-14deg) rotateY(360deg)}}
+      @media (prefers-reduced-motion:reduce){#jiib-splash .cb{animation:none;transform:rotateX(-14deg) rotateY(-20deg)}}
     </style>
     <noscript><style>#jiib-splash{display:none}</style></noscript>
     <script>
@@ -49,7 +55,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div id="jiib-splash" role="status" aria-label="Loading J-SCHOOLS"><img src="/icons/jschools-mark.png" alt="J-SCHOOLS" width="120" height="120"></div>
+    <div id="jiib-splash" role="status" aria-label="Loading J-SCHOOLS"><div class="sc"><div class="cb"><img src="/icons/jschools-mark.png" alt="J-SCHOOLS"><img src="/icons/jschools-mark.png" alt=""><img src="/icons/jschools-mark.png" alt=""><img src="/icons/jschools-mark.png" alt=""></div></div></div>
     <div id="root"></div>
     <noscript>
       <main style="max-width:720px;margin:40px auto;padding:0 20px;font-family:Arial,sans-serif;line-height:1.6">

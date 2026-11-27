@@ -1,9 +1,14 @@
-// Page loading state: the J-SCHOOLS logo box turning smoothly with a short caption underneath.
-export function LogoLoader({ label = "Loading…", compact = false }: { label?: string; compact?: boolean }) {
-  return <div role="status" aria-live="polite" data-testid="logo-loader" className={`grid place-items-center text-center ${compact ? "py-8" : "py-20"}`}>
-    <div>
-      <img src="/icons/jschools-mark.png" alt="" width={64} height={64} className="logo-loader-box mx-auto h-16 w-16 rounded-2xl shadow-lg" />
-      <p className="mt-4 text-sm font-semibold text-muted-foreground">{label}</p>
+import { createPortal } from "react-dom";
+
+// Loading state: a dimmed full-screen overlay with the J-SCHOOLS logo on a cube turning smoothly, and a caption underneath.
+export function LogoLoader({ label = "Loading…" }: { label?: string; compact?: boolean }) {
+  const overlay = <div role="status" aria-live="polite" data-testid="logo-loader" className="jiib-cube-overlay">
+    <div className="text-center">
+      <div className="jiib-cube-scene"><div className="jiib-cube">
+        {["f", "r", "b", "l"].map((face) => <img key={face} src="/icons/jschools-mark.png" alt="" draggable={false} className={`jiib-cube-face jiib-cube-${face}`} />)}
+      </div></div>
+      <p className="mt-6 text-sm font-semibold text-white">{label}</p>
     </div>
   </div>;
+  return typeof document === "undefined" ? overlay : createPortal(overlay, document.body);
 }
