@@ -1,17 +1,18 @@
 // School side of billing: what is owed, how to pay, submit a payment, and download invoices and receipts.
 import { useState } from 'react';
+import { Check, Copy, Landmark, MessageCircle } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { jiibApi } from '@/lib/jiib-api';
 import { downloadPdf } from '@/features/report-studio/report-output';
 import { JSCHOOLS_SEAL } from '@/lib/jschools-seal';
 
 export type BillingStatus = { state: string; locked: boolean; expiresAt?: string | null; trialEndsAt?: string | null; dueAt?: string | null; daysLeft?: number | null; invoiceNo?: string | null };
-type Invoice = { id: string; invoice_no: string; term_key: string; plan: string; amount: number; status: string; issued_at: string; due_at: string; paid_amount: number };
+type Invoice = { id: string; invoice_no: string; term_key: string; plan: string; cycle: string; amount: number; status: string; issued_at: string; due_at: string; paid_amount: number; runs_to: string };
 type Payment = { id: string; invoice_id: string | null; channel: string; transaction_id: string; amount: number; paid_on: string; status: string; submitted_at: string; receipt_no: string | null; note: string | null };
-type Payee = { bankName: string; accountName: string; accountNumber: string; momoNumber: string; momoName: string; note: string };
+type Payee = { bankName: string; accountName: string; accountNumber: string; mtnNumber: string; mtnName: string; airtelNumber: string; airtelName: string; note: string };
 type Overview = {
   schoolName: string; billing: null | { school_code: string | null; plan: string; cycle: string; expires_at: string | null };
-  access: BillingStatus; payee: Payee; plans: Record<string, { label: string; learners: number; teachers: number | null; termFee: number }>;
+  access: BillingStatus; payee: Payee; termKey: string; plans: Record<string, { label: string; learners: number; teachers: number | null; termFee: number; yearFee: number }>;
   usage: { learners: number; teachers: number }; invoices: Invoice[]; payments: Payment[];
 };
 
@@ -47,8 +48,8 @@ const row = (a: string, b: string) => `<tr><td style="padding:8px 0;color:#555;w
 
 async function invoicePdf(o: Overview, i: Invoice) {
   const p = o.payee;
-  const html = sheet('INVOICE', `<table style="width:100%;margin-top:28px;font-size:14px;border-collapse:collapse">${row('Invoice no.', esc(i.invoice_no))}${row('School', esc(o.schoolName))}${row('School code', esc(o.billing?.school_code))}${row('Term', esc(i.term_key))}${row('Plan', esc(o.plans[i.plan]?.label ?? i.plan))}${row('Issued', day(i.issued_at))}${row('Due', day(i.due_at))}${row('Amount', `<span style="font-size:20px">${ugx(i.amount)}</span>`)}${row('Paid so far', ugx(i.paid_amount))}</table>
-<div style="margin-top:28px;padding:16px;background:#eef2f9;border-radius:8px;font-size:13px;line-height:1.7"><b>How to pay</b><br/>Use <b>${esc(i.invoice_no)}</b> as the reason or reference.<br/>${p.bankName ? `Bank: ${esc(p.bankName)} · ${esc(p.accountName)} · ${esc(p.accountNumber)}<br/>` : ''}${p.momoNumber ? `Mobile money: ${esc(p.momoNumber)} (${esc(p.momoName)})<br/>` : ''}${p.note ? `${esc(p.note)}<br/>` : ''}Then open Billing in your portal and press Submit payment.</div>`);
+  const html = sheet('INVOICE', `<table style="width:100%;margin-top:28px;font-size:14px;border-collapse:collapse">${row('Invoice no.', esc(i.invoice_no))}${row('School', esc(o.schoolName))}${row('School code', esc(o.billing?.school_code))}${row('Term', esc(i.term_key))}${row('Plan', esc(o.plans[i.plan]?.label ?? i.plan))}${row('Issued', day(i.issued_at))}${row('Covers', i.cycle === 'yearly' ? 'Full year' : 'One term')}${row('Runs until (once paid)', day(i.runs_to))}${row('Amount', `<span style="font-size:20px">${ugx(i.amount)}</span>`)}${row('Paid so far', ugx(i.paid_amount))}</table>
+<div style="margin-top:28px;padding:16px;background:#eef2f9;border-radius:8px;font-size:13px;line-height:1.7"><b>How to pay</b><br/>Use <b>${esc(i.invoice_no)}</b> as the reason or reference.<br/>${p.bankName ? `Bank: ${esc(p.bankName)} · ${esc(p.accountName)} · ${esc(p.accountNumber)}<br/>` : ''}${p.mtnNumber ? `MTN MoMo: ${esc(p.mtnNumber)} (${esc(p.mtnName)})<br/>` : ''}${p.airtelNumber ? `Airtel Money: ${esc(p.airtelNumber)} (${esc(p.airtelName)})<br/>` : ''}${p.note ? `${esc(p.note)}<br/>` : ''}Then open Billing in your portal and press Submit payment.</div>`);
   await downloadPdf([html], `Invoice-${i.invoice_no}.pdf`);
 }
 async function receiptPdf(o: Overview, pay: Payment) {
@@ -65,12 +66,21 @@ function readSms(sms: string) {
   return { id: id.toUpperCase(), amount: amount.replace(/,/g, ''), channel };
 }
 
-function SubmitPayment({ schoolId, overview, onDone }: { schoolId: string; overview: Overview; onDone: () => void }) {
-  const open = overview.invoices.filter((i) => i.status === 'unpaid');
-  const [invoiceId, setInvoiceId] = useState(open[0]?.id ?? '');
+export function Logo({ kind, size = 'md' }: { kind: string; size?: 'sm' | 'md' }) {
+  const h = size === 'sm' ? 'h-7 text-[11px]' : 'h-9 text-xs';
+  if (kind === 'mtn' || kind === 'airtel') return <img src={`/pay/${kind}.png`} alt={kind === 'mtn' ? 'MTN MoMo' : 'Airtel Money'} className={`${size === 'sm' ? 'h-8' : 'h-11'} w-auto rounded-md`} />;
+  return <span className={`inline-flex ${h} items-center gap-1.5 rounded-full bg-[#1a2b5c] px-3 font-bold text-white`}><Landmark size={size === 'sm' ? 12 : 14} />Bank</span>;
+}
+
+function CopyButton({ value }: { value: string }) {
+  const [done, setDone] = useState(false);
+  return <button type="button" onClick={() => void navigator.clipboard?.writeText(value).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); })} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold hover:bg-muted">{done ? <Check size={13} /> : <Copy size={13} />}{done ? 'Copied' : 'Copy'}</button>;
+}
+
+function SubmitPayment({ schoolId, invoice, payee, onDone }: { schoolId: string; invoice: Invoice | undefined; payee: Payee; onDone: () => void }) {
   const [channel, setChannel] = useState('mtn');
   const [transactionId, setTransactionId] = useState('');
-  const [amount, setAmount] = useState(open[0] ? String(open[0].amount - open[0].paid_amount) : '');
+  const [amount, setAmount] = useState(invoice ? String(invoice.amount - invoice.paid_amount) : '');
   const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
   const [payer, setPayer] = useState('');
   const [sms, setSms] = useState('');
@@ -82,69 +92,113 @@ function SubmitPayment({ schoolId, overview, onDone }: { schoolId: string; overv
   const submit = async () => {
     setBusy(true); setError('');
     try {
-      const result = await jiibApi<{ whatsappUrl: string }>(`/api/schools/${schoolId}/billing/payments`, { method: 'POST', body: JSON.stringify({ invoiceId: invoiceId || undefined, channel, transactionId, amount: Number(amount), paidOn, payerName: payer }) });
+      const result = await jiibApi<{ whatsappUrl: string }>(`/api/schools/${schoolId}/billing/payments`, { method: 'POST', body: JSON.stringify({ invoiceId: invoice?.id, channel, transactionId, amount: Number(amount), paidOn, payerName: payer }) });
       setDone(result.whatsappUrl); onDone();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not submit.'); }
     setBusy(false);
   };
-  if (done) return <div className="space-y-3 rounded-xl border border-border p-4"><p className="text-sm font-semibold text-emerald-700">Payment submitted. We will confirm it shortly.</p><p className="text-sm text-muted-foreground">To speed things up, send the details to J-SCHOOLS on WhatsApp.</p><a href={done} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white">Send on WhatsApp</a></div>;
-  return <div className="space-y-3 rounded-xl border border-border p-4">
+  void payee;
+  if (done) return <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="font-semibold text-emerald-800">Payment submitted. We will confirm it shortly.</p><p className="text-sm text-emerald-900/80">To speed things up, send the details to J-SCHOOLS on WhatsApp.</p><a href={done} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#25d366] px-4 text-sm font-semibold text-white"><MessageCircle size={16} /> Send on WhatsApp</a></div>;
+  return <div className="space-y-3">
+    <div className="grid grid-cols-3 gap-2">{(['mtn', 'airtel', 'bank'] as const).map((k) => <button key={k} type="button" onClick={() => setChannel(k)} className={`grid h-16 place-items-center rounded-xl border-2 transition ${channel === k ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted'}`}><Logo kind={k} size="sm" /></button>)}</div>
     <label className="block text-xs font-semibold">Paste the confirmation SMS (optional)<textarea value={sms} onChange={(e) => paste(e.target.value)} rows={2} placeholder="We fill in the transaction ID and amount for you" className="mt-1 w-full rounded-lg border border-input bg-background p-2 text-sm" /></label>
     <div className="grid gap-3 sm:grid-cols-2">
-      {open.length > 0 && <label className="text-xs font-semibold">Invoice<select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} className={field}>{open.map((i) => <option key={i.id} value={i.id}>{i.invoice_no} · {ugx(i.amount)}</option>)}<option value="">Not for an invoice</option></select></label>}
-      <label className="text-xs font-semibold">Paid through<select value={channel} onChange={(e) => setChannel(e.target.value)} className={field}><option value="mtn">MTN MoMo</option><option value="airtel">Airtel Money</option><option value="bank">Bank</option></select></label>
       <label className="text-xs font-semibold">Transaction ID<input value={transactionId} onChange={(e) => setTransactionId(e.target.value)} className={field} /></label>
       <label className="text-xs font-semibold">Amount (UGX)<input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))} className={field} /></label>
       <label className="text-xs font-semibold">Date paid<input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} className={field} /></label>
       <label className="text-xs font-semibold">Paid by (name)<input value={payer} onChange={(e) => setPayer(e.target.value)} className={field} /></label>
     </div>
     {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-    <button type="button" disabled={busy} onClick={() => void submit()} data-testid="billing-submit" className="h-10 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50">{busy ? 'Submitting…' : 'Submit payment'}</button>
+    <button type="button" disabled={busy} onClick={() => void submit()} data-testid="billing-submit" className="h-11 w-full rounded-lg bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto sm:px-8">{busy ? 'Submitting…' : 'Submit payment'}</button>
   </div>;
+}
+
+function StepTitle({ n, title, hint }: { n: number; title: string; hint?: string }) {
+  return <div className="mb-3 flex items-center gap-3"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{n}</span><div><p className="font-semibold leading-tight">{title}</p>{hint && <p className="text-xs text-muted-foreground">{hint}</p>}</div></div>;
 }
 
 export function BillingPage({ schoolId }: { schoolId: string }) {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ['billing', schoolId], queryFn: () => jiibApi<Overview>(`/api/schools/${schoolId}/billing`), retry: 1 });
-  const [showForm, setShowForm] = useState(false);
+  const [period, setPeriod] = useState<'term' | 'year'>('term');
+  const [picked, setPicked] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const [pdfError, setPdfError] = useState('');
-  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['billing', schoolId] }); void queryClient.invalidateQueries({ queryKey: ['billing-status', schoolId] }); };
+  const refresh = async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['billing', schoolId] }), queryClient.invalidateQueries({ queryKey: ['billing-status', schoolId] })]); };
   const o = query.data;
   const pdf = async (job: () => Promise<void>) => { setPdfError(''); try { await job(); } catch (cause) { setPdfError(cause instanceof Error ? cause.message : 'Could not create the PDF.'); } };
   if (query.isLoading) return <p className="text-sm text-muted-foreground">Loading billing…</p>;
   if (!o) return <p className="text-sm text-red-600">{query.error instanceof Error ? query.error.message : 'Could not load billing.'}</p>;
-  const plan = o.billing ? o.plans[o.billing.plan] : null;
+  const open = o.invoices.find((i) => i.status === 'unpaid');
+  const waiting = o.payments.filter((x) => x.status === 'pending').length;
+  const current = picked || o.billing?.plan || 'starter';
+  const checkout = async () => {
+    setBusy(true); setError('');
+    try { await jiibApi(`/api/schools/${schoolId}/billing/checkout`, { method: 'POST', body: JSON.stringify({ plan: current, period }) }); await refresh(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not create the reference.'); }
+    setBusy(false);
+  };
+  const card = 'rounded-2xl border border-border bg-card p-4 sm:p-5';
   const p = o.payee;
-  const card = 'rounded-xl border border-border bg-card p-4';
-  return <div className="space-y-4">
-    <div><h1 className="font-display text-2xl font-semibold">Billing</h1><p className="text-sm text-muted-foreground">Your subscription, invoices and payments.</p></div>
+  const runs = o.access.expiresAt ?? o.access.trialEndsAt;
+  return <div className="mx-auto max-w-3xl space-y-5">
+    <div><h1 className="font-display text-2xl font-semibold">Billing</h1><p className="text-sm text-muted-foreground">{o.schoolName} · school code <b className="text-foreground">{o.billing?.school_code ?? '—'}</b></p></div>
     <BillingBanner status={o.access} privileged />
-    <div className="grid gap-3 sm:grid-cols-3">
-      <div className={card}><p className="text-xs text-muted-foreground">School code</p><p className="text-lg font-semibold">{o.billing?.school_code ?? 'Not set'}</p></div>
-      <div className={card}><p className="text-xs text-muted-foreground">Plan</p><p className="text-lg font-semibold">{plan?.label ?? 'Not set'}</p>{plan && <p className="text-xs text-muted-foreground">{o.usage.learners}/{plan.learners} learners · {ugx(plan.termFee)} per term</p>}</div>
-      <div className={card}><p className="text-xs text-muted-foreground">Runs until</p><p className="text-lg font-semibold">{day(o.access.expiresAt ?? o.access.trialEndsAt) || '—'}</p></div>
+    <div className="grid grid-cols-2 gap-3">
+      <div className={card}><p className="text-xs text-muted-foreground">Current plan</p><p className="text-lg font-semibold">{o.billing ? o.plans[o.billing.plan]?.label : '—'}</p><p className="text-xs text-muted-foreground">{o.usage.learners} learners</p></div>
+      <div className={card}><p className="text-xs text-muted-foreground">{o.access.state === 'trial' ? 'Free trial ends' : 'Subscription runs until'}</p><p className="text-lg font-semibold">{day(runs) || '—'}</p>{o.access.daysLeft != null && o.access.daysLeft >= 0 && <p className="text-xs text-muted-foreground">{o.access.daysLeft} days left</p>}</div>
     </div>
-    <div className={card}>
-      <p className="font-semibold">How to pay</p>
-      <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-        <li>Send the money to one of the accounts below. Use your invoice number (or school code {o.billing?.school_code ?? ''}) as the reason or reference.</li>
-        <li>Press <b>Submit payment</b> and enter the transaction ID from your receipt or SMS.</li>
-        <li>We confirm it and extend your subscription. You will get a receipt by e-mail and SMS.</li>
-      </ol>
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
-        {p.bankName && <div className="rounded-lg bg-muted p-3"><b>Bank</b><br />{p.bankName}<br />{p.accountName}<br />{p.accountNumber}</div>}
-        {p.momoNumber && <div className="rounded-lg bg-muted p-3"><b>Mobile money</b><br />{p.momoNumber}<br />{p.momoName}</div>}
-        {p.note && <div className="rounded-lg bg-muted p-3 text-xs">{p.note}</div>}
+
+    <section className={card}>
+      <StepTitle n={1} title="Choose your plan" hint={`For ${o.termKey ? o.termKey.replace('-T', ' · Term ') : 'this term'}. Your subscription end date is worked out for you.`} />
+      <div className="mb-4 inline-flex rounded-full bg-muted p-1 text-sm font-semibold">{(['term', 'year'] as const).map((k) => <button key={k} type="button" onClick={() => setPeriod(k)} className={`rounded-full px-4 py-1.5 transition ${period === k ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground'}`}>{k === 'term' ? 'This term' : 'Full year'}</button>)}</div>
+      <div className="grid gap-3 sm:grid-cols-3">{Object.entries(o.plans).map(([key, plan]) => {
+        const on = current === key; const fits = o.usage.learners <= plan.learners;
+        const saving = plan.termFee * 3 - plan.yearFee;
+        return <button key={key} type="button" disabled={!fits} onClick={() => setPicked(key)} className={`relative rounded-2xl border-2 p-4 text-left transition ${on ? 'border-primary bg-primary/5 shadow-md' : 'border-border hover:border-primary/40'} ${fits ? '' : 'opacity-40'}`}>
+          {key === 'growth' && <span className="absolute -top-2.5 right-3 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-950">Popular</span>}
+          <p className="font-display text-lg font-semibold">{plan.label}</p>
+          <p className="mt-1 text-xl font-bold">{ugx(period === 'year' ? plan.yearFee : plan.termFee)}</p>
+          <p className="text-xs text-muted-foreground">{period === 'year' ? 'for the full year' : 'per term'}</p>
+          {period === 'year' && saving > 0 && <p className="mt-1 text-xs font-semibold text-emerald-700">Save {ugx(saving)}</p>}
+          <ul className="mt-3 space-y-1 text-xs text-muted-foreground"><li>✓ Up to {plan.learners} learners</li><li>✓ {plan.teachers ? `${plan.teachers} teachers` : 'Unlimited teachers'}</li><li>✓ Report cards, marks, finance, SMS</li></ul>
+          {!fits && <p className="mt-2 text-xs font-semibold text-red-600">Too small for {o.usage.learners} learners</p>}
+          {on && <span className="absolute right-3 top-3 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground"><Check size={12} /></span>}
+        </button>; })}</div>
+      {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
+      <button type="button" disabled={busy} onClick={() => void checkout()} className="mt-4 h-11 w-full rounded-lg bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto sm:px-8">{busy ? 'Please wait…' : open ? 'Update my invoice' : 'Get my payment reference'}</button>
+    </section>
+
+    {open && <section className={card}>
+      <StepTitle n={2} title="Pay with your reference" hint="Use this exact reference as the reason or narration when you pay." />
+      <div className="rounded-xl bg-[#1a2b5c] p-4 text-white">
+        <p className="text-xs uppercase tracking-wider text-white/60">Payment reference</p>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="font-mono text-2xl font-bold tracking-wide" data-testid="billing-reference">{open.invoice_no}</p><CopyButton value={open.invoice_no} /></div>
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-white/15 pt-3"><div><p className="text-xs text-white/60">Amount to pay</p><p className="text-xl font-bold">{ugx(open.amount - open.paid_amount)}</p></div><div className="text-right text-xs text-white/70"><p>{o.plans[open.plan]?.label} · {open.cycle === 'yearly' ? 'Full year' : open.term_key}</p><p>Runs until {day(open.runs_to)} once paid</p></div></div>
       </div>
-      <button type="button" onClick={() => setShowForm((v) => !v)} className="mt-3 h-10 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground">{showForm ? 'Close' : 'Submit payment'}</button>
-    </div>
-    {showForm && <SubmitPayment schoolId={schoolId} overview={o} onDone={refresh} />}
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {p.mtnNumber && <div className="rounded-xl border border-border p-3"><Logo kind="mtn" size="sm" /><p className="mt-2 font-mono text-base font-semibold">{p.mtnNumber}</p><p className="text-xs text-muted-foreground">{p.mtnName}</p></div>}
+        {p.airtelNumber && <div className="rounded-xl border border-border p-3"><Logo kind="airtel" size="sm" /><p className="mt-2 font-mono text-base font-semibold">{p.airtelNumber}</p><p className="text-xs text-muted-foreground">{p.airtelName}</p></div>}
+        {p.bankName && <div className="rounded-xl border border-border p-3"><Logo kind="bank" size="sm" /><p className="mt-2 text-sm font-semibold">{p.bankName}</p><p className="font-mono text-sm">{p.accountNumber}</p><p className="text-xs text-muted-foreground">{p.accountName}</p></div>}
+      </div>
+      {!p.mtnNumber && !p.airtelNumber && !p.bankName && <p className="mt-3 text-sm text-muted-foreground">Payment details will appear here shortly.</p>}
+      {p.note && <p className="mt-3 text-xs text-muted-foreground">{p.note}</p>}
+      <button type="button" onClick={() => void pdf(() => invoicePdf(o, open))} className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Download invoice</button>
+    </section>}
+
+    {open && <section className={card}>
+      <StepTitle n={3} title="Submit your payment" hint="After paying, enter the transaction ID from your receipt or SMS." />
+      <SubmitPayment key={`${open.id}-${waiting}`} schoolId={schoolId} invoice={open} payee={p} onDone={() => void refresh()} />
+    </section>}
+    {!open && waiting > 0 && <div className="rounded-xl bg-blue-50 p-4 text-sm text-blue-900">Your payment is waiting for confirmation. You will get an SMS and e-mail when it is approved.</div>}
+
     {pdfError && <p role="alert" className="text-sm text-red-600">{pdfError}</p>}
-    <div className={card}><p className="mb-2 font-semibold">Invoices</p>
-      {o.invoices.length ? <div className="divide-y divide-border">{o.invoices.map((i) => <div key={i.id} className="flex flex-wrap items-center gap-3 py-2 text-sm"><div className="flex-1"><b>{i.invoice_no}</b> · {i.term_key}<p className="text-xs text-muted-foreground">{ugx(i.amount)} · due {day(i.due_at)} · {i.status}</p></div><button type="button" onClick={() => void pdf(() => invoicePdf(o, i))} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Download invoice</button></div>)}</div> : <p className="text-sm text-muted-foreground">No invoices yet. They are sent 2–3 weeks before each term.</p>}
-    </div>
-    <div className={card}><p className="mb-2 font-semibold">Payments</p>
-      {o.payments.length ? <div className="divide-y divide-border">{o.payments.map((x) => <div key={x.id} className="flex flex-wrap items-center gap-3 py-2 text-sm"><div className="flex-1"><b>{ugx(x.amount)}</b> · {CHANNEL[x.channel]} · {x.transaction_id}<p className="text-xs text-muted-foreground">{day(x.paid_on)} · {x.status}{x.status === 'rejected' && x.note ? ` (${x.note})` : ''}</p></div>{x.status === 'approved' && x.receipt_no && <button type="button" onClick={() => void pdf(() => receiptPdf(o, x))} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Download receipt</button>}</div>)}</div> : <p className="text-sm text-muted-foreground">No payments submitted yet.</p>}
-    </div>
+    <section className={card}><p className="mb-2 font-semibold">History</p>
+      {o.payments.length || o.invoices.length ? <div className="divide-y divide-border">
+        {o.payments.map((x) => <div key={x.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm"><Logo kind={x.channel} size="sm" /><div className="min-w-0 flex-1"><b>{ugx(x.amount)}</b> · <span className="font-mono text-xs">{x.transaction_id}</span><p className="text-xs text-muted-foreground">{day(x.paid_on)} · {x.status === 'approved' ? 'Approved' : x.status === 'pending' ? 'Waiting for approval' : `Rejected${x.note ? `: ${x.note}` : ''}`}</p></div>{x.status === 'approved' && x.receipt_no && <button type="button" onClick={() => void pdf(() => receiptPdf(o, x))} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Download receipt</button>}</div>)}
+        {o.invoices.filter((i) => i.status !== 'unpaid').map((i) => <div key={i.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm"><div className="flex-1"><b className="font-mono">{i.invoice_no}</b> · {i.term_key}<p className="text-xs text-muted-foreground">{ugx(i.amount)} · {i.status}</p></div><button type="button" onClick={() => void pdf(() => invoicePdf(o, i))} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Download invoice</button></div>)}
+      </div> : <p className="text-sm text-muted-foreground">Nothing yet.</p>}
+    </section>
   </div>;
 }
