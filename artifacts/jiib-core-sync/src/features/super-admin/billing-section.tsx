@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { jiibApi } from '@/lib/jiib-api';
 import { Badge, Bar, Panel, QueryState } from './shared';
+import { BillingAdmin } from './billing-admin';
 
 type PlanInfo = { label: string; learners: number; teachers: number | null; termFee: number; yearFee: number };
 type SchoolBilling = {
@@ -63,6 +64,7 @@ export function BillingSection() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['hq', 'billing'] });
   const data = query.data;
   return <div className="space-y-4">
+    <BillingAdmin />
     <QueryState query={query}>
       {data && !data.ready && <Panel title="One step first"><p className="text-sm text-muted-foreground">Run the billing SQL (20261127000000_school_billing.sql) in the Supabase SQL editor, then refresh this page.</p></Panel>}
       {data && <div className="grid gap-3 sm:grid-cols-3">{Object.entries(data.plans).map(([key, p]) => <Panel key={key}><p className="font-display font-semibold">{p.label}</p><p className="text-sm">{ugx(p.termFee)} per term</p><p className="text-xs text-muted-foreground">Yearly {ugx(p.yearFee)} · up to {p.learners} learners · {p.teachers ? `${p.teachers} teachers` : 'unlimited teachers'}</p></Panel>)}</div>}
