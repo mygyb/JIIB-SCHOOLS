@@ -1,19 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
-import { Building2, HardDrive, Inbox, MessageSquareText, LayoutDashboard, LogOut, RefreshCw, Settings2, Smartphone, UsersRound } from 'lucide-react';
+import { Building2, HardDrive, Wallet, Inbox, MessageSquareText, LayoutDashboard, LogOut, RefreshCw, Settings2, Smartphone, UsersRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { HQ_PROOF_KEY, jiibApi } from '@/lib/jiib-api';
 import { DevicesSection, InboxSection, Overview, SchoolsSection, SystemSection, UsersSection } from './sections';
 import { useHq } from './shared';
 import { SmsSection } from './sms-section';
 import { StorageSection } from './storage-section';
+import { BillingSection } from './billing-section';
 
 const SECTIONS = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'schools', label: 'Schools', icon: Building2 },
   { key: 'devices', label: 'Devices', icon: Smartphone },
   { key: 'users', label: 'Users', icon: UsersRound },
+  { key: 'billing', label: 'Billing', icon: Wallet },
   { key: 'sms', label: 'SMS', icon: MessageSquareText },
   { key: 'storage', label: 'Storage', icon: HardDrive },
   { key: 'inbox', label: 'Inbox', icon: Inbox },
@@ -90,12 +92,13 @@ export function SuperAdminPortal() {
           {section === 'schools' && <SchoolsSection hq={hq} />}
           {section === 'devices' && <DevicesSection hq={hq} />}
           {section === 'users' && <UsersSection hq={hq} />}
+          {section === 'billing' && <BillingSection />}
           {section === 'sms' && <SmsSection />}
           {section === 'storage' && <StorageSection />}
           {section === 'inbox' && <InboxSection hq={hq} />}
           {section === 'system' && <SystemSection hq={hq} />}
         </main>
-        <nav aria-label="Administration" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-8 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden">
+        <nav aria-label="Administration" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-9 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden">
           {SECTIONS.map(({ key, label, icon: Icon }) => <button key={key} type="button" data-testid={`hq-tab-${key}`} onClick={() => go(key)} aria-current={section === key ? 'page' : undefined} className={`flex flex-col items-center gap-0.5 py-2 text-[10px] font-semibold ${section === key ? 'text-primary' : 'text-muted-foreground'}`}><Icon size={20} aria-hidden="true" />{label}</button>)}
         </nav>
       </div>

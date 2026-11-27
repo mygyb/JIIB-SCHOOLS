@@ -781,12 +781,9 @@ function TermManagement({ school }: { school: School }) {
     }
   };
   return <div className="fade-up">
-    <SectionHeading eyebrow="Academics & marks" title="Term management" body="Create terms, choose the active term, and lock completed assessment records. Closing the active term opens the next term automatically." />
+    <SectionHeading eyebrow="Academics & marks" title="Terms" body="Terms are opened for all schools by J-SCHOOLS. You can look at the current and previous terms here." />
     <ShellCard>
-      <div className="flex gap-2">
-        <input data-testid="input-new-term" value={term} onChange={(event) => setTerm(event.target.value)} placeholder="e.g. Term 2, 2026" className="h-11 flex-1 rounded-lg border border-input bg-background px-3 text-sm" />
-        <button data-testid="button-add-term" onClick={add} disabled={!term.trim() || saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"><Plus size={15} /> Add term</button>
-      </div>
+      <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">A new term opens automatically when J-SCHOOLS starts it for every school.</p>
       {error && <p role="alert" className="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       {notice && <p role="status" className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p>}
       <div className="mt-6 divide-y divide-border">
@@ -799,14 +796,6 @@ function TermManagement({ school }: { school: School }) {
               <p className="text-sm font-semibold">{String(item.label ?? key)} {isActive && <span className="ml-2 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">Active</span>}</p>
               <p className="mt-1 text-xs text-muted-foreground">{isLocked ? 'Closed · marks are read-only' : 'Open for marks entry'}</p>
             </div>
-            {!isActive && <button data-testid={`button-set-active-${key}`} onClick={() => void performTermAction(
-              () => activateTerm.mutateAsync({ schoolId: school.id, termKey: key }),
-              `${String(item.label ?? key)} is now active.`,
-              { optimisticConfig: { ...config.data, activeTerm: key } },
-            )} disabled={saving} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">Set active</button>}
-            <button data-testid={`button-close-term-${key}`} onClick={() => setStatus(key, !isLocked)} disabled={saving} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">{isLocked ? 'Reopen' : 'Close term'}</button>
-            {isLocked && <button onClick={() => void clearMarks(key)} disabled={saving} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">Clear marks</button>}
-            <button onClick={() => void deleteTerm(key)} disabled={saving} className="rounded-lg border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">Delete term</button>
           </div>;
         }) : <p className="py-5 text-sm text-muted-foreground">No configured terms yet.</p>}
       </div>

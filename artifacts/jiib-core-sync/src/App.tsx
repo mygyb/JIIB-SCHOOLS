@@ -61,6 +61,8 @@ import { flushPendingMarks, getPendingMarks, queueMark } from '@/lib/offline-mar
 import { OperationsPage } from '@/features/operations';
 import { MarksRegister } from '@/features/marks-register';
 import { TeacherHelp } from '@/features/teacher-help';
+import { BillingBanner, BillingPage, useBillingStatus } from '@/features/billing/billing-page';
+import { RegisterSchoolPage } from '@/pages/register-school';
 
 const queryClient = new QueryClient();
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
@@ -76,7 +78,8 @@ const navItems = [
   { href: '/performance', label: 'Performance', icon: BarChart3 },
   { href: '/report-studio', label: 'Report studio', icon: Archive },
   { href: '/print-marksheets', label: 'Print marksheets', icon: Printer },
-  { href: '/term-management', label: 'Term management', icon: CalendarDays },
+  { href: '/term-management', label: 'Terms', icon: CalendarDays },
+  { href: '/billing', label: 'Billing', icon: ClipboardList },
   { href: '/manage-subjects', label: 'Manage subjects', icon: BookOpen },
   { href: '/a-level', label: 'A-Level', icon: GraduationCap },
   { href: '/a-level-results', label: 'A-Level results', icon: Award },
@@ -93,12 +96,12 @@ const ADMIN_ONLY_HREFS = [
   '/students', '/promote', '/marks-tracker', '/user-management', '/performance',
   '/report-studio', '/term-management', '/manage-subjects', '/a-level', '/a-level-results',
   '/grading-system', '/publish-deadline', '/school-events', '/school-settings', '/system-settings',
-  '/settings', '/parent-messages',
+  '/settings', '/parent-messages', '/billing',
 ];
 
 // Pages each of the other staff roles may open (the server enforces the same limits).
-const HEAD_HREFS = [...HEAD_TABS.map((tab) => tab.href), '/finance/fees', '/finance/accounts', '/finance/defaulters', '/finance/reports', '/account-settings'];
-const BURSAR_HREFS = ['/sms', '/finance', '/finance/fees', '/finance/accounts', '/finance/payments', '/finance/defaulters', '/finance/reports', '/students', '/account-settings'];
+const HEAD_HREFS = [...HEAD_TABS.map((tab) => tab.href), '/finance/fees', '/finance/accounts', '/finance/defaulters', '/finance/reports', '/account-settings', '/billing'];
+const BURSAR_HREFS = ['/billing', '/sms', '/finance', '/finance/fees', '/finance/accounts', '/finance/payments', '/finance/defaulters', '/finance/reports', '/students', '/account-settings'];
 
 // Nav items / routes that belong to the teacher workspace only.
 const TEACHER_ONLY_HREFS = ['/marks', '/help'];
@@ -327,6 +330,8 @@ function Router() {
         <Route path="/signup">
           <PortalRequestPage onSubmit={submitPortalRequest} />
         </Route>
+        <Route path="/register-school"><RegisterSchoolPage /></Route>
+        <Route path="/billing"><AppShell><BillingRoute /></AppShell></Route>
         <Route path="/dashboard"><AppShell><Dashboard /></AppShell></Route>
         <Route path="/students"><AppShell><Students /></AppShell></Route>
         <Route path="/marks"><AppShell><MarksPage /></AppShell></Route>
@@ -368,6 +373,11 @@ function Router() {
       </Switch>
     </ErrorBoundary>
   );
+}
+
+function BillingRoute() {
+  const school = useActiveSchool();
+  return <BillingPage schoolId={school.id} />;
 }
 
 function OperationsRoute({ page }: { page: Parameters<typeof OperationsPage>[0]['page'] }) {
@@ -608,6 +618,7 @@ function AppShell({ children }: { children: ReactNode }) {
   const isHead = role === 'Head teacher';
   const isBursar = role === 'Bursar';
   const [authReady, setAuthReady] = useState(false);
+  const billingStatus = useBillingStatus(school?.id, !isParent && !isSuperAdmin);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [syncRevision, setSyncRevision] = useState(0);
   const shellConfig = useGetSchoolConfig(school.id, { query: { queryKey: getGetSchoolConfigQueryKey(school.id), enabled: !isParent && !isSuperAdmin } });
@@ -723,7 +734,7 @@ function AppShell({ children }: { children: ReactNode }) {
     '/settings': 'School settings', '/parent': 'Family view', '/parent-view': 'Family view', '/parent-messages': 'Parent conversations', '/super-admin': 'Portfolio',
     '/promote': 'Promote students', '/marks-tracker': 'Marks tracker', '/user-management': 'User management',
     '/performance': 'Performance', '/report-studio': 'Report studio', '/print-marksheets': 'Print marksheets',
-    '/term-management': 'Term management', '/manage-subjects': 'Manage subjects', '/a-level': 'A-Level', '/a-level-results': 'A-Level results', '/grading-system': 'Grading system',
+    '/term-management': 'Terms', '/billing': 'Billing', '/manage-subjects': 'Manage subjects', '/a-level': 'A-Level', '/a-level-results': 'A-Level results', '/grading-system': 'Grading system',
     '/publish-deadline': 'Publish deadline', '/school-events': 'School events', '/school-settings': 'School settings',
     '/system-settings': 'System settings', '/account-settings': 'Account settings', '/sms': 'SMS',
   };
@@ -769,6 +780,7 @@ function AppShell({ children }: { children: ReactNode }) {
               {profileOpen && <div role="menu" className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-border bg-card p-3 shadow-xl">
                 <div className="border-b border-border px-2 pb-3"><p className="truncate text-sm font-semibold">{userName}</p><p className="truncate text-xs text-muted-foreground">{accountEmail || role}</p><p className="mt-1 truncate text-xs text-muted-foreground">{school.name}</p></div>
                 {!isParent && !isSuperAdmin && notificationsSupported() && notificationPermission() === 'default' && <button role="menuitem" type="button" data-testid="button-enable-reminders" onClick={async () => { await enablePush(school.id); setProfileOpen(false); }} className="mt-2 flex w-full rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-muted">Turn on notifications</button>}
+                {!isSuperAdmin && !isParent && !isTeacher && <Link role="menuitem" href="/billing" onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">Billing</Link>}
                 {!isSuperAdmin && !isParent && <Link role="menuitem" href="/account-settings" onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">Account settings</Link>}
                 {!isTeacher && <Link role="menuitem" href={isSuperAdmin ? '/support' : isParent ? '/parent-messages' : '/support'} onClick={() => setProfileOpen(false)} className="mt-2 flex rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted">{isSuperAdmin ? 'Support inbox' : isParent ? 'Contact the school' : 'Contact J-SCHOOLS support'}</Link>}
                 <p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">J-SCHOOLS · Version 8.2</p>
@@ -777,7 +789,7 @@ function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1440px] p-5 sm:p-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1440px] p-5 sm:p-8">{!isParent && !isSuperAdmin && location !== '/billing' && <BillingBanner status={billingStatus.data} privileged={!isTeacher} />}{billingStatus.data?.locked && !isSuperAdmin && ['/report-studio', '/print-marksheets'].includes(location) ? <p className="rounded-lg bg-muted p-4 text-sm">Report cards and marksheets cannot be created while the subscription is expired. Open Billing to renew.</p> : children}</main>
       </div>
     </div>
   );

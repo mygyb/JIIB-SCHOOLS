@@ -87,7 +87,7 @@ async function egoCall(body: Record<string, unknown>): Promise<Row> {
 }
 
 type EgoItem = { number: string; message: string };
-async function egoSend(items: EgoItem[]): Promise<{ ok: boolean; code?: string; cost?: number; error?: string }> {
+export async function egoSend(items: EgoItem[]): Promise<{ ok: boolean; code?: string; cost?: number; error?: string }> {
   const senderid = process.env.EGOSMS_SENDER_ID?.trim();
   try {
     const reply = await egoCall({

@@ -68,7 +68,7 @@ function SiteHeader() {
           <a href={sectionHref('questions')} onClick={() => setMenuOpen(false)}>Questions</a>
           <span className="nav-actions">
             <Link href="/login" className="nav-login" data-testid="link-login">Log in</Link>
-            <Link href="/signup" className="button button--small" data-testid="link-signup">Sign up <ArrowRight size={15} /></Link>
+            <Link href="/register-school" className="button button--small" data-testid="link-register-school">Register your school <ArrowRight size={15} /></Link>
           </span>
         </nav>
       </div>
@@ -114,7 +114,8 @@ function Footer() {
           <a href="#report-cards">Report cards</a>
           <a href="#questions">Questions</a>
           <Link href="/login" data-testid="link-footer-login">Log in</Link>
-          <Link href="/signup" data-testid="link-footer-signup">Sign up</Link>
+          <Link href="/register-school" data-testid="link-footer-register">Register your school</Link>
+          <Link href="/signup" data-testid="link-footer-signup">Staff sign up</Link>
         </div>
       </div>
       <SocialLinks where="footer" />
