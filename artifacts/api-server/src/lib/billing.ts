@@ -9,7 +9,7 @@ export const PLANS: Record<PlanKey, { label: string; learners: number; teachers:
 };
 export const TRIAL_DAYS = 21;
 
-export type BillingRow = { school_id: string; school_code: string | null; plan: PlanKey; cycle: string; status: string; trial_started_at: string | null; trial_ends_at: string | null; expires_at: string | null; note: string | null };
+export type BillingRow = { school_id: string; school_code: string | null; contact_phone?: string | null; plan: PlanKey; cycle: string; status: string; trial_started_at: string | null; trial_ends_at: string | null; expires_at: string | null; note: string | null };
 
 const cache = new Map<string, { at: number; row: BillingRow | null }>();
 export const forgetBilling = (schoolId: string) => { cache.delete(schoolId); };
@@ -68,4 +68,48 @@ export function schoolCodeFor(name: string, taken: Set<string>): string {
     if (!taken.has(code)) return code;
   }
   return `${letters}-${Date.now() % 100000}`;
+}
+
+
+// ---- What a school may do right now ------------------------------------------------------------------------------
+export const GRACE_DAYS = 21;
+export type Access = {
+  state: "none" | "trial" | "trial_ended" | "paid" | "invoice_due" | "overdue" | "read_only";
+  locked: boolean; expiresAt: string | null; trialEndsAt: string | null; dueAt: string | null; daysLeft: number | null; invoiceNo: string | null;
+};
+const accessCache = new Map<string, { at: number; value: Access }>();
+export const forgetAccess = (schoolId: string) => { accessCache.delete(schoolId); };
+const daysUntil = (iso: string | null) => (iso ? Math.ceil((Date.parse(iso) - Date.now()) / 86_400_000) : null);
+
+export async function accessOf(schoolId: string): Promise<Access> {
+  const hit = accessCache.get(schoolId);
+  if (hit && Date.now() - hit.at < 8000) return hit.value;
+  const none: Access = { state: "none", locked: false, expiresAt: null, trialEndsAt: null, dueAt: null, daysLeft: null, invoiceNo: null };
+  const billing = await getBilling(schoolId);
+  let value = none;
+  if (billing) {
+    let unpaid: { due_at: string | null; invoice_no: string | null } | undefined;
+    try {
+      unpaid = asRows(await supabaseAdminRequest(`/rest/v1/billing_invoices?school_id=eq.${encodeURIComponent(schoolId)}&status=eq.unpaid&select=due_at,invoice_no&order=due_at.asc&limit=1`))[0] as typeof unpaid;
+    } catch { unpaid = undefined; }
+    const base = { expiresAt: billing.expires_at, trialEndsAt: billing.trial_ends_at, dueAt: unpaid?.due_at ?? null, invoiceNo: unpaid?.invoice_no ?? null };
+    const trialOver = billing.status === "trial" && !!billing.trial_ends_at && Date.parse(billing.trial_ends_at) < Date.now();
+    if (billing.status === "read_only" || billing.status === "suspended") value = { ...base, state: "read_only", locked: true, daysLeft: null };
+    else if (unpaid?.due_at && Date.parse(unpaid.due_at) < Date.now()) value = { ...base, state: "overdue", locked: true, daysLeft: daysUntil(unpaid.due_at) };
+    else if (trialOver) value = { ...base, state: "trial_ended", locked: true, daysLeft: 0 };
+    else if (unpaid) value = { ...base, state: "invoice_due", locked: false, daysLeft: daysUntil(unpaid.due_at) };
+    else if (billing.status === "trial") value = { ...base, state: "trial", locked: false, daysLeft: daysUntil(billing.trial_ends_at) };
+    else value = { ...base, state: "paid", locked: false, daysLeft: daysUntil(billing.expires_at) };
+  }
+  accessCache.set(schoolId, { at: Date.now(), value });
+  return value;
+}
+
+export type Payee = { bankName: string; accountName: string; accountNumber: string; momoName: string; momoNumber: string; whatsapp: string; note: string };
+export const DEFAULT_PAYEE: Payee = { bankName: "", accountName: "", accountNumber: "", momoName: "", momoNumber: "", whatsapp: "256762971094", note: "" };
+export async function getPayee(): Promise<Payee> {
+  try {
+    const row = asRows(await supabaseAdminRequest(`/rest/v1/billing_settings?key=eq.payee&select=value&limit=1`))[0];
+    return { ...DEFAULT_PAYEE, ...((row?.value as Partial<Payee> | undefined) ?? {}) };
+  } catch { return DEFAULT_PAYEE; }
 }

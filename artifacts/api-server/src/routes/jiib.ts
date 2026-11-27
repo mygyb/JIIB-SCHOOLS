@@ -6,7 +6,7 @@ import { registerMarksheetRoutes } from "./marksheets.js";
 import { registerNurseryExtrasRoutes } from "./nursery-extras.js";
 import { registerDataCheckRoutes } from "./data-check.js";
 import { registerBillingRoutes } from "./billing.js";
-import { learnerLimitProblem, teacherLimitProblem } from "../lib/billing.js";
+import { learnerLimitProblem, teacherLimitProblem, accessOf } from "../lib/billing.js";
 import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
 import { registerPublicSmsRoutes, registerSmsRoutes } from "./sms.js";
 import { pruneOldTerms, registerCleanupRoutes } from "./cleanup.js";
@@ -1262,14 +1262,28 @@ router.use("/schools/:schoolId", async (req, res, next) => {
       // Head teachers can look at every department but change nothing. Bursars only reach the Finance workspace
       // (plus the read-only lists it needs). Neither may use the teacher-or-admin write routes below.
       const ownPushDevice = /^\/push\/((un)?subscribe|notices)$/.test(sub); // any staff member may turn notifications on or off for their own phone
+      const billingPath = /^\/billing(\/|$)/.test(sub);
+      // Terms are opened centrally by J-SCHOOLS; schools can only look at them.
+      if (req.method !== "GET" && /^\/terms(\/|$)/.test(sub)) {
+        res.status(403).json({ error: "Terms are opened for all schools by J-SCHOOLS. You can view previous terms but not change them." });
+        return;
+      }
+      // After the grace period an unpaid school is read-only: it can view everything but not add or change records.
+      if (req.method !== "GET" && !billingPath && !ownPushDevice && !/^\/auth\/logout/.test(sub)) {
+        const access = await accessOf(schoolId);
+        if (access.locked) {
+          res.status(402).json({ code: "read_only", error: "This school's subscription has expired, so records are read-only. Open Billing to renew." });
+          return;
+        }
+      }
       const smsPath = /^\/sms(\/|$)/.test(sub); // the Head teacher and the Bursar send SMS; the SMS routes check who may do what
-      if (res.locals.jiibRole === "headteacher" && req.method !== "GET" && !ownPushDevice && !smsPath) {
+      if (res.locals.jiibRole === "headteacher" && req.method !== "GET" && !ownPushDevice && !smsPath && !billingPath) {
         res.status(403).json({ error: "Head teacher accounts can view school records but not change them." });
         return;
       }
       if (res.locals.jiibRole === "bursar") {
         const readable = req.method === "GET" && /^\/(config|students|terms|users\/[^/]+)$/.test(sub);
-        if (!readable && !ownPushDevice && !smsPath && !/^\/finance(\/|$)/.test(sub)) {
+        if (!readable && !ownPushDevice && !smsPath && !billingPath && !/^\/finance(\/|$)/.test(sub)) {
           res.status(403).json({ error: "Bursar accounts can only use the Finance workspace." });
           return;
         }
@@ -1427,6 +1441,14 @@ router.put("/schools/:schoolId/config", async (req, res) => {
     const { data } = UpdateSchoolConfigBody.parse(req.body);
     const aLevelIssue = subjectsProblem((data as SchoolConfig).subjects);
     if (aLevelIssue) { res.status(400).json({ error: aLevelIssue }); return; }
+    if (res.locals.jiibRole !== "super_admin") {
+      const before = await readSchoolConfig(req, schoolId);
+      const keys = (c: unknown) => Object.keys((c as { terms?: Record<string, unknown> })?.terms ?? {}).sort().join(",");
+      if ((data as SchoolConfig).activeTerm !== before.activeTerm || keys(data) !== keys(before)) {
+        res.status(403).json({ error: "Terms are opened for all schools by J-SCHOOLS and cannot be changed here." });
+        return;
+      }
+    }
     const savedData = await writeSchoolConfig(req, schoolId, data as SchoolConfig);
     const now = new Date().toISOString();
     res.json({
