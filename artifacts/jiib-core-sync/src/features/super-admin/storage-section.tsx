@@ -101,6 +101,17 @@ function DataCheckPanel({ schools }: { schools: Array<{ id: string; name: string
     }
     setRunning(false);
   };
+  const [copying, setCopying] = useState('');
+  const [copied, setCopied] = useState<Record<string, string>>({});
+  const copy = async (schoolId: string) => {
+    if (!window.confirm('Copy this school\'s missing learners and newer subject lists into the tables? Marks are not touched and nothing is deleted.')) return;
+    setCopying(schoolId);
+    try {
+      const r = await jiibApi<{ inserted: number; subjectsUpdated: number; skipped: number }>('/api/storage-admin/data-check/copy', { method: 'POST', body: JSON.stringify({ schoolId }) });
+      setCopied((m) => ({ ...m, [schoolId]: `Done: ${r.inserted} learners added, ${r.subjectsUpdated} subject lists updated${r.skipped ? `, ${r.skipped} skipped (missing name/class)` : ''}. Run the check again.` }));
+    } catch (cause) { setCopied((m) => ({ ...m, [schoolId]: cause instanceof Error ? cause.message : 'Copy failed.' })); }
+    setCopying('');
+  };
   const need = (term: TermCheck) => term.students.onlyInRecord + term.students.subjectsToCopy + term.marks.onlyInRecord;
   const mismatch = (term: TermCheck) => Object.values(term.students.differ).reduce((a, b) => a + b, 0) + term.marks.differ;
   return <Panel title="Data check (dry run)" action={<button type="button" data-testid="hq-data-check" disabled={running || !schools.length} onClick={() => void run()} className="h-9 rounded-lg border border-primary px-3 text-sm font-semibold text-primary disabled:opacity-50">{running ? 'Checking…' : results.length ? 'Run again' : 'Run check'}</button>}>
@@ -109,7 +120,8 @@ function DataCheckPanel({ schools }: { schools: Array<{ id: string; name: string
       {results.map((result) => 'error' in result
         ? <p key={result.schoolId} role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{result.name}: {result.error}</p>
         : <section key={result.schoolId} className="rounded-xl border border-border" data-testid="hq-data-check-school">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5"><p className="text-sm font-semibold">{result.name}</p><span className="text-xs text-muted-foreground">Settings record {formatBytes(result.recordBytes)}</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5"><p className="text-sm font-semibold">{result.name}</p><span className="flex items-center gap-2 text-xs text-muted-foreground">Settings record {formatBytes(result.recordBytes)}<button type="button" data-testid="hq-data-copy" disabled={!!copying} onClick={() => void copy(result.schoolId)} className="h-8 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{copying === result.schoolId ? 'Copying…' : 'Copy into tables'}</button></span></div>
+          {copied[result.schoolId] ? <p className="border-b border-border px-4 py-2 text-xs text-emerald-700">{copied[result.schoolId]}</p> : null}
           <div className="overflow-x-auto"><table className="w-full min-w-[34rem] text-left text-xs">
             <thead className="text-muted-foreground"><tr><th className="px-4 py-2">Term</th><th className="px-2 py-2">Learners (table / record)</th><th className="px-2 py-2">To copy</th><th className="px-2 py-2">Marks (table / record)</th><th className="px-2 py-2">Marks to copy</th><th className="px-2 py-2">Differences</th></tr></thead>
             <tbody className="divide-y divide-border">{result.terms.map((term) => <tr key={term.termKey}>

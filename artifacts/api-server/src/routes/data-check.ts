@@ -75,4 +75,44 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       res.json({ schoolId, recordBytes: JSON.stringify(config).length, terms: out });
     } catch (error) { deps.sendError(res, error); }
   });
+
+  // Copies what exists only in the record into the learners table. The record's subject list wins (it is the newer copy);
+  // marks are never touched, nothing is deleted from the record, and running it again changes nothing more.
+  router.post("/storage-admin/data-check/copy", async (req, res) => {
+    try {
+      if (!await deps.authorizeSuperAdmin(req, res)) return;
+      const schoolId = text(req.body?.schoolId);
+      if (!/^[0-9a-f-]{36}$/i.test(schoolId)) { res.status(400).json({ error: "Choose a school." }); return; }
+      const [configRows, studentRows] = await Promise.all([
+        supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=data&limit=1`),
+        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,subjects&order=id.asc`),
+      ]);
+      const config = (asRows(configRows)[0]?.data ?? {}) as Row;
+      const terms = (config.terms && typeof config.terms === "object" ? config.terms : {}) as Record<string, Row>;
+      const tableKey = new Map(studentRows.map((r) => [`${text(r.term_key)}|${text(r.id)}`, r]));
+      let inserted = 0, subjectsUpdated = 0, skipped = 0;
+      const toInsert: Row[] = [];
+      for (const [termKey, term] of Object.entries(terms)) {
+        for (const item of Array.isArray(term.students) ? (term.students as Row[]) : []) {
+          const id = text(item.id), name = text(item.name), className = text(item.class ?? item.className);
+          const names = (Array.isArray(item.subjects) ? item.subjects : []).map((s) => text(typeof s === "object" && s ? (s as Row).name : s)).filter(Boolean);
+          const row = tableKey.get(`${termKey}|${id}`);
+          if (!row) {
+            if (!/^[0-9a-f-]{36}$/i.test(id) || !name || !className) { skipped += 1; continue; }
+            toInsert.push({ id, school_id: schoolId, term_key: termKey, name, class: className, house: text(item.house), parent_phone: text(item.parentPhone ?? item.parent_phone) || null, subjects: names.length ? names : null, badges: Array.isArray(item.badges) ? item.badges.map(String) : [] });
+            continue;
+          }
+          if (names.length && subjectNames(names) !== subjectNames(row.subjects)) {
+            await supabaseAdminRequest(`/rest/v1/students?id=eq.${enc(id)}&school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ subjects: names }) });
+            subjectsUpdated += 1;
+          }
+        }
+      }
+      for (let i = 0; i < toInsert.length; i += 200) {
+        await supabaseAdminRequest(`/rest/v1/students?on_conflict=id,school_id,term_key`, { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify(toInsert.slice(i, i + 200)) });
+        inserted += Math.min(200, toInsert.length - i);
+      }
+      res.json({ schoolId, inserted, subjectsUpdated, skipped });
+    } catch (error) { deps.sendError(res, error); }
+  });
 }
