@@ -328,13 +328,9 @@ function restoreRecords(req: Request, schoolId: string, config: SchoolConfig): S
     const term = terms[key];
     if (!term || typeof term !== "object" || Array.isArray(term)) continue;
     const next = { ...(term as Record<string, unknown>) };
-    if (next.students === undefined && copy.students !== undefined) next.students = copy.students;
-    else if (Array.isArray(next.students) && Array.isArray(copy.students)) {
-      // A writer started a fresh list: keep the stored copies it did not mention (they stay hidden from readers).
-      const seen = new Set((next.students as Array<Record<string, unknown>>).map((item) => String(item?.id)));
-      next.students = [...(next.students as unknown[]), ...(copy.students as Array<Record<string, unknown>>).filter((item) => !seen.has(String(item?.id)))];
-    }
-    if (next.marks === undefined && copy.marks !== undefined) next.marks = copy.marks;
+    // Tables-only schools: the learner and marks lists in the record are frozen. Whatever a writer put there is dropped and the stored lists are put back (or stay absent once removed).
+    if (copy.students === undefined) delete next.students; else next.students = copy.students;
+    if (copy.marks === undefined) delete next.marks; else next.marks = copy.marks;
     terms[key] = next;
   }
   return { ...config, terms };
