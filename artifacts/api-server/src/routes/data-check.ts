@@ -85,10 +85,12 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       if (!/^[0-9a-f-]{36}$/i.test(schoolId)) { res.status(400).json({ error: "Choose a school." }); return; }
       const [configRows, studentRows] = await Promise.all([
         supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=data&limit=1`),
-        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,subjects&order=id.asc`),
+        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class,subjects&order=id.asc`),
       ]);
       const config = (asRows(configRows)[0]?.data ?? {}) as Row;
       const terms = (config.terms && typeof config.terms === "object" ? config.terms : {}) as Record<string, Row>;
+      const nameClass = new Set(studentRows.map((r) => `${text(r.name).toLowerCase()}|${text(r.class).toLowerCase()}`));
+      let legacyMatchesTable = 0;
       const tableKey = new Map(studentRows.map((r) => [`${text(r.term_key)}|${text(r.id)}`, r]));
       let inserted = 0, subjectsUpdated = 0, skipped = 0;
       const why = { badId: 0, noName: 0, noClass: 0 }; let sampleKeys: string[] = []; let sampleId = "";
@@ -102,6 +104,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
             if (!/^[0-9a-f-]{36}$/i.test(id) || !name || !className) {
               skipped += 1;
               if (!/^[0-9a-f-]{36}$/i.test(id)) why.badId += 1; if (!name) why.noName += 1; if (!className) why.noClass += 1;
+              if (!/^[0-9a-f-]{36}$/i.test(id) && nameClass.has(`${name.toLowerCase()}|${className.toLowerCase()}`)) legacyMatchesTable += 1;
               if (!sampleKeys.length) { sampleKeys = Object.keys(item); sampleId = id.replace(/[0-9a-z]/gi, (c) => (/\d/.test(c) ? "9" : "x")).slice(0, 40); }
               continue;
             }
@@ -118,7 +121,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
         await supabaseAdminRequest(`/rest/v1/students?on_conflict=id,school_id,term_key`, { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify(toInsert.slice(i, i + 200)) });
         inserted += Math.min(200, toInsert.length - i);
       }
-      res.json({ schoolId, inserted, subjectsUpdated, skipped, why, sampleKeys, sampleId });
+      res.json({ schoolId, inserted, subjectsUpdated, skipped, why, sampleKeys, sampleId, legacyMatchesTable });
     } catch (error) { deps.sendError(res, error); }
   });
 }
