@@ -42,10 +42,12 @@ function nextTermKey(activeKey: string) {
 }
 
 async function provisionSchool(input: { name: string; adminName: string; email: string; phone: string; address: string; termKey: string }) {
-  let baseSlug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 34).replace(/-+$/g, "");
-  if (baseSlug.length < 3) baseSlug = `${baseSlug || "school"}-school`.slice(0, 34);
+  // Short letters-and-digits code like the existing schools use (e.g. "mucoss"): first word plus the initials of the rest.
+  const words = input.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+  let baseSlug = ((words[0] ?? "") + words.slice(1).map((w) => w[0]).join("")).slice(0, 10);
+  if (baseSlug.length < 3) baseSlug = `${baseSlug}sch`.slice(0, 10);
   let slug = baseSlug;
-  for (let n = 2; asRows(await supabaseAdminRequest(`/rest/v1/schools?slug=eq.${enc(slug)}&select=id&limit=1`)).length; n += 1) slug = `${baseSlug}-${n}`;
+  for (let n = 2; asRows(await supabaseAdminRequest(`/rest/v1/schools?slug=eq.${enc(slug)}&select=id&limit=1`)).length; n += 1) slug = `${baseSlug}${n}`;
   const school = asRows(await supabaseAdminRequest(`/rest/v1/schools?select=*`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ name: input.name, slug, active: true }) }))[0];
   if (!school) throw new Error("The school record was not created.");
   const schoolId = String(school.id);
