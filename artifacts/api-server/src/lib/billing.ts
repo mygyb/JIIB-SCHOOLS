@@ -105,8 +105,43 @@ export async function accessOf(schoolId: string): Promise<Access> {
   return value;
 }
 
-export type Payee = { bankName: string; accountName: string; accountNumber: string; momoName: string; momoNumber: string; whatsapp: string; note: string };
-export const DEFAULT_PAYEE: Payee = { bankName: "", accountName: "", accountNumber: "", momoName: "", momoNumber: "", whatsapp: "256762971094", note: "" };
+export type Payee = { bankName: string; accountName: string; accountNumber: string; mtnNumber: string; mtnName: string; airtelNumber: string; airtelName: string; whatsapp: string; note: string };
+export const DEFAULT_PAYEE: Payee = { bankName: "", accountName: "", accountNumber: "", mtnNumber: "", mtnName: "", airtelNumber: "", airtelName: "", whatsapp: "256762971094", note: "" };
+
+/** Term dates the system administrator sets when opening a term: { "2027-T1": { start, end } }. */
+export type Calendar = Record<string, { start: string; end: string }>;
+export async function getCalendar(): Promise<Calendar> {
+  try {
+    const row = asRows(await supabaseAdminRequest(`/rest/v1/billing_settings?key=eq.calendar&select=value&limit=1`))[0];
+    return (row?.value as Calendar | undefined) ?? {};
+  } catch { return {}; }
+}
+const TERM_DAYS = 91, HOLIDAY_DAYS = 28;
+/**
+ * The day a payment runs to. A term payment runs to the end of that term; a yearly payment to the end of Term 3 of that year.
+ * Where the dates were never entered, a term is 13 weeks from the day it opened and the holidays are 4 weeks.
+ */
+export function coverageEnd(calendar: Calendar, termKey: string, cycle: string, now = Date.now()): string {
+  const m = termKey.match(/^(\d{4})-T([1-3])$/);
+  const year = m?.[1] ?? String(new Date(now).getFullYear());
+  const n = Number(m?.[2] ?? 1);
+  const endOf = (key: string, fallbackStart: number) => { const e = calendar[key]?.end; return e && Number.isFinite(Date.parse(e)) ? Date.parse(e) : fallbackStart + TERM_DAYS * 86_400_000; };
+  const startOf = (key: string, fallback: number) => { const st = calendar[key]?.start; return st && Number.isFinite(Date.parse(st)) ? Date.parse(st) : fallback; };
+  const thisStart = startOf(termKey, now);
+  const thisEnd = endOf(termKey, thisStart);
+  let end = thisEnd;
+  if (cycle === "yearly") {
+    let cursorEnd = thisEnd;
+    for (let t = n + 1; t <= 3; t += 1) {
+      const key = `${year}-T${t}`;
+      const start = startOf(key, cursorEnd + HOLIDAY_DAYS * 86_400_000);
+      cursorEnd = endOf(key, start);
+    }
+    end = cursorEnd;
+  }
+  const d = new Date(end); d.setUTCHours(23, 59, 59, 0);
+  return d.toISOString();
+}
 export async function getPayee(): Promise<Payee> {
   try {
     const row = asRows(await supabaseAdminRequest(`/rest/v1/billing_settings?key=eq.payee&select=value&limit=1`))[0];

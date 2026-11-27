@@ -35,7 +35,7 @@ function Registrations() {
 function Payments() {
   const qc = useQueryClient(); const act = useAct();
   const q = useQuery({ queryKey: ['hq', 'payments'], queryFn: () => jiibApi<{ payments: Row[] }>('/api/storage-admin/payments?status=pending'), retry: 1, refetchInterval: 60_000 });
-  const [expiry, setExpiry] = useState<Record<string, string>>({});
+  const [done, setDone] = useState('');
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['hq', 'payments'] }); void qc.invalidateQueries({ queryKey: ['hq', 'billing'] }); };
   const rows = q.data?.payments ?? [];
   return <Panel title={`Payments to approve (${rows.length})`}>
@@ -43,12 +43,13 @@ function Payments() {
     {rows.map((p) => <div key={p.id} className="space-y-2 border-b border-border py-3 text-sm last:border-0">
       <p><b>{p.school_name}</b> ({p.school_code}) · {ugx(p.amount)} · {p.channel.toUpperCase()} · <span className="font-mono">{p.transaction_id}</span></p>
       <p className="text-xs text-muted-foreground">Paid {p.paid_on}{p.payer_name ? ` by ${p.payer_name}` : ''} · submitted {String(p.submitted_at).slice(0, 10)}</p>
+      <p className="text-xs text-muted-foreground">Reference <b>{p.invoice_no ?? 'none (no invoice)'}</b>. The run-to date is worked out from the term dates when you approve.</p>
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-xs font-semibold">Subscription runs to<input type="date" className={field} value={expiry[p.id] ?? ''} onChange={(e) => setExpiry((x) => ({ ...x, [p.id]: e.target.value }))} /></label>
-        <button className={btn} disabled={act.busy || !expiry[p.id]} onClick={() => void act.run(async () => { await jiibApi(`/api/storage-admin/payments/${p.id}/approve`, { method: 'POST', body: JSON.stringify({ expiresAt: `${expiry[p.id]}T23:59:59Z`, amount: p.amount }) }); refresh(); }, 'Approved. Receipt e-mail and SMS sent.')}>Approve</button>
+        <button className={btn} disabled={act.busy} onClick={() => void act.run(async () => { const r = await jiibApi<{ expiresAt: string | null }>(`/api/storage-admin/payments/${p.id}/approve`, { method: 'POST', body: JSON.stringify({ amount: p.amount, ...(p.invoice_id ? {} : { expiresAt: ((d) => (d ? `${d}T23:59:59Z` : undefined))(window.prompt('This payment has no invoice. Subscription runs to (YYYY-MM-DD):')) }) }) }); refresh(); setDone(r.expiresAt ? `Approved. Subscription runs to ${r.expiresAt.slice(0, 10)}. Receipt sent.` : 'Approved as a part payment. Not extended yet.'); }, '')}>Approve</button>
         <button className={ghost} disabled={act.busy} onClick={() => { const note = window.prompt('Reason (shown to the school):') ?? ''; void act.run(async () => { await jiibApi(`/api/storage-admin/payments/${p.id}/reject`, { method: 'POST', body: JSON.stringify({ note }) }); refresh(); }, 'Rejected.'); }}>Reject</button>
       </div>
     </div>)}
+    {done && <p className="mt-2 text-xs font-semibold text-emerald-700">{done}</p>}
     {act.msg && <p className="mt-2 text-xs text-muted-foreground">{act.msg}</p>}
   </Panel>;
 }
@@ -57,16 +58,19 @@ function Terms() {
   const act = useAct();
   const q = useQuery({ queryKey: ['hq', 'terms'], queryFn: () => jiibApi<{ schools: Row[]; suggested: string }>('/api/storage-admin/terms'), retry: 1 });
   const [termKey, setTermKey] = useState('');
+  const [startD, setStartD] = useState(''); const [endD, setEndD] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
   const [report, setReport] = useState<string[]>([]);
   const schools = q.data?.schools ?? [];
   const key = termKey || q.data?.suggested || '';
   const ids = picked.length ? picked : schools.map((s) => s.id);
   return <Panel title="Open a new term">
-    <p className="mb-2 text-xs text-muted-foreground">Closes each school's current term and opens the next one. Schools cannot do this themselves.</p>
+    <p className="mb-2 text-xs text-muted-foreground">Closes each school's current term and opens the next one. The term dates decide when each school's paid subscription runs to, so enter them carefully.</p>
     <div className="flex flex-wrap items-end gap-2">
       <label className="text-xs font-semibold">Term (e.g. 2027-T1)<input className={field} value={key} onChange={(e) => setTermKey(e.target.value)} /></label>
-      <button className={btn} disabled={act.busy || !key} onClick={() => { if (window.confirm(`Open ${key} for ${picked.length ? picked.length : 'ALL'} school(s)?`)) void act.run(async () => { const r = await jiibApi<{ results: Row[] }>('/api/storage-admin/open-term', { method: 'POST', body: JSON.stringify({ termKey: key, schoolIds: ids }) }); setReport(r.results.map((x) => `${schools.find((s) => s.id === x.schoolId)?.name ?? x.schoolId}: ${x.result}`)); }, 'Done.'); }}>{picked.length ? `Open for ${picked.length} selected` : 'Open for all schools'}</button>
+      <label className="text-xs font-semibold">Term starts<input type="date" className={field} value={startD} onChange={(e) => setStartD(e.target.value)} /></label>
+      <label className="text-xs font-semibold">Term ends<input type="date" className={field} value={endD} onChange={(e) => setEndD(e.target.value)} /></label>
+      <button className={btn} disabled={act.busy || !key || !startD || !endD} onClick={() => { if (window.confirm(`Open ${key} for ${picked.length ? picked.length : 'ALL'} school(s)?`)) void act.run(async () => { const r = await jiibApi<{ results: Row[] }>('/api/storage-admin/open-term', { method: 'POST', body: JSON.stringify({ termKey: key, schoolIds: ids, startDate: startD ? `${startD}T00:00:00Z` : undefined, endDate: endD ? `${endD}T23:59:59Z` : undefined }) }); setReport(r.results.map((x) => `${schools.find((s) => s.id === x.schoolId)?.name ?? x.schoolId}: ${x.result}`)); }, 'Done.'); }}>{picked.length ? `Open for ${picked.length} selected` : 'Open for all schools'}</button>
     </div>
     <div className="mt-2 flex flex-wrap gap-2 text-xs">{schools.map((s) => <label key={s.id} className="flex items-center gap-1"><input type="checkbox" checked={picked.includes(s.id)} onChange={(e) => setPicked((x) => e.target.checked ? [...x, s.id] : x.filter((i) => i !== s.id))} />{s.name} <span className="text-muted-foreground">({s.activeTerm || 'none'})</span></label>)}</div>
     {act.msg && <p className="mt-2 text-xs text-muted-foreground">{act.msg}</p>}
@@ -79,8 +83,8 @@ function Invoices() {
   const [termKey, setTermKey] = useState(''); const [start, setStart] = useState('');
   const [out, setOut] = useState<Row[]>([]);
   const list = useQuery({ queryKey: ['hq', 'invoices'], queryFn: () => jiibApi<{ invoices: Row[] }>('/api/storage-admin/invoices'), retry: 1 });
-  return <Panel title="Issue invoices">
-    <p className="mb-2 text-xs text-muted-foreground">Creates one invoice per school (due 21 days after the start date) and sends each school an e-mail and SMS. Run it 2–3 weeks before the term. Safe to run twice: schools with an invoice for that term are skipped.</p>
+  return <Panel title="Send invoices to all schools (optional)">
+    <p className="mb-2 text-xs text-muted-foreground">Schools normally choose a plan and get their own reference on the Billing page. Use this only to send everyone a ready invoice and a reminder 2–3 weeks before a term. Schools with an invoice for that term are skipped.</p>
     <div className="flex flex-wrap items-end gap-2">
       <label className="text-xs font-semibold">Term<input className={field} placeholder="2027-T1" value={termKey} onChange={(e) => setTermKey(e.target.value)} /></label>
       <label className="text-xs font-semibold">Term starts<input type="date" className={field} value={start} onChange={(e) => setStart(e.target.value)} /></label>
@@ -97,7 +101,7 @@ function Payee() {
   const q = useQuery({ queryKey: ['hq', 'payee'], queryFn: () => jiibApi<Record<string, string>>('/api/storage-admin/billing-settings'), retry: 1 });
   const [edit, setEdit] = useState<Record<string, string>>({});
   const v = { ...(q.data ?? {}), ...edit };
-  const labels: Record<string, string> = { bankName: 'Bank', accountName: 'Account name', accountNumber: 'Account number', momoNumber: 'Mobile money number', momoName: 'Mobile money name', whatsapp: 'WhatsApp (international, e.g. 256762971094)', note: 'Extra note (optional)' };
+  const labels: Record<string, string> = { mtnNumber: 'MTN MoMo number', mtnName: 'MTN registered name', airtelNumber: 'Airtel Money number', airtelName: 'Airtel registered name', bankName: 'Bank', accountName: 'Account name', accountNumber: 'Account number', whatsapp: 'WhatsApp (international, e.g. 256762971094)', note: 'Extra note (optional)' };
   return <Panel title="Where schools pay">
     <div className="grid gap-2 sm:grid-cols-2">{Object.keys(labels).filter((k) => q.data && k in q.data).map((k) => <label key={k} className="text-xs font-semibold">{labels[k]}<input className={field} value={v[k] ?? ''} onChange={(e) => setEdit((x) => ({ ...x, [k]: e.target.value }))} /></label>)}</div>
     <button className={`${btn} mt-3`} disabled={act.busy} onClick={() => void act.run(() => jiibApi('/api/storage-admin/billing-settings', { method: 'PUT', body: JSON.stringify(v) }), 'Saved.')}>Save</button>

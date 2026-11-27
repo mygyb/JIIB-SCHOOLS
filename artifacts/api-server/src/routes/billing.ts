@@ -4,7 +4,7 @@ import type { IRouter, Request, Response } from "express";
 import { asRows, createSupabaseAuthUser, supabaseAdminRequest } from "../lib/supabase.js";
 import { clientIp, tooManyAttempts } from "../lib/hq.js";
 import { emailShell, escapeHtml, sendEmail } from "../lib/mailer.js";
-import { DEFAULT_PAYEE, GRACE_DAYS, PLANS, TRIAL_DAYS, accessOf, forgetAccess, forgetBilling, getBilling, getPayee, schoolCodeFor, usageOf, type BillingRow, type PlanKey } from "../lib/billing.js";
+import { DEFAULT_PAYEE, GRACE_DAYS, PLANS, coverageEnd, getCalendar, TRIAL_DAYS, accessOf, forgetAccess, forgetBilling, getBilling, getPayee, schoolCodeFor, usageOf, type BillingRow, type PlanKey } from "../lib/billing.js";
 import { egoSend, normalizePhone } from "./sms.js";
 import { pruneOldTerms } from "./cleanup.js";
 
@@ -30,8 +30,8 @@ async function notifySchool(schoolId: string, message: { subject: string; title:
   if (message.sms && contacts.phone) sms = await egoSend([{ number: contacts.phone, message: message.sms }]);
   return { email, sms };
 }
-const payeeHtml = (p: typeof DEFAULT_PAYEE) => `<table style="border-collapse:collapse;font-size:14px;margin:8px 0">${p.bankName ? `<tr><td style="padding:3px 12px 3px 0;color:#6b7280">Bank</td><td><b>${escapeHtml(p.bankName)}</b> · ${escapeHtml(p.accountName)} · ${escapeHtml(p.accountNumber)}</td></tr>` : ""}${p.momoNumber ? `<tr><td style="padding:3px 12px 3px 0;color:#6b7280">Mobile money</td><td><b>${escapeHtml(p.momoNumber)}</b> ${escapeHtml(p.momoName)}</td></tr>` : ""}</table>`;
-const payeeSms = (p: typeof DEFAULT_PAYEE) => [p.bankName && `Bank: ${p.bankName} ${p.accountName} ${p.accountNumber}`, p.momoNumber && `MoMo: ${p.momoNumber} ${p.momoName}`].filter(Boolean).join(". ");
+const payeeHtml = (p: typeof DEFAULT_PAYEE) => `<table style="border-collapse:collapse;font-size:14px;margin:8px 0">${p.bankName ? `<tr><td style="padding:3px 12px 3px 0;color:#6b7280">Bank</td><td><b>${escapeHtml(p.bankName)}</b> · ${escapeHtml(p.accountName)} · ${escapeHtml(p.accountNumber)}</td></tr>` : ""}${p.mtnNumber ? `<tr><td style="padding:3px 12px 3px 0;color:#6b7280">MTN MoMo</td><td><b>${escapeHtml(p.mtnNumber)}</b> ${escapeHtml(p.mtnName)}</td></tr>` : ""}${p.airtelNumber ? `<tr><td style="padding:3px 12px 3px 0;color:#6b7280">Airtel Money</td><td><b>${escapeHtml(p.airtelNumber)}</b> ${escapeHtml(p.airtelName)}</td></tr>` : ""}</table>`;
+const payeeSms = (p: typeof DEFAULT_PAYEE) => [p.bankName && `Bank: ${p.bankName} ${p.accountName} ${p.accountNumber}`, p.mtnNumber && `MTN: ${p.mtnNumber} ${p.mtnName}`, p.airtelNumber && `Airtel: ${p.airtelNumber} ${p.airtelName}`].filter(Boolean).join(". ");
 
 /** The next term after the given one, in the same pattern the term pages already use (Term 3 is followed by Term 1 of the next year). */
 function nextTermKey(activeKey: string) {
@@ -207,10 +207,10 @@ export function registerBillingRoutes(router: IRouter, deps: { authorizeSuperAdm
       forgetBilling(made.schoolId);
       const payee = await getPayee();
       const site = process.env.PUBLIC_SITE_URL ?? "https://j-schools-ug.vercel.app";
-      const html = `<p>Welcome, ${escapeHtml(text(reg.admin_name))}! <b>${escapeHtml(text(reg.school_name))}</b> is now approved on J-SCHOOLS.</p><p>Log in at <a href="${site}">${site}</a> with the e-mail and password you registered with, and search for your school by name.</p><p><b>Your free ${TRIAL_DAYS} days have started.</b> After that, a term subscription keeps your portal open.</p><p><b>How to pay:</b> open <i>Billing</i> in your portal, send the payment to the account below and use your school code <b>${made.code}</b> as the reason or reference, then press <i>Submit payment</i> with the transaction ID.</p>${payeeHtml(payee)}`;
+      const html = `<p>Welcome, ${escapeHtml(text(reg.admin_name))}! <b>${escapeHtml(text(reg.school_name))}</b> is now approved on J-SCHOOLS.</p><p>Log in at <a href="${site}">${site}</a> with the e-mail and password you registered with, and search for your school by name.</p><p><b>Your free ${TRIAL_DAYS} days have started.</b> After that, a term subscription keeps your portal open.</p><p><b>How to pay:</b> open <i>Billing</i> in your portal, choose your plan, and you get a payment reference starting with your school code <b>${made.code}</b>. Pay with that reference, then press <i>Submit payment</i> with the transaction ID.</p>${payeeHtml(payee)}`;
       const email = await sendEmail([text(reg.email)], "Welcome to J-SCHOOLS: your school is approved", emailShell("Your school is approved", html));
       const phone = normalizePhone(reg.phone);
-      const sms = phone ? await egoSend([{ number: phone, message: `Welcome to J-SCHOOLS! ${text(reg.school_name)} is approved. Your free ${TRIAL_DAYS} days have started. To pay later use code ${made.code} as reference. ${payeeSms(payee)}`.slice(0, 300) }]) : { ok: false, error: "No phone." };
+      const sms = phone ? await egoSend([{ number: phone, message: `Welcome to J-SCHOOLS! ${text(reg.school_name)} is approved. Your free ${TRIAL_DAYS} days have started. To pay later open Billing, pick a plan and use the reference it gives (starts with ${made.code}). ${payeeSms(payee)}`.slice(0, 300) }]) : { ok: false, error: "No phone." };
       res.json({ ...made, email, sms });
     } catch (error) { deps.sendError(res, error); }
   });
@@ -247,6 +247,12 @@ export function registerBillingRoutes(router: IRouter, deps: { authorizeSuperAdm
       if (!/^\d{4}-T[1-3]$/.test(termKey)) { res.status(400).json({ error: "Use a term like 2027-T1." }); return; }
       const ids = Array.isArray(b.schoolIds) ? (b.schoolIds as unknown[]).map(text).filter((id) => /^[0-9a-f-]{36}$/i.test(id)) : [];
       if (!ids.length) { res.status(400).json({ error: "Choose at least one school." }); return; }
+      const start = isoOrNull(b.startDate) ?? new Date().toISOString();
+      const end = isoOrNull(b.endDate) ?? new Date(Date.parse(start) + 91 * 86_400_000).toISOString();
+      if (Date.parse(end) <= Date.parse(start)) { res.status(400).json({ error: "The term must end after it starts." }); return; }
+      const calendar = await getCalendar();
+      calendar[termKey] = { start, end };
+      await supabaseAdminRequest(`/rest/v1/billing_settings?on_conflict=key`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key: "calendar", value: calendar }) });
       const results: Array<{ schoolId: string; result: string }> = [];
       for (const id of ids) {
         try { const r = await openTermFor(id, termKey); results.push({ schoolId: id, result: "opened" in r ? `opened ${r.opened}` : `skipped: ${r.skipped}` }); }
@@ -308,7 +314,8 @@ export function registerBillingRoutes(router: IRouter, deps: { authorizeSuperAdm
       const rows = asRows(await supabaseAdminRequest(`/rest/v1/billing_payments?status=eq.${status}&select=*&order=submitted_at.desc&limit=100`).catch(() => []));
       const schools = new Map(asRows(await supabaseAdminRequest(`/rest/v1/school_billing?select=school_id,school_code`).catch(() => [])).map((r) => [text(r.school_id), text(r.school_code)]));
       const names = new Map(asRows(await supabaseAdminRequest(`/rest/v1/schools?select=id,name`).catch(() => [])).map((r) => [text(r.id), text(r.name)]));
-      res.json({ payments: rows.map((p) => ({ ...p, school_name: names.get(text(p.school_id)) ?? "", school_code: schools.get(text(p.school_id)) ?? "" })) });
+      const invs = new Map(asRows(await supabaseAdminRequest(`/rest/v1/billing_invoices?select=id,invoice_no`).catch(() => [])).map((r) => [text(r.id), text(r.invoice_no)]));
+      res.json({ payments: rows.map((p) => ({ ...p, invoice_no: invs.get(text(p.invoice_id)) ?? null, school_name: names.get(text(p.school_id)) ?? "", school_code: schools.get(text(p.school_id)) ?? "" })) });
     } catch (error) { deps.sendError(res, error); }
   });
   router.post("/storage-admin/payments/:id/approve", async (req, res) => {
@@ -319,27 +326,35 @@ export function registerBillingRoutes(router: IRouter, deps: { authorizeSuperAdm
       if (!pay || pay.status !== "pending") { res.status(409).json({ error: "This payment is not waiting for approval." }); return; }
       const schoolId = text(pay.school_id);
       const amount = Number(b.amount ?? pay.amount) || 0;
-      const expiresAt = isoOrNull(b.expiresAt);
-      if (!amount || !expiresAt) { res.status(400).json({ error: "Enter the confirmed amount and the date the subscription runs to." }); return; }
-      const billing = await getBilling(schoolId);
+      if (!amount) { res.status(400).json({ error: "Enter the confirmed amount." }); return; }
       const receiptNo = `RC-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${randomUUID().slice(0, 4).toUpperCase()}`;
       let invoiceNo = "";
+      let expiresAt: string | null = isoOrNull(b.expiresAt);
+      let fullyPaid = !pay.invoice_id;
+      let plan: string | null = null, cycle: string | null = null;
       if (pay.invoice_id) {
         const inv = asRows(await supabaseAdminRequest(`/rest/v1/billing_invoices?id=eq.${enc(text(pay.invoice_id))}&select=*&limit=1`))[0];
         if (inv) {
           const paid = Number(inv.paid_amount ?? 0) + amount;
           invoiceNo = text(inv.invoice_no);
-          await supabaseAdminRequest(`/rest/v1/billing_invoices?id=eq.${enc(text(inv.id))}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ paid_amount: paid, status: paid >= Number(inv.amount) ? "paid" : "unpaid", paid_at: paid >= Number(inv.amount) ? new Date().toISOString() : null }) });
-        }
+          fullyPaid = paid >= Number(inv.amount);
+          plan = text(inv.plan); cycle = text(inv.cycle) === "yearly" ? "yearly" : "termly";
+          // The run-to date comes from the term dates (set when the term was opened), never typed in by hand.
+          if (fullyPaid && !expiresAt) expiresAt = coverageEnd(await getCalendar(), text(inv.term_key), cycle);
+          await supabaseAdminRequest(`/rest/v1/billing_invoices?id=eq.${enc(text(inv.id))}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ paid_amount: paid, status: fullyPaid ? "paid" : "unpaid", paid_at: fullyPaid ? new Date().toISOString() : null }) });
+        } else fullyPaid = true;
       }
+      if (fullyPaid && !expiresAt) { res.status(400).json({ error: "This payment has no invoice, so enter the date the subscription runs to." }); return; }
       await supabaseAdminRequest(`/rest/v1/billing_payments?id=eq.${enc(text(pay.id))}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ status: "approved", amount, receipt_no: receiptNo, decided_at: new Date().toISOString(), note: text(b.note).slice(0, 300) || null }) });
-      await supabaseAdminRequest(`/rest/v1/school_billing?school_id=eq.${enc(schoolId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ status: "active", expires_at: expiresAt, updated_at: new Date().toISOString() }) });
+      if (fullyPaid && expiresAt) {
+        await supabaseAdminRequest(`/rest/v1/school_billing?school_id=eq.${enc(schoolId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ status: "active", expires_at: expiresAt, ...(plan ? { plan, cycle } : {}), updated_at: new Date().toISOString() }) });
+      }
       forgetBilling(schoolId); forgetAccess(schoolId);
       const site = process.env.PUBLIC_SITE_URL ?? "https://j-schools-ug.vercel.app";
-      const html = `<p>We have received your payment of <b>${ugx(amount)}</b>. Thank you!</p><p>Receipt <b>${receiptNo}</b>${invoiceNo ? ` for invoice ${invoiceNo}` : ""}. Your subscription runs until <b>${dateText(expiresAt)}</b>.</p><p>Download the receipt any time from <i>Billing</i> in your portal: <a href="${site}">${site}</a>.</p>`;
-      const sent = await notifySchool(schoolId, { subject: `Payment received: receipt ${receiptNo}`, title: "Payment received", html, sms: `J-SCHOOLS: payment of ${ugx(amount)} received. Receipt ${receiptNo}. Subscription runs until ${dateText(expiresAt)}. Thank you.` });
-      void billing;
-      res.json({ receiptNo, ...sent });
+      const runs = fullyPaid && expiresAt ? `Your subscription runs until <b>${dateText(expiresAt)}</b>.` : "This is a part payment: the invoice still has a balance, so the subscription has not been extended yet.";
+      const html = `<p>We have received your payment of <b>${ugx(amount)}</b>. Thank you!</p><p>Receipt <b>${receiptNo}</b>${invoiceNo ? ` for invoice ${invoiceNo}` : ""}. ${runs}</p><p>Download the receipt any time from <i>Billing</i> in your portal: <a href="${site}">${site}</a>.</p>`;
+      const sent = await notifySchool(schoolId, { subject: `Payment received: receipt ${receiptNo}`, title: "Payment received", html, sms: `J-SCHOOLS: payment of ${ugx(amount)} received. Receipt ${receiptNo}. ${fullyPaid && expiresAt ? `Subscription runs until ${dateText(expiresAt)}.` : "Part payment: balance remains."} Thank you.` });
+      res.json({ receiptNo, expiresAt: fullyPaid ? expiresAt : null, ...sent });
     } catch (error) { deps.sendError(res, error); }
   });
   router.post("/storage-admin/payments/:id/reject", async (req, res) => {
@@ -386,8 +401,47 @@ export function registerBillingRoutes(router: IRouter, deps: { authorizeSuperAdm
       ]);
       const cfg = asRows(await supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=activeTerm:data->>activeTerm&limit=1`).catch(() => []))[0];
       const usage = await usageOf(schoolId, text(cfg?.activeTerm)).catch(() => ({ learners: 0, teachers: 0 }));
+      const calendar = await getCalendar();
       const { whatsapp: _hidden, ...publicPayee } = payee;
-      res.json({ schoolName: text(asRows(school)[0]?.name), billing, access, payee: publicPayee, plans: PLANS, usage, invoices: asRows(invoices), payments: asRows(payments) });
+      res.json({ schoolName: text(asRows(school)[0]?.name), termKey: text(cfg?.activeTerm), billing, access, payee: publicPayee, plans: PLANS, usage, invoices: asRows(invoices).map((i) => ({ ...i, runs_to: coverageEnd(calendar, text(i.term_key), text(i.cycle)) })), payments: asRows(payments) });
+    } catch (error) { deps.sendError(res, error); }
+  });
+  router.post("/schools/:schoolId/billing/checkout", async (req, res) => {
+    try {
+      if (!staffOnly(res)) return;
+      const schoolId = String(req.params.schoolId);
+      const b = (req.body ?? {}) as Row;
+      const planKey = text(b.plan) as PlanKey;
+      const plan = PLANS[planKey];
+      if (!plan) { res.status(400).json({ error: "Choose a plan." }); return; }
+      const cycle = text(b.period) === "year" ? "yearly" : "termly";
+      const billing = await getBilling(schoolId);
+      if (!billing) { res.status(409).json({ error: "This school's billing has not been set up yet. Please contact J-SCHOOLS." }); return; }
+      const cfg = asRows(await supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=activeTerm:data->>activeTerm&limit=1`).catch(() => []))[0];
+      const termKey = text(cfg?.activeTerm);
+      if (!/^\d{4}-T[1-3]$/.test(termKey)) { res.status(409).json({ error: "No term is open yet. Please contact J-SCHOOLS." }); return; }
+      const usage = await usageOf(schoolId, termKey).catch(() => ({ learners: 0, teachers: 0 }));
+      if (usage.learners > plan.learners) { res.status(400).json({ error: `You have ${usage.learners} learners, and the ${plan.label} plan allows ${plan.learners}. Choose a bigger plan.` }); return; }
+      if (plan.teachers !== null && usage.teachers > plan.teachers) { res.status(400).json({ error: `You have ${usage.teachers} teachers, and the ${plan.label} plan allows ${plan.teachers}. Choose a bigger plan.` }); return; }
+      const amount = cycle === "yearly" ? plan.yearFee : plan.termFee;
+      const existing = asRows(await supabaseAdminRequest(`/rest/v1/billing_invoices?school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}&select=*&limit=1`))[0];
+      if (existing && existing.status === "paid") { res.status(409).json({ error: `${termLabelOf(termKey)} is already paid for.` }); return; }
+      const dueMs = Math.max(Date.now() + 14 * 86_400_000, billing.trial_ends_at && billing.status === "trial" ? Date.parse(billing.trial_ends_at) : 0);
+      const fields = { plan: planKey, cycle, amount, learners_snapshot: usage.learners, status: "unpaid", due_at: new Date(dueMs).toISOString(), paid_amount: 0 };
+      let invoiceNo = text(existing?.invoice_no);
+      if (existing) {
+        await supabaseAdminRequest(`/rest/v1/billing_invoices?id=eq.${enc(text(existing.id))}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(fields) });
+      } else {
+        for (let tries = 0; tries < 8 && !invoiceNo; tries += 1) {
+          const candidate = `${billing.school_code ?? "SCH"}-${String(1000 + Math.floor(Math.random() * 9000))}`;
+          if (!asRows(await supabaseAdminRequest(`/rest/v1/billing_invoices?invoice_no=eq.${enc(candidate)}&select=id&limit=1`)).length) invoiceNo = candidate;
+        }
+        if (!invoiceNo) throw new Error("Could not create a reference. Please try again.");
+        await supabaseAdminRequest(`/rest/v1/billing_invoices`, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ id: randomUUID(), school_id: schoolId, invoice_no: invoiceNo, term_key: termKey, issued_at: new Date().toISOString(), ...fields }) });
+      }
+      forgetAccess(schoolId);
+      const runsTo = coverageEnd(await getCalendar(), termKey, cycle);
+      res.status(existing ? 200 : 201).json({ invoiceNo, amount, termKey, runsTo });
     } catch (error) { deps.sendError(res, error); }
   });
   router.post("/schools/:schoolId/billing/payments", async (req, res) => {
