@@ -29,7 +29,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       if (!/^[0-9a-f-]{36}$/i.test(schoolId)) { res.status(400).json({ error: "Choose a school." }); return; }
       const [configRows, studentRows, markRows] = await Promise.all([
         supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=data&limit=1`),
-        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class,house,parent_phone,subjects&order=id.asc`),
+        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class,house,parent_phone,subjects,a_level&order=id.asc`),
         pagedRows(`/rest/v1/marks?school_id=eq.${enc(schoolId)}&select=*&order=id.asc`),
       ]);
       const config = (asRows(configRows)[0]?.data ?? {}) as Row;
@@ -54,7 +54,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
           const a = subjectNames(item.subjects), b = subjectNames(row.subjects);
           if (a && !b) subjectsToCopy += 1; else if (a && b && a !== b) differ.subjects += 1;
         }
-        const alevel = record.filter((r) => r.aLevel && typeof r.aLevel === "object").length;
+        const alevel = record.filter((r) => r.aLevel && typeof r.aLevel === "object" && !tableById.get(text(r.id))?.a_level).length;
         const marksTable = markRows.filter((r) => text(r.term_key) === termKey);
         const tableMarks = new Map(marksTable.map((r) => [`${text(r.student_id)}|${text(r.subject)}`, r]));
         const recordMarks = (Array.isArray(term.marks) ? (term.marks as Row[]) : []).filter((m) =>
@@ -86,7 +86,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       if (!/^[0-9a-f-]{36}$/i.test(schoolId)) { res.status(400).json({ error: "Choose a school." }); return; }
       const [configRows, studentRows] = await Promise.all([
         supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=data&limit=1`),
-        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class,subjects&order=id.asc`),
+        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class,subjects,a_level&order=id.asc`),
       ]);
       const config = (asRows(configRows)[0]?.data ?? {}) as Row;
       const terms = (config.terms && typeof config.terms === "object" ? config.terms : {}) as Record<string, Row>;
@@ -97,7 +97,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       let sameIdOtherTerm = 0, tableIdShape = "";
       for (const r of studentRows) { const k = `${text(r.name).toLowerCase()}|${text(r.class).toLowerCase()}`; (byNameClass.get(k) ?? byNameClass.set(k, new Set()).get(k)!).add(text(r.id)); }
       const tableKey = new Map(studentRows.map((r) => [`${text(r.term_key)}|${text(r.id)}`, r]));
-      let inserted = 0, subjectsUpdated = 0, skipped = 0;
+      let inserted = 0, subjectsUpdated = 0, skipped = 0, aLevelCopied = 0;
       const why = { badId: 0, noName: 0, noClass: 0 }; let sampleKeys: string[] = []; let sampleId = "";
       const toInsert: Row[] = [];
       for (const [termKey, term] of Object.entries(terms)) {
@@ -120,8 +120,12 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
               if (!sampleKeys.length) { sampleKeys = Object.keys(item); sampleId = id.replace(/[0-9a-z]/gi, (c) => (/\d/.test(c) ? "9" : "x")).slice(0, 40); }
               continue;
             }
-            toInsert.push({ id: useId, school_id: schoolId, term_key: termKey, name, class: className, house: text(item.house), parent_phone: text(item.parentPhone ?? item.parent_phone) || null, subjects: names.length ? names : null });
+            toInsert.push({ id: useId, school_id: schoolId, term_key: termKey, name, class: className, house: text(item.house), parent_phone: text(item.parentPhone ?? item.parent_phone) || null, subjects: names.length ? names : null, ...(item.aLevel && typeof item.aLevel === "object" ? { a_level: item.aLevel } : {}) });
             continue;
+          }
+          if (item.aLevel && typeof item.aLevel === "object" && !row.a_level) {
+            await supabaseAdminRequest(`/rest/v1/students?id=eq.${enc(id)}&school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ a_level: item.aLevel }) });
+            aLevelCopied += 1;
           }
           if (names.length && subjectNames(names) !== subjectNames(row.subjects)) {
             await supabaseAdminRequest(`/rest/v1/students?id=eq.${enc(id)}&school_id=eq.${enc(schoolId)}&term_key=eq.${enc(termKey)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ subjects: names }) });
@@ -133,7 +137,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
         await supabaseAdminRequest(`/rest/v1/students?on_conflict=id,school_id,term_key`, { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify(toInsert.slice(i, i + 200)) });
         inserted += Math.min(200, toInsert.length - i);
       }
-      res.json({ schoolId, inserted, subjectsUpdated, skipped, why, sampleKeys, sampleId, legacyMatchesTable, mapped, ambiguous, sameIdOtherTerm, tableIdShape });
+      res.json({ schoolId, inserted, subjectsUpdated, aLevelCopied, skipped, why, sampleKeys, sampleId, legacyMatchesTable, mapped, ambiguous, sameIdOtherTerm, tableIdShape });
     } catch (error) { deps.sendError(res, error); }
   });
 
@@ -169,7 +173,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const [rowRows, studentRows, markRows] = await Promise.all([
           supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=data,updated_at&limit=1`),
-          pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class&order=id.asc`),
+          pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class,a_level&order=id.asc`),
           pagedRows(`/rest/v1/marks?school_id=eq.${enc(schoolId)}&select=*&order=id.asc`),
         ]);
         const row = asRows(rowRows)[0];
@@ -177,16 +181,19 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
         const data = (row.data && typeof row.data === "object" ? row.data : {}) as Row;
         const settings = (data.settings && typeof data.settings === "object" ? data.settings : {}) as Row;
         if (settings.tablesOnly !== true) { res.status(409).json({ error: "Switch this school to Tables only first." }); return; }
-        if (settings.aLevelEnabled === true) { res.status(409).json({ error: "This school uses A-Level, whose enrolments are still kept in the old copy." }); return; }
         const terms = (data.terms && typeof data.terms === "object" ? data.terms : {}) as Record<string, Row>;
         const tableIds = new Set(studentRows.map((r) => `${text(r.term_key)}|${text(r.id)}`));
         const tableNames = new Set(studentRows.map((r) => `${text(r.term_key)}|${text(r.name).toLowerCase()}|${text(r.class).toLowerCase()}`));
         const tableMarks = new Set(markRows.map((r) => `${text(r.term_key)}|${text(r.student_id)}|${text(r.subject)}`));
-        let missingLearners = 0, missingMarks = 0;
+        let missingLearners = 0, missingMarks = 0, missingALevel = 0;
+        const tableALevel = new Set(studentRows.filter((r) => r.a_level).map((r) => `${text(r.term_key)}|${text(r.id)}`));
         const nextTerms: Record<string, unknown> = {};
         for (const [termKey, term] of Object.entries(terms)) {
           for (const item of Array.isArray(term.students) ? (term.students as Row[]) : []) {
             if (!tableIds.has(`${termKey}|${text(item.id)}`) && !tableNames.has(`${termKey}|${text(item.name).toLowerCase()}|${text(item.class ?? item.className).toLowerCase()}`)) missingLearners += 1;
+          }
+          for (const item of Array.isArray(term.students) ? (term.students as Row[]) : []) {
+            if (item.aLevel && typeof item.aLevel === "object" && !tableALevel.has(`${termKey}|${text(item.id)}`)) missingALevel += 1;
           }
           for (const mark of Array.isArray(term.marks) ? (term.marks as Row[]) : []) {
             const hasValue = ["c1", "c2", "c3"].some((f) => markValue(mark, f) > 0);
@@ -195,8 +202,8 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
           const { students: _s, marks: _m, ...rest } = term;
           nextTerms[termKey] = rest;
         }
-        if (missingLearners || missingMarks) {
-          res.status(409).json({ error: `Not removed: ${missingLearners} learners and ${missingMarks} marks in the old copy are not in the tables yet. Use Copy into tables and run the check again.` });
+        if (missingLearners || missingMarks || missingALevel) {
+          res.status(409).json({ error: `Not removed: ${missingLearners} learners, ${missingMarks} marks and ${missingALevel} A-Level enrolments in the old copy are not in the tables yet. Use Copy into tables and run the check again.` });
           return;
         }
         const done = asRows(await supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&updated_at=eq.${enc(text(row.updated_at))}&select=updated_at`, {
