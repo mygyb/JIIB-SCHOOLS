@@ -2535,13 +2535,17 @@ router.get("/schools/:schoolId/marks", async (req, res) => {
       `school_id=eq.${encodeURIComponent(schoolId)}`,
       `term_key=eq.${encodeURIComponent(termKey)}`,
     ];
-    if (className) filters.push(`class=eq.${encodeURIComponent(className)}`);
     if (subject) filters.push(`subject=eq.${encodeURIComponent(subject)}`);
     // All pages: reports and the performance views load a whole term at once, which is far more than 1,000 marks.
-    const [rows, config] = await Promise.all([
+    // The class filter is applied through the learners table (a mark's own class column can be empty or out of date).
+    const [rows, config, classRows] = await Promise.all([
       fetchAllRows(req, "marks", `?${filters.join("&")}&select=*&order=updated_at.desc,id.asc`),
       readSchoolConfig(req, schoolId),
+      className
+        ? fetchAllRows(req, "students", `?school_id=eq.${encodeURIComponent(schoolId)}&term_key=eq.${encodeURIComponent(termKey)}&class=eq.${encodeURIComponent(className)}&select=id&order=id.asc`)
+        : Promise.resolve([]),
     ]);
+    const idsInClass = new Set(asRows(classRows).map((row) => String(row.id)));
     const databaseMarks = asRows(rows).map(mapMark);
     const terms = config.terms && typeof config.terms === "object"
       ? (config.terms as Record<string, Record<string, unknown>>)
@@ -2581,7 +2585,7 @@ router.get("/schools/:schoolId/marks", async (req, res) => {
     }
     const matching = Array.from(byKey.values()).filter((mark) =>
       (!subject || mark.subject === subject) &&
-      (!className || String(
+      (!className || idsInClass.has(mark.studentId) || String(
         (Array.isArray(term?.students)
           ? (term.students as Array<Record<string, unknown>>).find((student) => String(student.id) === mark.studentId)?.class
           : "") ?? "",
