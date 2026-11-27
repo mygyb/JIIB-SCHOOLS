@@ -72,7 +72,8 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
         });
       }
       out.sort((a, b) => a.termKey.localeCompare(b.termKey, undefined, { numeric: true }));
-      res.json({ schoolId, recordBytes: JSON.stringify(config).length, terms: out });
+      const settings = (config.settings && typeof config.settings === "object" ? config.settings : {}) as Row;
+      res.json({ schoolId, recordBytes: JSON.stringify(config).length, tablesOnly: settings.tablesOnly === true, aLevel: settings.aLevelEnabled === true, terms: out });
     } catch (error) { deps.sendError(res, error); }
   });
 
@@ -133,6 +134,27 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
         inserted += Math.min(200, toInsert.length - i);
       }
       res.json({ schoolId, inserted, subjectsUpdated, skipped, why, sampleKeys, sampleId, legacyMatchesTable, mapped, ambiguous, sameIdOtherTerm, tableIdShape });
+    } catch (error) { deps.sendError(res, error); }
+  });
+
+  // Per-school switch: read learners and marks only from the tables. The record is never changed except for this one setting.
+  router.post("/storage-admin/tables-only", async (req, res) => {
+    try {
+      if (!await deps.authorizeSuperAdmin(req, res)) return;
+      const schoolId = text(req.body?.schoolId);
+      if (!/^[0-9a-f-]{36}$/i.test(schoolId)) { res.status(400).json({ error: "Choose a school." }); return; }
+      const enabled = req.body?.enabled === true;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const row = asRows(await supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=data,updated_at&limit=1`))[0];
+        if (!row) { res.status(404).json({ error: "This school has no saved settings." }); return; }
+        const data = (row.data && typeof row.data === "object" ? row.data : {}) as Row;
+        const settings: Row = { ...((data.settings && typeof data.settings === "object" ? data.settings : {}) as Row), tablesOnly: enabled };
+        const done = asRows(await supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&updated_at=eq.${enc(text(row.updated_at))}&select=updated_at`, {
+          method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ data: { ...data, settings }, updated_at: new Date().toISOString() }),
+        }));
+        if (done[0]) { res.json({ schoolId, tablesOnly: enabled, aLevel: settings.aLevelEnabled === true }); return; }
+      }
+      res.status(409).json({ error: "The school settings were changing. Try again." });
     } catch (error) { deps.sendError(res, error); }
   });
 }

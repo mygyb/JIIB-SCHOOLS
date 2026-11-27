@@ -83,7 +83,7 @@ type TermCheck = {
   students: { inTable: number; inRecord: number; onlyInRecord: number; onlyInTable: number; subjectsToCopy: number; aLevelToCopy: number; differ: Record<string, number> };
   marks: { inTable: number; inRecord: number; onlyInRecord: number; differ: number };
 };
-type SchoolCheck = { schoolId: string; name: string; recordBytes: number; terms: TermCheck[] } | { schoolId: string; name: string; error: string };
+type SchoolCheck = { schoolId: string; name: string; recordBytes: number; tablesOnly?: boolean; aLevel?: boolean; terms: TermCheck[] } | { schoolId: string; name: string; error: string };
 
 /** Dry run for the planned move of learners and marks into the real tables. It only reads and counts; it changes nothing. */
 function DataCheckPanel({ schools }: { schools: Array<{ id: string; name: string }> }) {
@@ -112,6 +112,16 @@ function DataCheckPanel({ schools }: { schools: Array<{ id: string; name: string
     } catch (cause) { setCopied((m) => ({ ...m, [schoolId]: cause instanceof Error ? cause.message : 'Copy failed.' })); }
     setCopying('');
   };
+  const [switching, setSwitching] = useState('');
+  const flip = async (schoolId: string, enabled: boolean) => {
+    if (!window.confirm(enabled ? 'Make this school read learners and marks ONLY from the tables? The old copy stays stored untouched and you can switch back.' : 'Switch this school back to also reading the old copy?')) return;
+    setSwitching(schoolId);
+    try {
+      const r = await jiibApi<{ tablesOnly: boolean }>('/api/storage-admin/tables-only', { method: 'POST', body: JSON.stringify({ schoolId, enabled }) });
+      setResults((list) => list.map((item) => item.schoolId === schoolId && !('error' in item) ? { ...item, tablesOnly: r.tablesOnly } : item));
+    } catch (cause) { setCopied((m) => ({ ...m, [schoolId]: cause instanceof Error ? cause.message : 'Could not switch.' })); }
+    setSwitching('');
+  };
   const need = (term: TermCheck) => term.students.onlyInRecord + term.students.subjectsToCopy + term.marks.onlyInRecord;
   const mismatch = (term: TermCheck) => Object.values(term.students.differ).reduce((a, b) => a + b, 0) + term.marks.differ;
   return <Panel title="Data check (dry run)" action={<button type="button" data-testid="hq-data-check" disabled={running || !schools.length} onClick={() => void run()} className="h-9 rounded-lg border border-primary px-3 text-sm font-semibold text-primary disabled:opacity-50">{running ? 'Checking…' : results.length ? 'Run again' : 'Run check'}</button>}>
@@ -120,7 +130,8 @@ function DataCheckPanel({ schools }: { schools: Array<{ id: string; name: string
       {results.map((result) => 'error' in result
         ? <p key={result.schoolId} role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{result.name}: {result.error}</p>
         : <section key={result.schoolId} className="rounded-xl border border-border" data-testid="hq-data-check-school">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5"><p className="text-sm font-semibold">{result.name}</p><span className="flex items-center gap-2 text-xs text-muted-foreground">Settings record {formatBytes(result.recordBytes)}<button type="button" data-testid="hq-data-copy" disabled={!!copying} onClick={() => void copy(result.schoolId)} className="h-8 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{copying === result.schoolId ? 'Copying…' : 'Copy into tables'}</button></span></div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5"><p className="text-sm font-semibold">{result.name}</p><span className="flex items-center gap-2 text-xs text-muted-foreground">Settings record {formatBytes(result.recordBytes)}<button type="button" data-testid="hq-data-copy" disabled={!!copying} onClick={() => void copy(result.schoolId)} className="h-8 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{copying === result.schoolId ? 'Copying…' : 'Copy into tables'}</button><button type="button" data-testid="hq-tables-only" disabled={!!switching} onClick={() => void flip(result.schoolId, !result.tablesOnly)} className={`h-8 rounded-lg border px-3 text-xs font-semibold disabled:opacity-50 ${result.tablesOnly ? 'border-emerald-600 text-emerald-700' : 'border-primary text-primary'}`}>{switching === result.schoolId ? '…' : result.tablesOnly ? 'Tables only: ON' : 'Tables only: off'}</button></span></div>
+          {result.tablesOnly && result.aLevel ? <p className="border-b border-border px-4 py-2 text-xs text-amber-700">A-Level is on for this school, so it keeps using the old copy for now.</p> : null}
           {copied[result.schoolId] ? <p className="border-b border-border px-4 py-2 text-xs text-emerald-700">{copied[result.schoolId]}</p> : null}
           <div className="overflow-x-auto"><table className="w-full min-w-[34rem] text-left text-xs">
             <thead className="text-muted-foreground"><tr><th className="px-4 py-2">Term</th><th className="px-2 py-2">Learners (table / record)</th><th className="px-2 py-2">To copy</th><th className="px-2 py-2">Marks (table / record)</th><th className="px-2 py-2">Marks to copy</th><th className="px-2 py-2">Differences</th></tr></thead>

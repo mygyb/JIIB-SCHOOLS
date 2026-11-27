@@ -295,6 +295,51 @@ import { mergeConfig } from "../lib/config-merge.js";
 type ConfigBase = { version: string | null; json: string };
 const configBases = new WeakMap<Request, Map<string, ConfigBase>>();
 
+// Per-school switch (settings.tablesOnly): learners and marks are read only from the real tables. The old copies inside the
+// settings record are hidden from every reader, left untouched in storage, and put back unchanged on every save, so the switch
+// can be turned off again. Schools with A-Level switched on keep using the record for now (their enrolments are only kept there).
+export const tablesOnlyOn = (config: SchoolConfig) => {
+  const settings = config.settings && typeof config.settings === "object" ? (config.settings as Record<string, unknown>) : {};
+  return settings.tablesOnly === true && settings.aLevelEnabled !== true;
+};
+function withoutRecordCopies(config: SchoolConfig): SchoolConfig {
+  if (!tablesOnlyOn(config) || !config.terms || typeof config.terms !== "object") return config;
+  const terms: Record<string, unknown> = {};
+  for (const [key, term] of Object.entries(config.terms as Record<string, unknown>)) {
+    if (term && typeof term === "object" && !Array.isArray(term)) { const { students: _s, marks: _m, ...rest } = term as Record<string, unknown>; terms[key] = rest; } else terms[key] = term;
+  }
+  return { ...config, terms };
+}
+const recordStash = new WeakMap<Request, Map<string, Record<string, { students?: unknown; marks?: unknown }>>>();
+function stashRecords(req: Request, schoolId: string, config: SchoolConfig) {
+  if (!tablesOnlyOn(config) || !config.terms || typeof config.terms !== "object") return;
+  const kept: Record<string, { students?: unknown; marks?: unknown }> = {};
+  for (const [key, term] of Object.entries(config.terms as Record<string, unknown>)) {
+    if (term && typeof term === "object") kept[key] = { students: (term as Record<string, unknown>).students, marks: (term as Record<string, unknown>).marks };
+  }
+  const all = recordStash.get(req) ?? new Map();
+  all.set(schoolId, kept); recordStash.set(req, all);
+}
+function restoreRecords(req: Request, schoolId: string, config: SchoolConfig): SchoolConfig {
+  const kept = recordStash.get(req)?.get(schoolId);
+  if (!kept || !config.terms || typeof config.terms !== "object") return config;
+  const terms: Record<string, unknown> = { ...(config.terms as Record<string, unknown>) };
+  for (const [key, copy] of Object.entries(kept)) {
+    const term = terms[key];
+    if (!term || typeof term !== "object" || Array.isArray(term)) continue;
+    const next = { ...(term as Record<string, unknown>) };
+    if (next.students === undefined && copy.students !== undefined) next.students = copy.students;
+    else if (Array.isArray(next.students) && Array.isArray(copy.students)) {
+      // A writer started a fresh list: keep the stored copies it did not mention (they stay hidden from readers).
+      const seen = new Set((next.students as Array<Record<string, unknown>>).map((item) => String(item?.id)));
+      next.students = [...(next.students as unknown[]), ...(copy.students as Array<Record<string, unknown>>).filter((item) => !seen.has(String(item?.id)))];
+    }
+    if (next.marks === undefined && copy.marks !== undefined) next.marks = copy.marks;
+    terms[key] = next;
+  }
+  return { ...config, terms };
+}
+
 async function readSchoolConfig(req: Request, schoolId: string): Promise<SchoolConfig> {
   const rows = asRows(
     await supabaseRequest(
@@ -305,7 +350,9 @@ async function readSchoolConfig(req: Request, schoolId: string): Promise<SchoolC
     ),
   );
   const data = rows[0]?.data;
-  const config = data && typeof data === "object" && !Array.isArray(data) ? (data as SchoolConfig) : {};
+  const full = data && typeof data === "object" && !Array.isArray(data) ? (data as SchoolConfig) : {};
+  stashRecords(req, schoolId, full);
+  const config = withoutRecordCopies(full);
   if (rows[0]) {
     const bases = configBases.get(req) ?? new Map<string, ConfigBase>();
     bases.set(schoolId, { version: rows[0].updated_at ? String(rows[0].updated_at) : null, json: JSON.stringify(config) });
@@ -321,7 +368,7 @@ async function writeSchoolConfig(
 ): Promise<SchoolConfig> {
   const email = req.header("x-verified-user-email") ?? "app";
   const base = configBases.get(req)?.get(schoolId);
-  let next: SchoolConfig = data;
+  let next: SchoolConfig = restoreRecords(req, schoolId, data);
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const now = new Date().toISOString();
     let rows: Array<Record<string, unknown>>;
@@ -343,7 +390,7 @@ async function writeSchoolConfig(
       if (!rows[0]) throw new Error("School settings were not saved. Check the signed-in account's database access.");
     }
     const saved = rows[0].data;
-    const result = saved && typeof saved === "object" && !Array.isArray(saved) ? (saved as SchoolConfig) : next;
+    const result = withoutRecordCopies(saved && typeof saved === "object" && !Array.isArray(saved) ? (saved as SchoolConfig) : next);
     // Later saves in the same request build on what was just stored.
     const bases = configBases.get(req) ?? new Map<string, ConfigBase>();
     bases.set(schoolId, { version: rows[0].updated_at ? String(rows[0].updated_at) : null, json: JSON.stringify(result) });
@@ -1999,7 +2046,7 @@ router.get("/schools/:schoolId/dashboard", async (req, res) => {
         ? supabaseRequest(req, "allowed_users", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&email=eq.${encodeURIComponent(userEmail)}&select=email,display_name,subjects&limit=1`)
         : Promise.resolve([]),
     ]);
-    const config = (asRows(configRows)[0]?.data as Record<string, unknown> | undefined) ?? {};
+    const config = withoutRecordCopies((asRows(configRows)[0]?.data as Record<string, unknown> | undefined) ?? {});
     const termKey = String(config?.activeTerm ?? "");
     const termFilter = `school_id=eq.${encodeURIComponent(schoolId)}${termKey ? `&term_key=eq.${encodeURIComponent(termKey)}` : ""}`;
     const [studentRows, markRows] = await Promise.all([
