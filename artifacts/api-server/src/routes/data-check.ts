@@ -119,7 +119,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
               if (!sampleKeys.length) { sampleKeys = Object.keys(item); sampleId = id.replace(/[0-9a-z]/gi, (c) => (/\d/.test(c) ? "9" : "x")).slice(0, 40); }
               continue;
             }
-            toInsert.push({ id: useId, school_id: schoolId, term_key: termKey, name, class: className, house: text(item.house), parent_phone: text(item.parentPhone ?? item.parent_phone) || null, subjects: names.length ? names : null, badges: Array.isArray(item.badges) ? item.badges.map(String) : [] });
+            toInsert.push({ id: useId, school_id: schoolId, term_key: termKey, name, class: className, house: text(item.house), parent_phone: text(item.parentPhone ?? item.parent_phone) || null, subjects: names.length ? names : null });
             continue;
           }
           if (names.length && subjectNames(names) !== subjectNames(row.subjects)) {
