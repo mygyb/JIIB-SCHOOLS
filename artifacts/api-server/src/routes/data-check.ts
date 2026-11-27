@@ -85,10 +85,12 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       if (!/^[0-9a-f-]{36}$/i.test(schoolId)) { res.status(400).json({ error: "Choose a school." }); return; }
       const [configRows, studentRows] = await Promise.all([
         supabaseAdminRequest(`/rest/v1/school_data?school_id=eq.${enc(schoolId)}&select=data&limit=1`),
-        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,subjects&order=id.asc`),
+        pagedRows(`/rest/v1/students?school_id=eq.${enc(schoolId)}&select=id,term_key,name,class,subjects&order=id.asc`),
       ]);
       const config = (asRows(configRows)[0]?.data ?? {}) as Row;
       const terms = (config.terms && typeof config.terms === "object" ? config.terms : {}) as Record<string, Row>;
+      const nameClass = new Set(studentRows.map((r) => `${text(r.name).toLowerCase()}|${text(r.class).toLowerCase()}`));
+      let legacyMatchesTable = 0;
       const tableKey = new Map(studentRows.map((r) => [`${text(r.term_key)}|${text(r.id)}`, r]));
       let inserted = 0, subjectsUpdated = 0, skipped = 0;
       const why = { badId: 0, noName: 0, noClass: 0 }; let sampleKeys: string[] = []; let sampleId = "";
