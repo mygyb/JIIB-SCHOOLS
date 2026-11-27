@@ -123,7 +123,7 @@ function mapStudent(row: Record<string, unknown>) {
     parentPhone: (row.parent_phone as string | null | undefined) ?? null,
     badges: Array.isArray(row.badges) ? row.badges.map(String) : [],
     subjects: Array.isArray(row.subjects) ? row.subjects.map(String) : [],
-    aLevel: null as Enrolment | null,
+    aLevel: enrolmentOf(row.a_level),
     createdAt: new Date(String(row.created_at ?? new Date().toISOString())),
   };
 }
@@ -297,10 +297,10 @@ const configBases = new WeakMap<Request, Map<string, ConfigBase>>();
 
 // Per-school switch (settings.tablesOnly): learners and marks are read only from the real tables. The old copies inside the
 // settings record are hidden from every reader, left untouched in storage, and put back unchanged on every save, so the switch
-// can be turned off again. Schools with A-Level switched on keep using the record for now (their enrolments are only kept there).
+// can be turned off again.
 export const tablesOnlyOn = (config: SchoolConfig) => {
   const settings = config.settings && typeof config.settings === "object" ? (config.settings as Record<string, unknown>) : {};
-  return settings.tablesOnly === true && settings.aLevelEnabled !== true;
+  return settings.tablesOnly === true;
 };
 function withoutRecordCopies(config: SchoolConfig): SchoolConfig {
   if (!tablesOnlyOn(config) || !config.terms || typeof config.terms !== "object") return config;
@@ -1747,8 +1747,10 @@ router.put("/schools/:schoolId/a-level/combinations", requireSchoolAdmin, async 
       if (kept.has(old.id)) continue;
       const count = Object.values(terms).reduce((sum, term) => sum + (Array.isArray(term.students)
         ? (term.students as Array<Record<string, unknown>>).filter((student) => enrolmentOf(student.aLevel)?.combination === old.id).length : 0), 0);
-      if (count > 0) {
-        res.status(409).json({ error: `${count} ${count === 1 ? "student is" : "students are"} enrolled in ${old.name}. Move them to another combination before removing it.` });
+      const inTables = asRows(await supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&a_level=not.is.null&select=id,term_key,a_level`).catch(() => [])).filter((row) => enrolmentOf(row.a_level)?.combination === old.id).length;
+      if (count + inTables > 0) {
+        const total = count + inTables;
+        res.status(409).json({ error: `${total} ${total === 1 ? "student is" : "students are"} enrolled in ${old.name}. Move them to another combination before removing it.` });
         return;
       }
     }
@@ -1770,6 +1772,16 @@ router.put("/schools/:schoolId/a-level/combinations", requireSchoolAdmin, async 
         };
       }),
     } : term]));
+    // Learners whose enrolment is kept in the table follow the combination too.
+    const tableRows = asRows(await supabaseRequest(req, "students", {}, `?school_id=eq.${encodeURIComponent(schoolId)}&a_level=not.is.null&select=id,term_key,a_level`).catch(() => []));
+    for (const row of tableRows) {
+      const enrolment = enrolmentOf(row.a_level);
+      const combination = enrolment ? next.find((item) => item.id === enrolment.combination) : undefined;
+      if (!enrolment || !combination) continue;
+      await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ a_level: { ...enrolment, stream: combination.stream }, subjects: enrolmentSubjects(draft, combination, enrolment.subsidiary), updated_at: new Date().toISOString() }) },
+        `?id=eq.${encodeURIComponent(String(row.id))}&school_id=eq.${encodeURIComponent(schoolId)}&term_key=eq.${encodeURIComponent(String(row.term_key))}`);
+      refreshed += 1;
+    }
     const saved = await writeSchoolConfig(req, schoolId, { ...draft, terms: nextTerms });
     res.json({ ...GetSchoolConfigResponse.parse({ schoolId, data: saved, updatedAt: new Date() }), refreshedStudents: refreshed });
   } catch (error) {
@@ -2259,7 +2271,7 @@ router.get("/schools/:schoolId/students", async (req, res) => {
         badges: student.badges.length ? student.badges : Array.isArray(legacy?.badges) ? legacy.badges.map(String) : [],
         // The saved-settings copy is what the edit page writes, so it wins; the table's own list is the fallback.
         subjects: Array.isArray(legacy?.subjects) ? legacy.subjects.map(String) : (student.subjects ?? []),
-        aLevel: enrolmentOf(legacy?.aLevel),
+        aLevel: student.aLevel ?? enrolmentOf(legacy?.aLevel),
       });
     }
     for (const legacy of legacyStudents) {
@@ -2319,6 +2331,7 @@ router.post("/schools/:schoolId/students", async (req, res) => {
             house: body.house,
             parent_phone: body.parentPhone ?? null,
             subjects,
+            a_level: enrolment ?? null,
             updated_at: new Date().toISOString(),
           }),
         },
@@ -2387,6 +2400,7 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
     if (body.house !== undefined) update.house = body.house;
     if (body.parentPhone !== undefined) update.parent_phone = body.parentPhone;
     if (newSubjects !== undefined) update.subjects = newSubjects;
+    if (enrolment !== undefined) update.a_level = enrolment;
     let rows = asRows(
       await supabaseRequest(
         req,
@@ -2423,6 +2437,7 @@ router.patch("/schools/:schoolId/students/:studentId", async (req, res) => {
               class: body.className ?? String(legacy.class ?? legacy.className ?? ""),
               house: body.house ?? String(legacy.house ?? ""),
               parent_phone: body.parentPhone !== undefined ? body.parentPhone : (String(legacy.parentPhone ?? legacy.parent_phone ?? "") || null),
+              ...(enrolment !== undefined ? { a_level: enrolment } : legacy.aLevel ? { a_level: enrolmentOf(legacy.aLevel) } : {}),
               updated_at: new Date().toISOString(),
             }),
           },
@@ -3573,7 +3588,7 @@ router.post("/schools/:schoolId/promotion", requireSchoolAdmin, async (req, res)
         nextALevel = resolved.aLevel;
         nextSubjects = resolved.subjects;
       } else if (aLevelDestination) {
-        nextALevel = enrolmentOf(legacy?.aLevel);
+        nextALevel = enrolmentOf(row?.a_level) ?? enrolmentOf(legacy?.aLevel);
         if (nextALevel) nextSubjects = nextSubjects ?? prevSubjects;
       }
       if (nextSubjects && destinationSubjects.length) {
@@ -3582,7 +3597,7 @@ router.post("/schools/:schoolId/promotion", requireSchoolAdmin, async (req, res)
       }
       changes.push({
         id: item.id, name, house: String(row?.house ?? legacy?.house ?? ""), parentPhone: (row?.parent_phone as string | null | undefined) ?? (String(legacy?.parentPhone ?? legacy?.parent_phone ?? "") || null),
-        row, prevSubjects, prevALevel: enrolmentOf(legacy?.aLevel), nextSubjects, nextALevel,
+        row, prevSubjects, prevALevel: enrolmentOf(row?.a_level) ?? enrolmentOf(legacy?.aLevel), nextSubjects, nextALevel,
       });
     }
     if (!changes.length) { res.status(400).json({ error: "No students are set to be promoted." }); return; }
@@ -3593,11 +3608,11 @@ router.post("/schools/:schoolId/promotion", requireSchoolAdmin, async (req, res)
     try {
       for (const change of changes) {
         if (change.row) {
-          await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: body.toClass, ...(change.nextSubjects ? { subjects: change.nextSubjects } : {}), updated_at: new Date().toISOString() }) }, rowKey(change.id));
+          await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: body.toClass, ...(change.nextSubjects ? { subjects: change.nextSubjects } : {}), a_level: change.nextALevel ?? null, updated_at: new Date().toISOString() }) }, rowKey(change.id));
         } else {
           await supabaseRequest(req, "students", {
             method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-            body: jsonBody({ school_id: schoolId, term_key: termKey, id: change.id, name: change.name, class: body.toClass, house: change.house, parent_phone: change.parentPhone, ...(change.nextSubjects ? { subjects: change.nextSubjects } : {}), updated_at: new Date().toISOString() }),
+            body: jsonBody({ school_id: schoolId, term_key: termKey, id: change.id, name: change.name, class: body.toClass, house: change.house, parent_phone: change.parentPhone, ...(change.nextSubjects ? { subjects: change.nextSubjects } : {}), a_level: change.nextALevel ?? null, updated_at: new Date().toISOString() }),
           }, "?on_conflict=id,school_id,term_key");
         }
         applied.push(change);
@@ -3605,7 +3620,7 @@ router.post("/schools/:schoolId/promotion", requireSchoolAdmin, async (req, res)
     } catch (error) {
       for (const change of applied) {
         try {
-          if (change.row) await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: body.fromClass, subjects: change.row.subjects ?? null }) }, rowKey(change.id));
+          if (change.row) await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: body.fromClass, subjects: change.row.subjects ?? null, a_level: change.row.a_level ?? null }) }, rowKey(change.id));
           else await supabaseRequest(req, "students", { method: "DELETE", headers: { Prefer: "return=minimal" } }, rowKey(change.id));
         } catch { /* best effort */ }
       }
@@ -3661,7 +3676,7 @@ router.post("/schools/:schoolId/promotion/:batchId/undo", requireSchoolAdmin, as
     const present = new Set(rows.map((row) => String(row.id)));
     const restorable = batch.moved.filter((move) => present.has(move.id));
     for (const move of restorable) {
-      await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: batch.fromClass, subjects: move.subjects ?? [], updated_at: new Date().toISOString() }) },
+      await supabaseRequest(req, "students", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: jsonBody({ class: batch.fromClass, subjects: move.subjects ?? [], a_level: move.aLevel ?? null, updated_at: new Date().toISOString() }) },
         `?id=eq.${encodeURIComponent(move.id)}&school_id=eq.${encSchool}&term_key=eq.${encodeURIComponent(batch.termKey)}`);
     }
     const terms = termsOf(config);
