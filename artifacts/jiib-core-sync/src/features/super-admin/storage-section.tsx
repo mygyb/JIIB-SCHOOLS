@@ -107,8 +107,8 @@ function DataCheckPanel({ schools }: { schools: Array<{ id: string; name: string
     if (!window.confirm('Copy this school\'s missing learners and newer subject lists into the tables? Marks are not touched and nothing is deleted.')) return;
     setCopying(schoolId);
     try {
-      const r = await jiibApi<{ inserted: number; subjectsUpdated: number; skipped: number; why?: { badId: number; noName: number; noClass: number }; sampleKeys?: string[]; sampleId?: string; legacyMatchesTable?: number }>('/api/storage-admin/data-check/copy', { method: 'POST', body: JSON.stringify({ schoolId }) });
-      setCopied((m) => ({ ...m, [schoolId]: `Done: ${r.inserted} learners added, ${r.subjectsUpdated} subject lists updated${r.skipped ? `, ${r.skipped} skipped (bad id ${r.why?.badId}, no name ${r.why?.noName}, no class ${r.why?.noClass}; ${r.legacyMatchesTable} of them match a learner already in the tables by name+class; id shape ${r.sampleId}; fields ${r.sampleKeys?.join('/')})` : ''}. Run the check again.` }));
+      const r = await jiibApi<{ inserted: number; subjectsUpdated: number; skipped: number; why?: { badId: number; noName: number; noClass: number }; sampleKeys?: string[]; sampleId?: string; legacyMatchesTable?: number; mapped?: number; ambiguous?: number }>('/api/storage-admin/data-check/copy', { method: 'POST', body: JSON.stringify({ schoolId }) });
+      setCopied((m) => ({ ...m, [schoolId]: `Done: ${r.inserted} learners added (${r.mapped ?? 0} old-style IDs matched to existing learners), ${r.subjectsUpdated} subject lists updated${r.ambiguous ? `, ${r.ambiguous} left alone: same name and class twice` : ''}${r.skipped ? `, ${r.skipped} skipped (bad id ${r.why?.badId}, no name ${r.why?.noName}, no class ${r.why?.noClass}; ${r.legacyMatchesTable} of them match a learner already in the tables by name+class; id shape ${r.sampleId}; fields ${r.sampleKeys?.join('/')})` : ''}. Run the check again.` }));
     } catch (cause) { setCopied((m) => ({ ...m, [schoolId]: cause instanceof Error ? cause.message : 'Copy failed.' })); }
     setCopying('');
   };
