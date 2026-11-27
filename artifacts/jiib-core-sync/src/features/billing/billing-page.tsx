@@ -68,8 +68,7 @@ function readSms(sms: string) {
 
 export function Logo({ kind, size = 'md' }: { kind: string; size?: 'sm' | 'md' }) {
   const h = size === 'sm' ? 'h-7 text-[11px]' : 'h-9 text-xs';
-  if (kind === 'mtn') return <span className={`inline-flex ${h} items-center gap-1 rounded-full bg-[#ffcc00] px-3 font-black tracking-tight text-[#1a1a1a]`}>MTN <span className="font-semibold">MoMo</span></span>;
-  if (kind === 'airtel') return <span className={`inline-flex ${h} items-center gap-1 rounded-full bg-[#e40000] px-3 font-bold lowercase text-white`}>airtel <span className="font-medium">money</span></span>;
+  if (kind === 'mtn' || kind === 'airtel') return <img src={`/pay/${kind}.png`} alt={kind === 'mtn' ? 'MTN MoMo' : 'Airtel Money'} className={`${size === 'sm' ? 'h-8' : 'h-11'} w-auto rounded-md`} />;
   return <span className={`inline-flex ${h} items-center gap-1.5 rounded-full bg-[#1a2b5c] px-3 font-bold text-white`}><Landmark size={size === 'sm' ? 12 : 14} />Bank</span>;
 }
 
@@ -101,7 +100,7 @@ function SubmitPayment({ schoolId, invoice, payee, onDone }: { schoolId: string;
   void payee;
   if (done) return <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="font-semibold text-emerald-800">Payment submitted. We will confirm it shortly.</p><p className="text-sm text-emerald-900/80">To speed things up, send the details to J-SCHOOLS on WhatsApp.</p><a href={done} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#25d366] px-4 text-sm font-semibold text-white"><MessageCircle size={16} /> Send on WhatsApp</a></div>;
   return <div className="space-y-3">
-    <div className="grid grid-cols-3 gap-2">{(['mtn', 'airtel', 'bank'] as const).map((k) => <button key={k} type="button" onClick={() => setChannel(k)} className={`grid h-14 place-items-center rounded-xl border-2 transition ${channel === k ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted'}`}><Logo kind={k} size="sm" /></button>)}</div>
+    <div className="grid grid-cols-3 gap-2">{(['mtn', 'airtel', 'bank'] as const).map((k) => <button key={k} type="button" onClick={() => setChannel(k)} className={`grid h-16 place-items-center rounded-xl border-2 transition ${channel === k ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted'}`}><Logo kind={k} size="sm" /></button>)}</div>
     <label className="block text-xs font-semibold">Paste the confirmation SMS (optional)<textarea value={sms} onChange={(e) => paste(e.target.value)} rows={2} placeholder="We fill in the transaction ID and amount for you" className="mt-1 w-full rounded-lg border border-input bg-background p-2 text-sm" /></label>
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="text-xs font-semibold">Transaction ID<input value={transactionId} onChange={(e) => setTransactionId(e.target.value)} className={field} /></label>
