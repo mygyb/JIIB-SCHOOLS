@@ -5,6 +5,8 @@ import { registerMarksProgressRoutes } from "./marks-progress.js";
 import { registerMarksheetRoutes } from "./marksheets.js";
 import { registerNurseryExtrasRoutes } from "./nursery-extras.js";
 import { registerDataCheckRoutes } from "./data-check.js";
+import { registerBillingRoutes } from "./billing.js";
+import { learnerLimitProblem, teacherLimitProblem } from "../lib/billing.js";
 import { registerPublicPushRoutes, registerPushRoutes } from "./push.js";
 import { registerPublicSmsRoutes, registerSmsRoutes } from "./sms.js";
 import { pruneOldTerms, registerCleanupRoutes } from "./cleanup.js";
@@ -1300,6 +1302,7 @@ registerPushRoutes(router, { readSchoolConfig, requireSchoolAdmin }, sendError);
 registerSmsRoutes(router, { readSchoolConfig, authorizeSuperAdmin, sendError });
 registerCleanupRoutes(router, { authorizeSuperAdmin, sendError });
 registerDataCheckRoutes(router, { authorizeSuperAdmin, sendError });
+registerBillingRoutes(router, { authorizeSuperAdmin, sendError });
 
 // Teacher logins and marks entries for the school's System settings page (administrators only).
 router.get("/schools/:schoolId/activity", requireSchoolViewer, async (req, res) => {
@@ -2315,6 +2318,8 @@ router.post("/schools/:schoolId/students", async (req, res) => {
       subjects = resolved.subjects;
     }
     const termKey = String(config.activeTerm ?? "2026-T1");
+    const limitProblem = await learnerLimitProblem(schoolId, termKey);
+    if (limitProblem) { res.status(402).json({ code: "plan_limit", error: limitProblem }); return; }
     const studentId = randomUUID();
     const rows = asRows(
       await supabaseRequest(
@@ -3058,6 +3063,10 @@ router.post("/schools/:schoolId/users", async (req, res) => {
       return;
     }
 
+    if (body.role === "teacher") {
+      const teacherProblem = await teacherLimitProblem(schoolId);
+      if (teacherProblem) { res.status(402).json({ code: "plan_limit", error: teacherProblem }); return; }
+    }
     const roster = asRows(await supabaseAdminRequest(
       `/rest/v1/allowed_users?school_id=eq.${encodeURIComponent(schoolId)}&select=email,display_name,role,subjects`,
     ));
