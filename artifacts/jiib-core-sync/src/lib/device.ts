@@ -30,10 +30,12 @@ export function takeSignOutNotice(): string {
   }
 }
 
-export async function forceSignOut(reason: 'revoked' | 'blocked') {
+export async function forceSignOut(reason: 'revoked' | 'blocked' | 'suspended') {
   try {
     localStorage.setItem(NOTICE_KEY, reason === 'blocked'
       ? 'This account has been blocked. Please contact your school administrator.'
+      : reason === 'suspended'
+      ? 'This school has been suspended. Please contact the system administrator.'
       : 'You were signed out by the system administrator. Please log in again.');
   } catch { /* storage unavailable */ }
   try { await supabase?.auth.signOut(); } catch { /* already signed out */ }
@@ -65,7 +67,7 @@ async function beat(event: 'login' | 'open' | 'ping', who: Identity) {
     });
     if (!response.ok) return;
     const { status } = (await response.json()) as { status?: string };
-    if (status === 'revoked' || status === 'blocked') await forceSignOut(status);
+    if (status === 'revoked' || status === 'blocked' || status === 'suspended') await forceSignOut(status);
   } catch { /* offline: try again on the next beat */ }
 }
 

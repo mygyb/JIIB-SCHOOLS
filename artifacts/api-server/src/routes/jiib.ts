@@ -60,6 +60,7 @@ import {
 import { listSchoolActivity, logTeacherActivity } from "../lib/activity.js";
 import { aLevelEnabled as isALevelEnabledOn, combinationsOf, combinationsProblem, papersOf, enrolmentSubjects, resolveEnrolment, subjectsProblem, type Combination, type Enrolment } from "../lib/alevel.js";
 import { cellKey, conversionsFor, convertConfigTerms, convertTable, planRescale, scaleMapper, scaleValue, type Conversion, type Mapper } from "../lib/rescale.js";
+import { schoolIsSuspended, forgetSuspension } from "../lib/suspension.js";
 import { accountIsBlocked, clientIp, isSuperAdminEmail, tooManyAttempts, verifySuperAdmin } from "../lib/hq.js";
 
 const router: IRouter = Router();
@@ -788,6 +789,7 @@ router.patch("/schools/:schoolId/status", async (req, res) => {
       res.status(404).json({ error: "School not found." });
       return;
     }
+    forgetSuspension(schoolId);
     res.json(mapSchool(rows[0]));
   } catch (error) {
     sendError(res, error);
@@ -1093,6 +1095,16 @@ router.get("/schools/:schoolId/help-messages", async (req, res) => {
   }
 });
 
+
+// A suspended school: every account of that school is refused at once (the app then signs the person out) until it is reactivated.
+const SUSPENDED_BODY = { code: "school_suspended", error: "This school has been suspended. Please contact the system administrator." };
+
+router.use("/schools/:schoolId/parents", async (req, res, next) => {
+  try {
+    if (await schoolIsSuspended(String(req.params.schoolId))) { res.status(403).json(SUSPENDED_BODY); return; }
+    next();
+  } catch (error) { sendError(res, error); }
+});
 // Parent access follows the legacy system's phone-number verification. These
 // routes return only the matching family's data; Supabase RLS still applies.
 router.get("/schools/:schoolId/parents/portal", async (req, res) => {
@@ -1199,6 +1211,7 @@ router.use("/schools/:schoolId", async (req, res, next) => {
         )[0]
       : undefined;
     if (allowed) {
+      if (await schoolIsSuspended(schoolId)) { res.status(403).json(SUSPENDED_BODY); return; }
       res.locals.jiibRole = staffRole(allowed.role);
       const sub = req.path.replace(/\/+$/, "");
       // Head teachers can look at every department but change nothing. Bursars only reach the Finance workspace
