@@ -2538,6 +2538,7 @@ router.get("/schools/:schoolId/marks", async (req, res) => {
     if (subject) filters.push(`subject=eq.${encodeURIComponent(subject)}`);
     // All pages: reports and the performance views load a whole term at once, which is far more than 1,000 marks.
     // The class filter is applied through the learners table (a mark's own class column can be empty or out of date).
+    // (Class filter checked again after the learner copy was removed from the settings record.)
     const [rows, config, classRows] = await Promise.all([
       fetchAllRows(req, "marks", `?${filters.join("&")}&select=*&order=updated_at.desc,id.asc`),
       readSchoolConfig(req, schoolId),
