@@ -1,4 +1,5 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
+import { schoolIsSuspended } from "../lib/suspension.js";
 import { z } from "zod";
 import {
   asRows,
@@ -103,6 +104,7 @@ router.post("/devices/heartbeat", async (req, res) => {
     const body = HeartbeatBody.parse(req.body);
     const userAgent = String(req.header("user-agent") ?? "");
     const info = describeDevice(userAgent);
+    if (body.schoolId && !/super/i.test(body.role ?? "") && await schoolIsSuspended(body.schoolId)) { res.json({ status: "suspended" }); return; }
     const result = await supabaseRequest<{ status?: string } | null>(req, "rpc/jhq_device_heartbeat", {
       method: "POST",
       body: jsonBody({

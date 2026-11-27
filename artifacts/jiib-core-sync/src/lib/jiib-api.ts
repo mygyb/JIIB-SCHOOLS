@@ -26,6 +26,7 @@ export async function jiibApi<T>(
     try {
       const body = await response.json() as { error?: string; message?: string; code?: string };
       if (body.code === "account_blocked") void forceSignOut("blocked");
+      if (body.code === "school_suspended") void forceSignOut("suspended");
       message = body.error || body.message || message;
     } catch {
       // Keep the HTTP error if the server did not return JSON.
