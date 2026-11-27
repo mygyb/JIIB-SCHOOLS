@@ -92,7 +92,9 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
       const nameClass = new Set(studentRows.map((r) => `${text(r.name).toLowerCase()}|${text(r.class).toLowerCase()}`));
       let legacyMatchesTable = 0, mapped = 0, ambiguous = 0;
       const byNameClass = new Map<string, Set<string>>();
-      for (const r of studentRows) { if (!/^[0-9a-f-]{36}$/i.test(text(r.id))) continue; const k = `${text(r.name).toLowerCase()}|${text(r.class).toLowerCase()}`; (byNameClass.get(k) ?? byNameClass.set(k, new Set()).get(k)!).add(text(r.id)); }
+      const anyTermIds = new Set(studentRows.map((r) => text(r.id)));
+      let sameIdOtherTerm = 0, tableIdShape = "";
+      for (const r of studentRows) { const k = `${text(r.name).toLowerCase()}|${text(r.class).toLowerCase()}`; (byNameClass.get(k) ?? byNameClass.set(k, new Set()).get(k)!).add(text(r.id)); }
       const tableKey = new Map(studentRows.map((r) => [`${text(r.term_key)}|${text(r.id)}`, r]));
       let inserted = 0, subjectsUpdated = 0, skipped = 0;
       const why = { badId: 0, noName: 0, noClass: 0 }; let sampleKeys: string[] = []; let sampleId = "";
@@ -104,11 +106,13 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
           const row = tableKey.get(`${termKey}|${id}`);
           if (!row) {
             let useId = id;
-            if (!/^[0-9a-f-]{36}$/i.test(id) && name && className) {
+            const shape = (v: string) => v.replace(/[0-9a-z]/gi, (c) => (/\d/.test(c) ? "9" : "x")).slice(0, 40);
+            if (anyTermIds.has(id)) { sameIdOtherTerm += 1; if (!tableIdShape) tableIdShape = shape(id); }
+            else if (name && className) {
               const ids = byNameClass.get(`${name.toLowerCase()}|${className.toLowerCase()}`);
               if (ids && ids.size === 1) { useId = [...ids][0]; mapped += 1; } else if (ids && ids.size > 1) ambiguous += 1;
             }
-            if (!/^[0-9a-f-]{36}$/i.test(useId) || !name || !className) {
+            if (!useId || !name || !className) {
               skipped += 1;
               if (!/^[0-9a-f-]{36}$/i.test(id)) why.badId += 1; if (!name) why.noName += 1; if (!className) why.noClass += 1;
               if (!/^[0-9a-f-]{36}$/i.test(id) && nameClass.has(`${name.toLowerCase()}|${className.toLowerCase()}`)) legacyMatchesTable += 1;
@@ -128,7 +132,7 @@ export function registerDataCheckRoutes(router: IRouter, deps: { authorizeSuperA
         await supabaseAdminRequest(`/rest/v1/students?on_conflict=id,school_id,term_key`, { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify(toInsert.slice(i, i + 200)) });
         inserted += Math.min(200, toInsert.length - i);
       }
-      res.json({ schoolId, inserted, subjectsUpdated, skipped, why, sampleKeys, sampleId, legacyMatchesTable, mapped, ambiguous });
+      res.json({ schoolId, inserted, subjectsUpdated, skipped, why, sampleKeys, sampleId, legacyMatchesTable, mapped, ambiguous, sameIdOtherTerm, tableIdShape });
     } catch (error) { deps.sendError(res, error); }
   });
 }
