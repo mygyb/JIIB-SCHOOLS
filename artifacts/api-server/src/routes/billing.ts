@@ -42,7 +42,8 @@ function nextTermKey(activeKey: string) {
 }
 
 async function provisionSchool(input: { name: string; adminName: string; email: string; phone: string; address: string; termKey: string }) {
-  const baseSlug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "school";
+  let baseSlug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 34).replace(/-+$/g, "");
+  if (baseSlug.length < 3) baseSlug = `${baseSlug || "school"}-school`.slice(0, 34);
   let slug = baseSlug;
   for (let n = 2; asRows(await supabaseAdminRequest(`/rest/v1/schools?slug=eq.${enc(slug)}&select=id&limit=1`)).length; n += 1) slug = `${baseSlug}-${n}`;
   const school = asRows(await supabaseAdminRequest(`/rest/v1/schools?select=*`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ name: input.name, slug, active: true }) }))[0];
